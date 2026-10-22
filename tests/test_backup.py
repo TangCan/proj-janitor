@@ -8,6 +8,7 @@ from pathlib import Path
 
 from proj_janitor.backup import run_backup, sha256_file
 from proj_janitor.scanner import scan_project
+from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
 
 def make_project(root: Path) -> Path:
@@ -104,6 +105,120 @@ class BackupTests(unittest.TestCase):
                 [Path(record.archive).name for record in records],
                 ["app.tar.gz", "app-2.tar.gz"],
             )
+
+
+@unittest.skipUnless(GIT_AVAILABLE, "git is not available")
+class GitStrategyBackupTests(unittest.TestCase):
+    def test_pushed_repo_is_recorded_without_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+
+            run_dir, records = run_backup(
+                [scan_project(project)],
+                root / "backups",
+            )
+
+            self.assertEqual(len(records), 1)
+            record = records[0]
+            self.assertEqual(record.strategy, "git")
+            self.assertIsNone(record.archive)
+            self.assertEqual(record.archive_bytes, 0)
+            self.assertIsNone(record.sha256)
+            self.assertEqual(record.remote, "origin")
+            self.assertEqual(
+                record.remote_url,
+                "https://github.com/acme/app.git",
+            )
+            self.assertEqual(record.branch, "main")
+            self.assertEqual(record.commit, head)
+            self.assertEqual(record.upstream, "origin/main")
+            self.assertEqual(record.verified, "local-ref")
+            self.assertIsNone(record.fallback_reason)
+            self.assertEqual(list(run_dir.glob("*.tar.gz")), [])
+
+            manifest = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(manifest["schema_version"], 2)
+            entry = manifest["records"][0]
+            self.assertEqual(entry["strategy"], "git")
+            self.assertIsNone(entry["archive"])
+            self.assertIsNone(entry["sha256"])
+            self.assertEqual(entry["commit"], head)
+
+    def test_dirty_repo_falls_back_to_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            (project / "main.py").write_text("print('dirty')\n", encoding="utf-8")
+
+            run_dir, records = run_backup(
+                [scan_project(project)],
+                root / "backups",
+            )
+
+            record = records[0]
+            self.assertEqual(record.strategy, "archive")
+            self.assertEqual(
+                record.fallback_reason,
+                "working tree is not clean",
+            )
+            self.assertTrue(Path(record.archive).is_file())
+            self.assertIsNotNone(record.sha256)
+
+            manifest = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8"),
+            )
+            entry = manifest["records"][0]
+            self.assertEqual(entry["strategy"], "archive")
+            self.assertEqual(
+                entry["fallback_reason"],
+                "working tree is not clean",
+            )
+
+    def test_always_archive_overrides_git_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+
+            run_dir, records = run_backup(
+                [scan_project(project)],
+                root / "backups",
+                always_archive=True,
+            )
+
+            record = records[0]
+            self.assertEqual(record.strategy, "archive")
+            self.assertEqual(record.fallback_reason, "always_archive")
+            self.assertTrue(Path(record.archive).is_file())
+
+            manifest = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8"),
+            )
+            self.assertTrue(manifest["always_archive"])
+
+    def test_include_artifacts_forces_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+
+            run_dir, records = run_backup(
+                [scan_project(project)],
+                root / "backups",
+                include_artifacts=True,
+            )
+
+            record = records[0]
+            self.assertEqual(record.strategy, "archive")
+            self.assertEqual(record.fallback_reason, "include_artifacts")
+            self.assertTrue(Path(record.archive).is_file())
+
+            manifest = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8"),
+            )
+            self.assertTrue(manifest["include_artifacts"])
 
 
 if __name__ == "__main__":

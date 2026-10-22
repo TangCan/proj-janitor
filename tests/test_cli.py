@@ -8,6 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from proj_janitor.cli import main
+from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
 
 def make_project(root: Path) -> Path:
@@ -104,6 +105,88 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("error:", err)
+
+
+@unittest.skipUnless(GIT_AVAILABLE, "git is not available")
+class GitCliTests(unittest.TestCase):
+    def test_backup_dry_run_shows_git_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, _ = run_cli(
+                "backup",
+                str(root),
+                "--dest",
+                str(dest),
+                "--dry-run",
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("Dry run", out)
+            self.assertIn("[git] app:", out)
+            self.assertIn("https://github.com/acme/app.git", out)
+            self.assertFalse(dest.exists())
+
+    def test_backup_records_git_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            dest = root / "backups"
+            head = git(project, "rev-parse", "HEAD")
+
+            code, out, _ = run_cli(
+                "backup",
+                str(root),
+                "--dest",
+                str(dest),
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("[git] app:", out)
+            self.assertNotIn("[archive]", out)
+
+            manifest = json.loads(
+                (next(dest.iterdir()) / "manifest.json").read_text(
+                    encoding="utf-8",
+                ),
+            )
+            entry = manifest["records"][0]
+            self.assertEqual(entry["strategy"], "git")
+            self.assertEqual(entry["commit"], head)
+            self.assertEqual(
+                entry["remote_url"],
+                "https://github.com/acme/app.git",
+            )
+
+    def test_always_archive_flag_forces_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, _ = run_cli(
+                "backup",
+                str(root),
+                "--dest",
+                str(dest),
+                "--always-archive",
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("[archive] app:", out)
+
+            manifest = json.loads(
+                (next(dest.iterdir()) / "manifest.json").read_text(
+                    encoding="utf-8",
+                ),
+            )
+            self.assertTrue(manifest["always_archive"])
+            self.assertEqual(
+                manifest["records"][0]["fallback_reason"],
+                "always_archive",
+            )
 
 
 if __name__ == "__main__":

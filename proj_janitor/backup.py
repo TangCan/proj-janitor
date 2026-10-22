@@ -11,7 +11,54 @@ from typing import Iterable
 
 from proj_janitor import __version__
 from proj_janitor.config import artifact_patterns
-from proj_janitor.models import BackupRecord, Project
+from proj_janitor.models import BackupPlan, BackupRecord, Project
+from proj_janitor.scanner import inspect_git_recoverability
+
+
+def prepare_backup(
+    projects: Iterable[Project],
+    dest: Path,
+    include_artifacts: bool = False,
+    always_archive: bool = False,
+) -> tuple[Path, list[BackupPlan]]:
+    dest = dest.expanduser().resolve()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = _unique_directory(dest, f"backup-{timestamp}")
+    patterns = artifact_patterns(include_artifacts)
+    plans: list[BackupPlan] = []
+    used_names: set[str] = set()
+
+    for project in projects:
+        recovery = None
+        if include_artifacts:
+            strategy = "archive"
+            reason = "include_artifacts"
+        elif always_archive:
+            strategy = "archive"
+            reason = "always_archive"
+        else:
+            recovery = inspect_git_recoverability(project, patterns)
+            if recovery.eligible:
+                strategy = "git"
+                reason = None
+            else:
+                strategy = "archive"
+                reason = recovery.reason or "not recoverable from GitHub"
+
+        archive_name = None
+        if strategy == "archive":
+            archive_name = _unique_archive_name(project.name, used_names)
+            used_names.add(archive_name)
+        plans.append(
+            BackupPlan(
+                project=project,
+                archive_name=archive_name,
+                strategy=strategy,
+                recovery=recovery,
+                reason=reason,
+            )
+        )
+    return run_dir, plans
 
 
 def run_backup(
@@ -19,34 +66,62 @@ def run_backup(
     dest: Path,
     include_artifacts: bool = False,
     dry_run: bool = False,
+    always_archive: bool = False,
 ) -> tuple[Path, list[BackupRecord]]:
-    dest = dest.expanduser().resolve()
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = _unique_directory(dest, f"backup-{timestamp}")
+    run_dir, plans = prepare_backup(
+        projects,
+        dest,
+        include_artifacts=include_artifacts,
+        always_archive=always_archive,
+    )
     if dry_run:
         return run_dir, []
 
     run_dir.mkdir(parents=True)
     patterns = artifact_patterns(include_artifacts)
     records: list[BackupRecord] = []
-    used_names: set[str] = set()
-    for project in projects:
-        archive_name = _unique_archive_name(project.name, used_names)
-        used_names.add(archive_name)
+    for plan in plans:
+        if plan.strategy == "git":
+            recovery = plan.recovery
+            if recovery is None:
+                raise RuntimeError("git backup plan is missing recovery details")
+            records.append(
+                BackupRecord(
+                    project=plan.project.name,
+                    source=str(plan.project.path),
+                    archive=None,
+                    archive_bytes=0,
+                    source_bytes=plan.project.size_bytes,
+                    sha256=None,
+                    strategy="git",
+                    remote=recovery.remote,
+                    remote_url=recovery.remote_url,
+                    branch=recovery.branch,
+                    commit=recovery.commit,
+                    upstream=recovery.upstream,
+                    verified=recovery.verified,
+                )
+            )
+            continue
+        if plan.archive_name is None:
+            raise RuntimeError("archive backup plan is missing an archive name")
         records.append(
             backup_project(
-                project,
+                plan.project,
                 run_dir,
                 patterns=patterns,
-                archive_name=archive_name,
+                archive_name=plan.archive_name,
+                fallback_reason=plan.reason,
             )
         )
 
     manifest = {
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tool": "proj-janitor",
         "version": __version__,
         "include_artifacts": include_artifacts,
+        "always_archive": always_archive,
         "records": [asdict(record) for record in records],
     }
     manifest_path = run_dir / "manifest.json"
@@ -62,6 +137,7 @@ def backup_project(
     run_dir: Path,
     patterns: Iterable[str] = (),
     archive_name: str | None = None,
+    fallback_reason: str | None = None,
 ) -> BackupRecord:
     name = archive_name or f"{project.name}.tar.gz"
     archive = run_dir / name
@@ -81,6 +157,7 @@ def backup_project(
         archive_bytes=archive.stat().st_size,
         source_bytes=project.size_bytes,
         sha256=sha256_file(archive),
+        fallback_reason=fallback_reason,
     )
 
 

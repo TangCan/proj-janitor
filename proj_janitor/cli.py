@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from proj_janitor import __version__
-from proj_janitor.backup import run_backup
+from proj_janitor.backup import prepare_backup, run_backup
 from proj_janitor.cleaner import (
     apply_cleanup,
     build_cleanup_plan,
@@ -78,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="archive build artifacts and dependency caches too",
     )
+    backup.add_argument(
+        "--always-archive",
+        action="store_true",
+        help="archive every project even when it can be recovered from GitHub",
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -137,27 +142,52 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         print(f"error: destination is not a directory: {dest}", file=sys.stderr)
         return 1
 
+    if args.dry_run:
+        run_dir, plans = prepare_backup(
+            projects,
+            dest,
+            include_artifacts=args.include_artifacts,
+            always_archive=args.always_archive,
+        )
+        print(f"Dry run. Backup directory would be: {run_dir}")
+        for plan in plans:
+            if plan.strategy == "git":
+                recovery = plan.recovery
+                url = recovery.remote_url if recovery else "-"
+                commit = recovery.commit[:12] if recovery and recovery.commit else "-"
+                print(f"  [git] {plan.project.name}: {url} @ {commit}")
+            else:
+                archive_name = plan.archive_name or f"{plan.project.name}.tar.gz"
+                print(
+                    f"  [archive] {plan.project.name}: "
+                    f"{human_size(plan.project.size_bytes)}"
+                    f" -> {run_dir / archive_name} ({plan.reason})"
+                )
+        return 1 if failures else 0
+
     run_dir, records = run_backup(
         projects,
         dest,
         include_artifacts=args.include_artifacts,
-        dry_run=args.dry_run,
+        always_archive=args.always_archive,
     )
-    if args.dry_run:
-        print(f"Dry run. Backup directory would be: {run_dir}")
-        for project in projects:
-            print(
-                f"  {project.name}: {human_size(project.size_bytes)}"
-                f" -> {run_dir / (project.name + '.tar.gz')}"
-            )
-        return 1 if failures else 0
-
     print(f"Backed up {len(records)} project(s) to {run_dir}")
     for record in records:
-        print(
-            f"  {record.project}: {human_size(record.archive_bytes)}"
-            f"  sha256:{record.sha256[:12]}  {record.archive}"
-        )
+        if record.strategy == "git":
+            commit = record.commit[:12] if record.commit else "-"
+            print(f"  [git] {record.project}: {record.remote_url} @ {commit}")
+        else:
+            digest = record.sha256[:12] if record.sha256 else "-"
+            reason = (
+                f"  ({record.fallback_reason})"
+                if record.fallback_reason
+                else ""
+            )
+            print(
+                f"  [archive] {record.project}: "
+                f"{human_size(record.archive_bytes)}"
+                f"  sha256:{digest}  {record.archive}{reason}"
+            )
     print(f"Manifest: {run_dir / 'manifest.json'}")
     return 1 if failures else 0
 

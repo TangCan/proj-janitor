@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlsplit
 
 from proj_janitor.config import PROJECT_MARKERS
-from proj_janitor.models import GitState, Project, human_size
+from proj_janitor.models import GitRecovery, GitState, Project, human_size
 
 
 def is_project(path: Path) -> bool:
@@ -92,9 +95,237 @@ def read_git_state(path: Path) -> GitState | None:
     return GitState(branch=branch, dirty=dirty)
 
 
-def _git_output(path: Path, *args: str) -> str | None:
+def is_github_remote_url(remote: str) -> bool:
+    if not remote or remote != remote.strip():
+        return False
+    if any(character.isspace() for character in remote):
+        return False
+    if remote.startswith("git@github.com:"):
+        return _valid_github_path(remote[len("git@github.com:") :])
+    if remote.startswith("ssh://"):
+        try:
+            parsed = urlsplit(remote)
+        except ValueError:
+            return False
+        if parsed.scheme != "ssh" or parsed.hostname != "github.com":
+            return False
+        if parsed.username != "git" or parsed.password is not None:
+            return False
+        if parsed.port not in (None, 22):
+            return False
+        if parsed.query or parsed.fragment:
+            return False
+        return _valid_github_path(parsed.path.lstrip("/"))
+    if remote.startswith("https://"):
+        try:
+            parsed = urlsplit(remote)
+        except ValueError:
+            return False
+        if parsed.scheme != "https" or parsed.hostname != "github.com":
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.port not in (None, 443):
+            return False
+        if parsed.query or parsed.fragment:
+            return False
+        return _valid_github_path(parsed.path.lstrip("/"))
+    return False
+
+
+def _valid_github_path(path: str) -> bool:
+    if not path or path.endswith("/"):
+        return False
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) != 2:
+        return False
+    owner, repository = parts
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", owner):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", repository):
+        return False
+    return owner not in (".", "..") and repository not in (".", "..")
+
+
+def inspect_git_recoverability(
+    project: Project,
+    patterns: Iterable[str] = (),
+) -> GitRecovery:
+    path = project.path
+    if not (path / ".git").exists():
+        return GitRecovery(False, "not a git repository")
+
+    branch = _git_output(path, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if not branch:
+        return GitRecovery(False, "detached HEAD")
+
+    status = _git_output(
+        path,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+    )
+    if status is None:
+        return GitRecovery(False, "git status failed")
+    if status:
+        return GitRecovery(False, "working tree is not clean")
+
+    stashes = _git_output(path, "stash", "list")
+    if stashes is None:
+        return GitRecovery(False, "cannot inspect stashes")
+    if stashes:
+        return GitRecovery(False, "stash entries are not included")
+
+    remote = _git_output(path, "config", "--get", f"branch.{branch}.remote")
+    if not remote or remote == ".":
+        return GitRecovery(False, "branch has no upstream remote")
+
+    upstream = _git_output(
+        path,
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{upstream}",
+    )
+    if not upstream:
+        return GitRecovery(False, "branch has no upstream")
+
+    remote_url = _git_output(path, "remote", "get-url", remote)
+    if not remote_url:
+        return GitRecovery(False, "remote URL is unavailable")
+    if not is_github_remote_url(remote_url):
+        return GitRecovery(False, "remote is not a credential-free GitHub URL")
+
+    head = _git_output(path, "rev-parse", "HEAD")
+    if not head:
+        return GitRecovery(False, "HEAD is unavailable")
+    if not _git_ok(path, "merge-base", "--is-ancestor", "HEAD", "@{upstream}"):
+        return GitRecovery(False, "HEAD is not contained in upstream")
+
+    ahead = _git_count(path, "rev-list", "--count", "@{upstream}..HEAD")
+    if ahead is None:
+        return GitRecovery(False, "cannot compare HEAD with upstream")
+    if ahead != 0:
+        return GitRecovery(False, "HEAD is ahead of upstream")
+
+    tags = _git_output(path, "tag", "--list")
+    if tags is None:
+        return GitRecovery(False, "cannot list tags")
+    if tags:
+        return GitRecovery(False, "local tags are not included")
+
+    if (path / ".gitmodules").exists():
+        return GitRecovery(False, "submodules are not supported")
+    submodules = _git_output(path, "submodule", "status")
+    if submodules is None:
+        return GitRecovery(False, "cannot inspect submodules")
+    if submodules:
+        return GitRecovery(False, "submodules are not supported")
+
+    if (path / ".lfsconfig").exists():
+        return GitRecovery(False, "Git LFS is not supported")
+    lfs = _git_run(
+        path,
+        "grep",
+        "-l",
+        "filter=lfs",
+        "--",
+        "*.gitattributes",
+    )
+    if lfs is None or lfs.returncode not in (0, 1):
+        return GitRecovery(False, "cannot inspect Git LFS attributes")
+    if lfs.stdout.strip():
+        return GitRecovery(False, "Git LFS is not supported")
+
+    ignored = _git_run(
+        path,
+        "-c",
+        "core.quotePath=false",
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--directory",
+        "-z",
+    )
+    if ignored is None or ignored.returncode != 0:
+        return GitRecovery(False, "cannot inspect ignored files")
+    allowed_patterns = tuple(patterns)
+    for entry in ignored.stdout.split("\0"):
+        ignored_path = entry.rstrip("/")
+        if not ignored_path:
+            continue
+        parts = Path(ignored_path).parts
+        if not any(
+            fnmatch(part, pattern)
+            for part in parts
+            for pattern in allowed_patterns
+        ):
+            return GitRecovery(
+                False,
+                f"ignored path is not an artifact: {ignored_path}",
+            )
+
+    branches = _git_output(
+        path,
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/heads",
+    )
+    if branches is None:
+        return GitRecovery(False, "cannot list local branches")
+    remote_refs = _git_output(
+        path,
+        "for-each-ref",
+        "--format=%(refname)",
+        f"refs/remotes/{remote}/",
+    )
+    if remote_refs is None:
+        return GitRecovery(False, "cannot list remote-tracking refs")
+    remote_ref_names = [
+        reference for reference in remote_refs.splitlines() if reference
+    ]
+    if not remote_ref_names:
+        return GitRecovery(False, "no remote-tracking refs")
+    for local_branch in branches.splitlines():
+        if not local_branch:
+            continue
+        count = _git_count(
+            path,
+            "rev-list",
+            "--count",
+            local_branch,
+            "--not",
+            *remote_ref_names,
+        )
+        if count is None:
+            return GitRecovery(
+                False,
+                f"cannot inspect local branch: {local_branch}",
+            )
+        if count != 0:
+            return GitRecovery(
+                False,
+                f"local branch is not fully pushed: {local_branch}",
+            )
+
+    return GitRecovery(
+        True,
+        None,
+        remote=remote,
+        remote_url=remote_url,
+        branch=branch,
+        commit=head,
+        upstream=upstream,
+        verified="local-ref",
+    )
+
+
+def _git_run(path: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        result = subprocess.run(
+        return subprocess.run(
             ["git", "-C", str(path), *args],
             capture_output=True,
             text=True,
@@ -103,9 +334,28 @@ def _git_output(path: Path, *args: str) -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if result.returncode != 0:
+
+
+def _git_output(path: Path, *args: str) -> str | None:
+    result = _git_run(path, *args)
+    if result is None or result.returncode != 0:
         return None
     return result.stdout.strip()
+
+
+def _git_ok(path: Path, *args: str) -> bool:
+    result = _git_run(path, *args)
+    return result is not None and result.returncode == 0
+
+
+def _git_count(path: Path, *args: str) -> int | None:
+    output = _git_output(path, *args)
+    if output is None:
+        return None
+    try:
+        return int(output)
+    except ValueError:
+        return None
 
 
 def format_projects(projects: Iterable[Project]) -> str:

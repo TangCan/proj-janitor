@@ -45,13 +45,42 @@ class CleanupAction:
 
 
 @dataclass(frozen=True)
+class GitRecovery:
+    eligible: bool
+    reason: str | None = None
+    remote: str | None = None
+    remote_url: str | None = None
+    branch: str | None = None
+    commit: str | None = None
+    upstream: str | None = None
+    verified: str | None = None
+
+
+@dataclass(frozen=True)
 class BackupRecord:
     project: str
     source: str
-    archive: str
+    archive: str | None
     archive_bytes: int
     source_bytes: int
-    sha256: str
+    sha256: str | None
+    strategy: str = "archive"
+    remote: str | None = None
+    remote_url: str | None = None
+    branch: str | None = None
+    commit: str | None = None
+    upstream: str | None = None
+    verified: str | None = None
+    fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class BackupPlan:
+    project: Project
+    archive_name: str | None
+    strategy: str
+    recovery: GitRecovery | None = None
+    reason: str | None = None
 
 
 def human_size(size_bytes: int) -> str:
