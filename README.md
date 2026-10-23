@@ -1,11 +1,12 @@
 # proj-janitor
 
-扫描、备份并安全清理旧项目的轻量命令行工具。适合在多年积累的项目目录（如 `~/projects`）中先盘点、再归档、最后删除构建产物或整个已备份项目。
+扫描、备份、恢复并安全清理旧项目的轻量命令行工具。适合在多年积累的项目目录（如 `~/projects`）中先盘点、再归档、需要时恢复，最后删除构建产物或整个已备份项目。
 
 ## 安全原则
 
 - `scan` 只读：报告项目大小、Git 分支和工作区状态。
 - `backup` 优先记录可恢复信息：已推送到 GitHub 的干净项目只写入远程 URL 和提交 SHA；其余项目回退为 `tar.gz` 并记录 SHA-256。
+- `restore` 默认不覆盖已有目录：先校验 manifest 和归档 SHA-256，再恢复到 `--dest` 下的新目录。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
 - 真正删除需要同时提供 `--apply` 和交互确认（或 `--yes`）。
@@ -117,16 +118,37 @@ projjan clean ~/richard_plus --apply
 
 ### 4. 恢复
 
-当前版本不提供 `restore` 子命令。按 `manifest-YYYYmmdd-HHMMSS.json` 中的记录手动恢复：
+`restore` 根据 manifest 自动恢复项目，默认恢复到 `--dest` 下的 `<项目名>/`：
 
 ```bash
-# git 策略：重新克隆并检出备份时的提交
-git clone <remote_url> <project>
-git checkout <commit>
+projjan restore ~/backups/projects/xtask_todo/manifest-20261023-122828.json \
+  --dest ~/restored
 
-# archive 策略：解压归档
-tar -xzf <archive>
+# 只预览计划
+projjan restore <manifest> --dest ~/restored --dry-run
+
+# 多记录 manifest 只恢复指定项目
+projjan restore <manifest> --dest ~/restored --project xtask_todo
+
+# 输出纯 JSON
+projjan restore <manifest> --dest ~/restored --dry-run --json
 ```
+
+恢复规则：
+
+- `git` 策略：先 `git clone --no-checkout`，再 `git checkout --detach <commit>`。恢复后是 detached HEAD，不会自动创建或切换原分支；远程必须仍包含该提交。
+- `archive` 策略：默认校验 manifest 中的 SHA-256，校验通过后才解压；`--no-verify` 可显式跳过校验。
+- 归档会先解压到临时目录，确认顶层目录为项目名后再移动到目标位置；拒绝绝对路径、`..` 路径和越界链接。
+- 目标目录已存在时拒绝覆盖；需要恢复副本时请换一个 `--dest` 或先自行移走旧目录。
+- 多项目恢复按顺序执行；中途失败时，已恢复的项目不会自动回滚。
+- manifest 中的归档绝对路径失效时，会尝试 manifest 同目录及 `<项目名>/` 下的同名归档，便于整体移动备份目录。
+- 恢复后如需继续开发 Git 项目，可自行创建分支：
+
+  ```bash
+  git -C ~/restored/xtask_todo switch -c main
+  ```
+
+`git` 恢复依赖远程仓库和本机凭据配置；私有仓库可使用 `gh auth setup-git`、SSH 或 credential helper。工具只验证 manifest 中的 URL 形式和提交格式，不会预检远程是否仍存在该提交。
 
 ## 项目结构
 
@@ -136,6 +158,7 @@ proj_janitor/
 ├── models.py    # 数据模型与大小格式化
 ├── scanner.py   # 项目发现、大小与 Git 状态
 ├── backup.py    # URL-only 记录、tar.gz 归档与清单
+├── restore.py   # 清单校验、Git/归档恢复与安全解压
 ├── cleaner.py   # 清理计划与执行
 └── cli.py       # argparse 命令行入口
 tests/           # unittest 测试
@@ -147,12 +170,12 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 49 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
+当前 61 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
 
 ## 后续计划
 
 - 支持 `git bundle`，保留完整提交历史并减小归档体积。
 - 增量备份与保留策略（例如只保留最近 N 份）。
-- 增加 `restore` 子命令（当前按 `manifest-*.json` 手动恢复）。
+- 独立的 `verify` 命令（当前归档校验内置于 `restore`）。
 - 配置文件（排除规则、备份目标、保留策略）。
-- 归档校验命令（按 `manifest-*.json` 验证 SHA-256）。
+- 恢复时对 Git 远程提交做联网预检。

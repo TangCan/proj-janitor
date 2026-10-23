@@ -83,6 +83,25 @@ class BackupPlan:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class RestorePlan:
+    project: str
+    strategy: str
+    target: Path
+    archive: Path | None = None
+    remote_url: str | None = None
+    commit: str | None = None
+    sha256: str | None = None
+    hash_verified: bool = False
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    project: str
+    strategy: str
+    target: Path
+
+
 def human_size(size_bytes: int) -> str:
     value = float(size_bytes)
     for unit in ("B", "KiB", "MiB", "GiB", "TiB"):

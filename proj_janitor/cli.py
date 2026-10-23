@@ -14,7 +14,18 @@ from proj_janitor.cleaner import (
     format_cleanup_plan,
     format_rules,
 )
-from proj_janitor.models import CleanupAction, Project, human_size
+from proj_janitor.models import (
+    CleanupAction,
+    Project,
+    RestorePlan,
+    RestoreResult,
+    human_size,
+)
+from proj_janitor.restore import (
+    RestoreError,
+    redact_remote_url,
+    restore_from_manifest,
+)
 from proj_janitor.scanner import discover_projects, format_projects
 
 
@@ -28,6 +39,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_backup(args)
     if args.command == "clean":
         return _cmd_clean(args)
+    if args.command == "restore":
+        return _cmd_restore(args)
 
     parser.print_help()
     return 2
@@ -36,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="projjan",
-        description="Scan, back up, and clean old projects safely.",
+        description="Scan, back up, restore, and clean old projects safely.",
     )
     parser.add_argument(
         "--version",
@@ -111,6 +124,36 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print available cleanup rules and exit",
     )
+
+    restore = subparsers.add_parser(
+        "restore",
+        help="restore projects from a backup manifest",
+    )
+    restore.add_argument("manifest", type=Path)
+    restore.add_argument(
+        "--dest",
+        required=True,
+        type=Path,
+        help="restore parent directory",
+    )
+    restore.add_argument(
+        "--project",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="restore only this project (repeatable)",
+    )
+    restore.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the restore plan without writing files",
+    )
+    restore.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="skip archive SHA-256 verification",
+    )
+    restore.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -209,6 +252,80 @@ def _print_manifests(manifest_paths: Sequence[Path]) -> None:
     print("Manifests:")
     for manifest_path in manifest_paths:
         print(f"  {manifest_path}")
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    try:
+        plans, results = restore_from_manifest(
+            args.manifest,
+            args.dest,
+            projects=args.project,
+            dry_run=args.dry_run,
+            verify=not args.no_verify,
+        )
+    except RestoreError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        if args.dry_run:
+            projects = [_restore_plan_json(plan) for plan in plans]
+        else:
+            projects = [_restore_result_json(result) for result in results]
+        payload = {"dry_run": args.dry_run, "projects": projects}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.dry_run:
+        print(f"Restore plan: {len(plans)} project(s)")
+        for plan in plans:
+            _print_restore_plan(plan)
+        print("Dry run. Re-run without --dry-run to restore.")
+        return 0
+
+    print(f"Restored {len(results)} project(s).")
+    for result in results:
+        print(f"  [{result.strategy}] {result.project} -> {result.target}")
+    return 0
+
+
+def _print_restore_plan(plan: RestorePlan) -> None:
+    if plan.strategy == "git":
+        remote = redact_remote_url(plan.remote_url or "")
+        commit = plan.commit[:12] if plan.commit else "-"
+        print(
+            f"  [git] {plan.project}: {remote} @ {commit} "
+            f"-> {plan.target}"
+        )
+        return
+    verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
+    print(
+        f"  [archive] {plan.project}: {plan.archive} "
+        f"({verified}) -> {plan.target}"
+    )
+
+
+def _restore_plan_json(plan: RestorePlan) -> dict:
+    return {
+        "project": plan.project,
+        "strategy": plan.strategy,
+        "target": str(plan.target),
+        "archive": str(plan.archive) if plan.archive else None,
+        "remote_url": redact_remote_url(plan.remote_url or "")
+        if plan.remote_url
+        else None,
+        "commit": plan.commit,
+        "sha256": plan.sha256,
+        "sha256_verified": plan.hash_verified,
+    }
+
+
+def _restore_result_json(result: RestoreResult) -> dict:
+    return {
+        "project": result.project,
+        "strategy": result.strategy,
+        "target": str(result.target),
+    }
 
 
 def _cmd_clean(args: argparse.Namespace) -> int:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -61,6 +62,76 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Dry run", out)
             self.assertFalse(dest.exists())
+
+    def test_restore_archive_from_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+
+            code, _, _ = run_cli(
+                "backup",
+                tmp,
+                "--dest",
+                str(backups),
+            )
+            self.assertEqual(code, 0)
+            manifest = next(backups.glob("*/manifest-*.json"))
+            shutil.rmtree(project)
+
+            restored = root / "restored"
+            code, out, _ = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("Restored 1 project(s)", out)
+            self.assertEqual(
+                (restored / "app" / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertFalse((restored / "app" / "node_modules").exists())
+
+    def test_restore_dry_run_json_is_pure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            restored = root / "restored"
+
+            code, out, _ = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+                "--json",
+            )
+
+            self.assertEqual(code, 0)
+            payload = json.loads(out)
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(payload["projects"][0]["strategy"], "archive")
+            self.assertFalse(restored.exists())
+
+    def test_restore_missing_manifest_reports_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            code, _, err = run_cli(
+                "restore",
+                str(root / "missing.json"),
+                "--dest",
+                str(root / "restored"),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("manifest does not exist", err)
 
     def test_clean_requires_confirmation_when_not_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

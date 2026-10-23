@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+import io
+import json
+import shutil
+import tarfile
+import tempfile
+import unittest
+from pathlib import Path
+
+from proj_janitor.backup import run_backup, sha256_file
+from proj_janitor.restore import RestoreError, restore_from_manifest
+from proj_janitor.scanner import scan_project
+from tests.support import GIT_AVAILABLE, git, make_pushed_repo
+
+
+def make_project(root: Path, name: str = "app") -> Path:
+    project = root / name
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    (project / "node_modules" / "pkg").mkdir(parents=True)
+    (project / "node_modules" / "pkg" / "index.js").write_text(
+        "x" * 32,
+        encoding="utf-8",
+    )
+    (project / "pyproject.toml").write_text("", encoding="utf-8")
+    return project
+
+
+def write_manifest(path: Path, records: list[dict]) -> Path:
+    manifest = {
+        "schema_version": 2,
+        "created_at": "2026-10-23T00:00:00+00:00",
+        "tool": "proj-janitor",
+        "version": "0.1.0",
+        "include_artifacts": False,
+        "always_archive": False,
+        "records": records,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
+    project = make_project(root, name)
+    backups = root / "backups"
+    manifest_paths, _ = run_backup([scan_project(project)], backups)
+    manifest_path = manifest_paths[0]
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))["records"][0]
+    return project, manifest_path, record
+
+
+class RestoreTests(unittest.TestCase):
+    def test_restore_archive_into_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, record = archive_backup(root)
+            restored = root / "restored"
+
+            plans, results = restore_from_manifest(manifest, restored)
+
+            target = restored / "app"
+            self.assertEqual(len(plans), 1)
+            self.assertEqual(len(results), 1)
+            self.assertEqual(plans[0].strategy, "archive")
+            self.assertTrue(plans[0].hash_verified)
+            self.assertEqual(results[0].target, target)
+            self.assertEqual(
+                (target / "src" / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertFalse((target / "node_modules").exists())
+            self.assertEqual(Path(record["archive"]).parent, manifest.parent)
+            self.assertTrue((project / "src" / "main.py").is_file())
+
+    def test_restore_archive_rejects_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, record = archive_backup(root)
+            archive = Path(record["archive"])
+            with archive.open("ab") as handle:
+                handle.write(b"corruption")
+            restored = root / "restored"
+
+            with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertFalse((restored / "app").exists())
+
+    def test_restore_archive_refuses_existing_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, _ = archive_backup(root)
+            restored = root / "restored"
+            target = restored / "app"
+            target.mkdir(parents=True)
+            (target / "keep.txt").write_text("keep", encoding="utf-8")
+
+            with self.assertRaisesRegex(RestoreError, "already exists"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertEqual(
+                (target / "keep.txt").read_text(encoding="utf-8"),
+                "keep",
+            )
+
+    def test_restore_archive_rejects_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "evil.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                payload = b"bad"
+                info = tarfile.TarInfo("app/../../escape.txt")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                        "sha256": sha256_file(archive),
+                    }
+                ],
+            )
+            restored = root / "restored"
+
+            with self.assertRaisesRegex(RestoreError, "unsafe path"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertFalse((root / "escape.txt").exists())
+            self.assertFalse((restored / "app").exists())
+
+    def test_restore_archive_from_moved_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, _ = archive_backup(root)
+            moved = root / "moved" / "app"
+            shutil.move(str(manifest.parent), str(moved))
+            moved_manifest = moved / manifest.name
+            restored = root / "restored"
+
+            _, results = restore_from_manifest(moved_manifest, restored)
+
+            self.assertEqual(len(results), 1)
+            self.assertTrue((restored / "app" / "pyproject.toml").is_file())
+
+    def test_restore_can_select_one_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, first_manifest, first = archive_backup(root / "first", "one")
+            _, second_manifest, second = archive_backup(root / "second", "two")
+            del first_manifest, second_manifest
+            manifest = write_manifest(
+                root / "combined.json",
+                [first, second],
+            )
+            restored = root / "restored"
+
+            plans, _ = restore_from_manifest(
+                manifest,
+                restored,
+                projects=["one"],
+            )
+
+            self.assertEqual([plan.project for plan in plans], ["one"])
+            self.assertTrue((restored / "one").is_dir())
+            self.assertFalse((restored / "two").exists())
+
+    def test_restore_rejects_unsafe_project_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "empty.tar.gz"
+            with tarfile.open(archive, "w:gz"):
+                pass
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "../escape",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                        "sha256": sha256_file(archive),
+                    }
+                ],
+            )
+
+            with self.assertRaisesRegex(RestoreError, "unsafe project name"):
+                restore_from_manifest(manifest, root / "restored")
+
+            self.assertFalse((root / "escape").exists())
+
+
+@unittest.skipUnless(GIT_AVAILABLE, "git is not available")
+class GitRestoreTests(unittest.TestCase):
+    def test_restore_git_clones_and_checks_out_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(remote),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                        "fallback_reason": None,
+                    }
+                ],
+            )
+            restored = root / "restored"
+
+            _, results = restore_from_manifest(manifest, restored)
+
+            target = restored / "app"
+            self.assertEqual(results[0].strategy, "git")
+            self.assertEqual(
+                (target / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertEqual(git(target, "rev-parse", "HEAD"), head)
+            self.assertEqual(
+                git(target, "rev-parse", "--abbrev-ref", "HEAD"),
+                "HEAD",
+            )
+
+    def test_restore_git_cleans_up_failed_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git",
+                        "remote_url": str(remote),
+                        "commit": "0" * 40,
+                    }
+                ],
+            )
+            restored = root / "restored"
+
+            with self.assertRaisesRegex(RestoreError, "git -C"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertTrue(restored.is_dir())
+            self.assertEqual(list(restored.iterdir()), [])
+            self.assertFalse((restored / "app").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
