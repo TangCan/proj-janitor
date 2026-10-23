@@ -1,0 +1,1039 @@
+# proj_janitor 接口与 CLI 文档
+
+## 1. 文档信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 项目名称 | proj-janitor（proj_janitor） |
+| 项目描述 | 本地项目盘点、备份与安全清理命令行工具 |
+| 文档名称 | 接口与 CLI 文档 |
+| 文档版本 | v0.1.0 |
+| 源码提交 | `012d539e58035346fc01fda81b8bc06c1440d4f3` |
+| 源码标签 | `v0.1.0` |
+| 文档日期 | 2026-10-22 |
+| 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
+| 结项状态 | 功能开发与自测完成，待内部验收 |
+| 文档状态 | 已编制，接口评审与签字信息待补充 |
+| 编制依据 | v0.1.0 源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
+
+> 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 v0.1.0 已实现代码和测试整理，不代表存在经批准的外部接口契约。命令行为以源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
+
+## 2. 概述
+
+### 2.1 目的与范围
+
+本文说明 `proj_janitor` v0.1.0 对用户和自动化脚本暴露的接口，包括：
+
+- 命令行入口、子命令、参数、输出和退出码；
+- `scan` 和 `clean` 的 JSON 输出；
+- `backup` 生成的备份清单 `manifest.json`（schema v2）；
+- 可供 Python 调用的模块级函数及其输入、输出、异常和副作用；
+- 错误分类、Git 可恢复性失败原因、兼容性和明确不支持的外部接口。
+
+本文覆盖的接口是 v0.1.0 已实现行为，不构成对未来版本的兼容性承诺。Python 模块整体属于内部实现，除本文列出的函数外，不保证稳定的导入路径、函数签名或行为。
+
+### 2.2 接口分类
+
+| 接口类型 | 提供方式 | 主要消费者 | 稳定性 |
+| --- | --- | --- | --- |
+| CLI | `projjan` 控制台脚本、`python3 -m proj_janitor` | 用户、Shell 脚本 | v0.1.0 行为；后续可能调整 |
+| 文本输出 | 标准输出/标准错误 | 用户、终端日志 | 面向人阅读，不建议作为机器协议 |
+| JSON 输出 | `scan --json`、`clean --json` | 自动化脚本 | 无独立 schema 版本号，字段可能变化 |
+| 备份清单 | `<run_dir>/manifest.json` | 恢复、审计、外部工具 | `schema_version: 2` |
+| Python API | `proj_janitor` 包内函数 | 本仓库测试、内部扩展 | 内部接口，非稳定公共 API |
+| 文件系统接口 | 读取项目、写入归档、删除目标 | 操作系统 | 受本地权限和文件系统语义约束 |
+| Git 接口 | 本机 `git` 子进程 | 扫描和备份决策 | 依赖外部 Git 可执行文件 |
+| HTTP API | 无 | 无 | v0.1.0 不提供 |
+
+### 2.3 通用约定
+
+| 约定 | 说明 |
+| --- | --- |
+| 标准输出 | 正常结果、表格、JSON、dry-run 提示和成功摘要写入标准输出。 |
+| 标准错误 | 参数错误、根路径错误、无项目提示、拒绝删除和逐项删除错误写入标准错误。 |
+| 退出码 | `0` 表示成功；`1` 表示根路径/项目处理/删除失败或无项目可备份；`2` 表示用法错误、拒绝删除或用户取消。详见第 8 节。 |
+| 路径 | 项目路径在扫描后解析为绝对路径；`~` 在根路径和备份目标上展开；输出中的路径按当前平台字符串表示。 |
+| 体积 | 统一以字节整数传递；文本输出使用 `B`、`KiB`、`MiB`、`GiB`、`TiB`，非字节单位保留一位小数。 |
+| 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
+| 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
+| 网络 | v0.1.0 不发起网络请求，不调用 GitHub API，不监听端口；仅调用本机 `git` 读取本地仓库状态。 |
+| 配置 | 无配置文件、无环境变量配置；项目标记和清理规则由 `config.py` 静态定义。 |
+| 并发 | 无线程、异步任务、文件锁或事务；不承诺多个实例并发操作同一目录时的行为。 |
+
+### 2.4 明确不在范围内
+
+v0.1.0 不提供以下接口：
+
+- `restore` 子命令或自动恢复流程；
+- HTTP、RPC、WebSocket、GUI 或数据库接口；
+- 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
+- 自定义清理规则文件、配置文件或每项目排除文件；
+- Git LFS、submodule、tag、detached HEAD 的完整备份；
+- 远端仓库实际抓取、提交存在性联网验证或 GitHub 认证；
+- 归档解压校验、恢复演练、归档内容秘密扫描；
+- Windows/macOS 的正式兼容性承诺。
+
+## 3. 程序入口
+
+### 3.1 控制台脚本
+
+安装后使用 `projjan`：
+
+```bash
+projjan --help
+projjan scan ~/projects
+```
+
+`pyproject.toml` 声明的入口点为：
+
+```toml
+[project.scripts]
+projjan = "proj_janitor.cli:main"
+```
+
+### 3.2 模块入口
+
+未安装或需要固定解释器时，可使用模块方式：
+
+```bash
+python3 -m proj_janitor --help
+python3 -m proj_janitor scan ~/projects
+```
+
+`proj_janitor/__main__.py` 调用 `main()` 并将返回值交给 `SystemExit`，因此退出码与 `projjan` 控制台脚本一致。
+
+### 3.3 Python 入口
+
+```python
+from proj_janitor.cli import main
+
+exit_code = main(["scan", "/path/to/projects"])
+```
+
+`main(argv: Sequence[str] | None = None) -> int`：
+
+- `argv` 为 `None` 时使用 `sys.argv[1:]`；
+- 解析参数并分派到 `scan`、`backup` 或 `clean`；
+- 返回整数退出码；
+- 参数错误由 `argparse` 直接抛出 `SystemExit`，不会以普通返回值返回。
+
+`build_parser() -> argparse.ArgumentParser` 返回配置好的解析器。除测试或嵌入场景外，不建议依赖其中的子解析器结构。
+
+### 3.4 全局选项与帮助
+
+| 形式 | 行为 |
+| --- | --- |
+| `projjan --help` | 打印全局帮助并退出 `0`。 |
+| `projjan <command> --help` | 打印子命令帮助并退出 `0`。 |
+| `projjan --version` | 打印 `projjan 0.1.0` 并退出 `0`。 |
+| `projjan` | 缺少必需子命令，`argparse` 输出用法错误并退出 `2`。 |
+
+`--version` 是全局选项，按 `argparse` 语义应放在子命令之前；例如使用 `projjan --version`，不要在 `scan` 等子命令后依赖同名的全局选项。
+
+### 3.5 命令总览
+
+| 命令 | 用途 | 默认是否写入 |
+| --- | --- | --- |
+| `scan` | 发现项目，输出体积、修改时间、项目标记和 Git 状态 | 只读 |
+| `backup` | 按 Git 可恢复性记录位置或创建 `tar.gz`，并生成 manifest | 写入备份目录 |
+| `clean` | 按白名单生成清理计划；确认后删除构建产物 | 默认 dry-run |
+
+## 4. `--version`
+
+### 4.1 语法
+
+```bash
+projjan --version
+```
+
+### 4.2 输出
+
+```text
+projjan 0.1.0
+```
+
+### 4.3 说明
+
+- 版本字符串由 `%(prog)s` 和 `proj_janitor.__version__` 组成，当前为 `0.1.0`。
+- `--version` 由 `argparse` 的 `version` action 处理，打印后退出 `0`，不会执行任何子命令。
+- 无 JSON 版本输出；自动化脚本应解析纯文本或从 Python 包读取 `__version__`。
+
+## 5. `scan`
+
+### 5.1 语法
+
+```text
+projjan scan ROOT [ROOT ...] [--all] [--json]
+```
+
+`ROOT` 可以是一个或多个目录。命令只读，不创建、修改或删除文件。
+
+### 5.2 参数
+
+| 参数 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `ROOT...` | 是 | 无 | 一个或多个扫描根路径；支持 `~` 展开。 |
+| `--all` | 否 | 关闭 | 当根目录本身不是项目时，把没有已知项目标记的直接子目录也纳入扫描。 |
+| `--json` | 否 | 关闭 | 以 JSON 数组输出；错误仍写入标准错误。 |
+
+### 5.3 项目发现语义
+
+发现逻辑由 `scanner.discover_projects()` 实现，规则如下：
+
+1. 根路径展开 `~` 后必须存在且为目录，否则抛出根路径错误。
+2. 如果根目录自身包含任一项目标记，则只扫描根目录自身，不再扫描其子目录。
+3. 否则只检查根目录的直接子目录，不递归发现嵌套项目。
+4. 直接子目录必须同时满足：是目录、不是符号链接、名称不以 `.` 开头、非空。
+5. 默认只保留包含至少一个项目标记的子目录；`--all` 放宽“包含项目标记”这一条，但仍跳过隐藏目录、符号链接和空目录。
+6. 多个根路径按命令行顺序处理；每个根内部按名称排序；CLI 按解析后的项目路径去重，保留首次出现的项目。
+7. 项目路径在 `scan_project()` 中解析为绝对路径，项目名为路径最后一段。
+
+项目标记共 16 个，定义于 `config.PROJECT_MARKERS`：
+
+```text
+.git
+.hg
+.svn
+pyproject.toml
+setup.py
+setup.cfg
+requirements.txt
+package.json
+Cargo.toml
+go.mod
+CMakeLists.txt
+Makefile
+meson.build
+build.gradle
+build.gradle.kts
+pom.xml
+```
+
+### 5.4 体积、修改时间与 Git 状态
+
+**体积与修改时间**（`measure_tree()`）：
+
+- 使用 `os.walk(..., followlinks=False)`；
+- 从遍历中剔除符号链接目录；
+- 只把普通文件计入 `size_bytes`，不跟随符号链接；
+- 取遍历到的最新 `st_mtime`，转换为带时区信息的本地 `datetime`；
+- 没有任何可遍历文件时，`last_modified` 为 `null`；
+- `size_bytes` 是文件字节数之和，不是磁盘占用，也不包含目录元数据。
+
+**Git 状态**（`read_git_state()`）：
+
+- 不存在 `.git` 时返回 `null`；
+- 存在 `.git` 时执行 `git rev-parse --abbrev-ref HEAD` 和 `git status --porcelain`；
+- `branch` 可能为 `null`（命令失败或无分支名）；
+- `dirty` 为 `true`（有输出）、`false`（无输出）或 `null`（状态命令失败）。
+
+文本中的状态标签：
+
+| 情况 | BRANCH | STATE |
+| --- | --- | --- |
+| 无 Git 信息 | `-` | `-` |
+| 有 Git 但分支读取失败 | `-` | `clean` / `dirty` / `unknown` |
+| 工作区状态读取失败 | 分支名或 `-` | `unknown` |
+| 工作区干净 | 分支名 | `clean` |
+| 工作区有改动 | 分支名 | `dirty` |
+
+### 5.5 文本输出
+
+有项目时输出固定表头：
+
+```text
+PROJECT  SIZE  BRANCH  STATE  MARKERS  MODIFIED
+-------  ----  ------  -----  -------  --------
+```
+
+列含义：
+
+| 列 | 内容 |
+| --- | --- |
+| `PROJECT` | 项目目录名 |
+| `SIZE` | `human_size()` 格式化后的体积 |
+| `BRANCH` | Git 分支名；无 Git 或读取失败为 `-` |
+| `STATE` | `clean`、`dirty`、`unknown` 或 `-` |
+| `MARKERS` | 识别到的项目标记，逗号加空格连接；没有则为 `-` |
+| `MODIFIED` | 本地时间 `YYYY-MM-DD HH:MM`；无文件时间为 `-` |
+
+无项目且未使用 `--json` 时，向标准错误输出：
+
+```text
+No projects found.
+```
+
+### 5.6 JSON 输出
+
+`--json` 时输出 JSON 数组，不输出表头。字段见第 9.1 节。
+
+示例（示意）：
+
+```json
+[
+  {
+    "name": "demo",
+    "path": "/home/user/projects/demo",
+    "size_bytes": 18432,
+    "last_modified": "2026-10-20T18:42:11.123456+08:00",
+    "markers": [
+      ".git",
+      "pyproject.toml"
+    ],
+    "git": {
+      "branch": "main",
+      "dirty": false
+    }
+  }
+]
+```
+
+### 5.7 退出码与错误
+
+| 情况 | 退出码 | 输出 |
+| --- | --- | --- |
+| 所有根路径处理成功 | `0` | 文本表格或 JSON。 |
+| 没有发现项目，但根路径均有效 | `0` | 文本模式输出 `No projects found.` 到标准错误；JSON 模式输出 `[]`。 |
+| 任一根本身无法读取/不存在/不是目录 | `1` | 该项错误到标准错误；其他根继续处理，已有结果仍输出。 |
+| 参数缺失或非法 | `2` | `argparse` 用法错误。 |
+
+`--json` 模式下，根路径错误不会写入 JSON 数组，而是继续写入标准错误；因此调用方应同时检查退出码和标准错误。
+
+### 5.8 示例
+
+```bash
+projjan scan ~/projects
+projjan scan ~/projects --all
+projjan scan ~/projects ~/archive --json
+```
+
+## 6. `backup`
+
+### 6.1 语法与参数
+
+```text
+projjan backup ROOT [ROOT ...] --dest DEST [--dry-run]
+                 [--include-artifacts] [--always-archive]
+```
+
+| 参数 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同，但不启用“未标记目录”。 |
+| `--dest DEST` | 是 | 无 | 备份根目录；不存在时在实际运行中创建。支持 `~` 展开。 |
+| `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
+| `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
+| `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
+
+### 6.2 策略选择
+
+`prepare_backup()` 对每个项目按以下顺序决定策略：
+
+| 顺序 | 条件 | 策略 | 原因字段 |
+| --- | --- | --- | --- |
+| 1 | `--include-artifacts` | `archive` | `include_artifacts` |
+| 2 | `--always-archive` | `archive` | `always_archive` |
+| 3 | Git 可恢复性检查通过 | `git` | 无 |
+| 4 | 其他情况 | `archive` | 可恢复性失败原因，或 `not recoverable from GitHub` |
+
+说明：
+
+- `--include-artifacts` 和 `--always-archive` 都会跳过 Git 可恢复性检查。此时归档记录不会携带 `remote`、`remote_url`、`branch`、`commit`、`upstream` 或 `verified`。
+- Git 策略只记录本地 Git 引用证据（`verified: "local-ref"`），不联网确认远端是否存在该提交。
+- 归档策略会记录 `fallback_reason`；如果没有具体原因，使用 `not recoverable from GitHub`。
+- Git 可恢复性检查的完整失败原因见第 12.3 节。
+
+### 6.3 dry-run 行为与输出
+
+`--dry-run` 调用 `prepare_backup()`，只计算运行目录和计划，不创建任何文件，也不要求 `--dest` 已存在。
+
+输出格式：
+
+```text
+Dry run. Backup directory would be: /path/to/backups/backup-20261022-153000
+  [git] demo: https://github.com/owner/demo.git @ 012d539e5803
+  [archive] old-tool: 12.4 MiB -> /path/to/backups/backup-20261022-153000/old-tool.tar.gz (working tree is not clean)
+```
+
+- Git 行显示远程 URL 和提交 SHA 前 12 位；缺失时分别显示 `-`。
+- 归档行显示源体积、目标归档路径和原因。
+- dry-run 的退出码为 `0`，除非项目发现阶段有根路径失败（`1`）。
+
+### 6.4 实际运行与输出
+
+非 dry-run 时调用 `run_backup()`：
+
+1. 再次执行 `prepare_backup()` 计算计划和唯一运行目录。
+2. `mkdir(parents=True)` 创建运行目录。
+3. 对每个项目：Git 策略直接写记录；归档策略写 `tar.gz` 并计算 SHA-256。
+4. 所有项目处理后，写入 `<run_dir>/manifest.json`。
+5. 输出摘要：
+
+```text
+Backed up 2 project(s) to /path/to/backups/backup-20261022-153000
+  [git] demo: https://github.com/owner/demo.git @ 012d539e5803
+  [archive] old-tool: 12.4 MiB  sha256:9f2c1a7b3d4e  /path/to/backups/backup-20261022-153000/old-tool.tar.gz  (working tree is not clean)
+Manifest: /path/to/backups/backup-20261022-153000/manifest.json
+```
+
+归档行中的 SHA-256 只显示前 12 位；完整值在 manifest 中。`fallback_reason` 存在时在末尾以括号显示。
+
+### 6.5 目录与归档命名
+
+- 运行目录：`backup-YYYYmmdd-HHMMSS`，使用本地时间。
+- 如果同名目录已存在，依次尝试 `-2`、`-3` 等后缀。
+- 归档默认名为 `<项目名>.tar.gz`。
+- 同一次运行中项目名重复时，第二个及以后使用 `<项目名>-2.tar.gz`、`<项目名>-3.tar.gz` 等。
+- 归档使用 `tar.add(project.path, arcname=project.name)`，因此归档内顶层目录是项目名。
+- 未使用 `--include-artifacts` 时，按 `artifact_patterns()` 排除构建产物和依赖缓存；匹配的是路径中的任一段名称。
+- 归档会包含 `.git` 目录；该行为不等同于 `git bundle`，也不保证恢复完整 Git 历史的所有边界情况。
+
+### 6.6 退出码与错误
+
+| 情况 | 退出码 | 说明 |
+| --- | --- | --- |
+| 全部项目处理成功 | `0` | manifest 已写入。 |
+| 没有发现项目 | `1` | 标准错误输出 `No projects found.`；不检查 `DEST`。 |
+| `DEST` 存在但不是目录 | `1` | 标准错误输出 `error: destination is not a directory: {dest}`。 |
+| 某个根路径失败但其他项目成功 | `1` | 仍会完成备份并写 manifest；错误已写标准错误。 |
+| 归档、manifest 写入或文件系统异常 | 未捕获 | 可能以 Python traceback 结束，且不保证 manifest 存在。 |
+| 参数缺失或非法 | `2` | `argparse` 用法错误。 |
+
+注意：`run_backup()` 在逐个项目归档时没有把单个项目的 `OSError`/`tarfile.TarError` 转换为记录级错误。某个项目归档中途失败时，命令可能终止，已生成的归档保留，但本次 manifest 可能缺失。该限制见第 13.4 节。
+
+### 6.7 示例
+
+```bash
+projjan backup ~/projects/demo --dest ~/backups/projects --dry-run
+projjan backup ~/projects --dest ~/backups/projects
+projjan backup ~/projects --dest ~/backups/projects --include-artifacts
+projjan backup ~/projects --dest ~/backups/projects --always-archive
+```
+
+## 7. `clean`
+
+### 7.1 语法与参数
+
+```text
+projjan clean ROOT [ROOT ...] [--rules RULES] [--apply] [--yes]
+                [--json] [--list-rules]
+```
+
+| 参数 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `backup` 相同。 |
+| `--rules RULES` | 否 | 全部规则 | 逗号分隔的规则名；空项被忽略，全部为空时报错。 |
+| `--apply` | 否 | 关闭 | 真正删除计划项；未提供时仅 dry-run。 |
+| `--yes` | 否 | 关闭 | 跳过交互确认；仍需要 `--apply`。 |
+| `--json` | 否 | 关闭 | 输出计划 JSON。注意其与 dry-run/确认文本混用。 |
+| `--list-rules` | 否 | 关闭 | 打印规则及模式后退出 `0`。 |
+
+`--list-rules` 仍受 `ROOT...` 必填约束。由于实现先检查 `--list-rules`、后收集项目，提供任意占位根路径即可打印规则，根路径本身不会被验证。
+
+### 7.2 清理规则
+
+规则定义于 `config.ARTIFACT_RULES`，顺序固定：
+
+| 规则 | 匹配名称 |
+| --- | --- |
+| `python-cache` | `__pycache__`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`、`*.pyc`、`.coverage`、`htmlcov` |
+| `python-env` | `.venv`、`venv`、`.tox`、`.nox`、`*.egg-info` |
+| `node` | `node_modules`、`.next`、`.nuxt`、`.svelte-kit`、`.turbo`、`.parcel-cache`、`coverage` |
+| `build` | `build`、`dist`、`out`、`target`、`CMakeFiles`、`.gradle` |
+| `editor` | `.cache`、`.DS_Store`、`Thumbs.db` |
+
+`--list-rules` 输出格式：
+
+```text
+python-cache: __pycache__, .pytest_cache, .mypy_cache, .ruff_cache, *.pyc, .coverage, htmlcov
+python-env: .venv, venv, .tox, .nox, *.egg-info
+node: node_modules, .next, .nuxt, .svelte-kit, .turbo, .parcel-cache, coverage
+build: build, dist, out, target, CMakeFiles, .gradle
+editor: .cache, .DS_Store, Thumbs.db
+```
+
+### 7.3 清理计划语义
+
+`build_cleanup_plan(project, rule_names)`：
+
+- 把项目路径解析为绝对路径；
+- 从项目根开始递归遍历，`followlinks=False`；
+- 遇到 `.git` 目录直接跳过，不进入、不删除；
+- 跳过符号链接目录和符号链接文件；
+- 目录名匹配某规则时，记录目录并停止递归进入该目录；
+- 文件名匹配某规则时，记录文件；
+- 同一路径只按规则顺序匹配一次，规则按配置顺序排列；
+- 目录体积使用 `measure_tree()` 递归统计；文件体积使用 `stat(follow_symlinks=False).st_size`；
+- 最终按 `(project 字符串, path 字符串)` 排序。
+
+`--rules` 只做非空逗号拆分，未知规则在计划阶段由 `resolve_rules()` 校验。未知规则错误格式为：
+
+```text
+unknown rule(s): foo, bar; available: python-cache, python-env, node, build, editor
+```
+
+CLI 会在每个项目上捕获该 `ValueError` 并输出：
+
+```text
+error: {项目名}: unknown rule(s): ...
+```
+
+### 7.4 文本输出
+
+无计划项时，标准输出：
+
+```text
+Nothing to clean.
+```
+
+有计划项时：
+
+```text
+PROJECT  RULE          KIND  SIZE      PATH
+-------  ------------  ----  --------  ------------------------------
+demo     python-cache  dir   1.2 MiB   /home/user/projects/demo/__pycache__
+demo     build         dir   3.4 MiB   /home/user/projects/demo/dist
+
+2 item(s), 4.6 MiB reclaimable.
+```
+
+dry-run 且存在计划项时，表格和汇总之后还会输出：
+
+```text
+Dry run. Re-run with --apply to delete these items.
+```
+
+### 7.5 JSON 输出
+
+`--json` 时先输出计划数组，字段见第 9.2 节。随后根据 `--apply`、确认和结果继续输出文本。因此 `clean --json` 的标准输出不是严格纯 JSON：
+
+| 场景 | 标准输出内容 |
+| --- | --- |
+| `--json`，dry-run，有计划项 | JSON 数组，随后是 `Dry run. Re-run with --apply to delete these items.` |
+| `--json`，dry-run，无计划项 | 仅 `[]` |
+| `--json --apply`，非交互且无 `--yes` | JSON 数组，随后拒绝删除信息在标准错误，退出 `2` |
+| `--json --apply --yes` | JSON 数组，随后 `Removed N item(s), freed ...` |
+| `--json --apply`，交互确认 | JSON 数组先输出，再显示确认提示 |
+
+自动化调用方若需要纯 JSON，应只使用 dry-run 且自行忽略后续提示，或等待未来版本提供严格机器协议；v0.1.0 未提供该保证。
+
+### 7.6 删除与确认
+
+- 只有 `--apply` 才会进入删除流程。
+- 没有计划项时，即使提供 `--apply` 也不删除，退出码取决于此前项目发现/计划错误。
+- 未提供 `--yes` 时：
+  - 标准输入不是 TTY，输出 `error: refusing to delete without --yes in a non-interactive session` 到标准错误，退出 `2`；
+  - 是 TTY 时提示 `Delete N item(s)? [y/N] `；
+  - 输入 `y` 或 `yes`（去除首尾空白、忽略大小写）才继续；
+  - 其他输入输出 `Aborted.` 并退出 `2`。
+- `apply_cleanup()` 对每个计划项：
+  - 解析项目和目标路径；
+  - 目标必须等于项目根以内且不能是项目根本身，否则记录 `target escapes project root`；
+  - 拒绝符号链接，记录 `refusing to follow symlink`；
+  - 目录使用 `shutil.rmtree`，文件使用 `unlink`；
+  - 目标已不存在时跳过，不计数；
+  - 单个 `OSError`/`ValueError` 记录到 `errors`，继续处理后续项。
+- 成功摘要：
+
+```text
+Removed 2 item(s), freed 4.6 MiB.
+```
+
+逐项错误随后以 `error: {path}: {message}` 写入标准错误。
+
+### 7.7 退出码与错误
+
+| 情况 | 退出码 | 说明 |
+| --- | --- | --- |
+| 计划/删除全部成功 | `0` | 无计划项或成功删除均可能为 `0`。 |
+| 根路径失败、未知规则、计划构建失败 | `1` | 错误到标准错误；其他项目继续处理。 |
+| 删除阶段有逐项错误 | `1` | 已成功项保留，错误汇总到标准错误。 |
+| 非交互环境未提供 `--yes` 就 `--apply` | `2` | 拒绝删除。 |
+| 交互确认输入非 `y`/`yes` | `2` | 输出 `Aborted.` |
+| 参数缺失或非法 | `2` | `argparse` 用法错误。 |
+| `--list-rules` | `0` | 打印规则后直接返回。 |
+
+### 7.8 示例
+
+```bash
+projjan clean ~/projects
+projjan clean ~/projects --rules node,python-cache
+projjan clean ~/projects --json
+projjan clean ~/projects --apply
+projjan clean ~/projects --apply --yes
+projjan clean . --list-rules
+```
+
+## 8. 退出码
+
+| 退出码 | 通用含义 | 典型场景 |
+| --- | --- | --- |
+| `0` | 成功 | 扫描完成；备份及 manifest 写入完成；清理计划为空或删除完成；`--version`/`--help`/`--list-rules`。 |
+| `1` | 部分失败或无可处理对象 | 根路径错误；`backup` 无项目；`DEST` 不是目录；清理计划/删除出现错误。 |
+| `2` | 用法错误或拒绝执行 | `argparse` 参数错误；缺少子命令；非交互删除未给 `--yes`；用户取消确认。 |
+
+补充：
+
+- `scan` 的“没有项目”本身不是错误；只有根路径失败才返回 `1`。
+- `backup` 的“没有项目”返回 `1`，且不检查目标目录。
+- `clean` 的 `--list-rules` 在参数解析通过后直接返回 `0`，不验证根路径。
+- Python API 不统一返回退出码；调用方需要捕获异常或检查返回对象。
+
+## 9. JSON 输出
+
+### 9.1 `scan --json` 数组元素
+
+顶层为 JSON 数组。每个元素结构：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | string | 项目目录名。 |
+| `path` | string | 解析后的绝对路径。 |
+| `size_bytes` | integer | 普通文件字节数之和，不跟随符号链接。 |
+| `last_modified` | string \| null | 带本地时区偏移的 ISO 8601；无文件时间为 `null`。 |
+| `markers` | array[string] | 识别到的项目标记，按 `PROJECT_MARKERS` 顺序。 |
+| `git` | object \| null | 无 `.git` 时为 `null`；否则包含 `branch` 和 `dirty`。 |
+| `git.branch` | string \| null | 当前分支名；读取失败为 `null`。 |
+| `git.dirty` | boolean \| null | `true` 有改动、`false` 干净、`null` 无法判断。 |
+
+示例：
+
+```json
+[
+  {
+    "name": "demo",
+    "path": "/home/user/projects/demo",
+    "size_bytes": 18432,
+    "last_modified": "2026-10-20T18:42:11.123456+08:00",
+    "markers": [".git", "pyproject.toml"],
+    "git": {"branch": "main", "dirty": false}
+  },
+  {
+    "name": "notes",
+    "path": "/home/user/projects/notes",
+    "size_bytes": 4096,
+    "last_modified": null,
+    "markers": [],
+    "git": null
+  }
+]
+```
+
+说明：
+
+- 没有 `schema_version` 字段；字段集合是 v0.1.0 的实现结果。
+- 根路径错误不会进入数组；请同时读取标准错误和退出码。
+- `size_bytes` 不是 `du` 的磁盘块占用。
+- `last_modified` 的时区偏移由运行环境决定，不是固定 UTC。
+
+### 9.2 `clean --json` 数组元素
+
+顶层为 JSON 数组。每个元素结构：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `project` | string | 项目绝对路径（`CleanupAction.project` 的字符串形式）。 |
+| `path` | string | 计划删除项的绝对路径。 |
+| `rule` | string | 命中的规则名。 |
+| `kind` | string | `"dir"` 或 `"file"`。 |
+| `size_bytes` | integer | 目录为树内文件字节数；文件为 `st_size`。 |
+
+示例：
+
+```json
+[
+  {
+    "project": "/home/user/projects/demo",
+    "path": "/home/user/projects/demo/node_modules",
+    "rule": "node",
+    "kind": "dir",
+    "size_bytes": 1048576
+  },
+  {
+    "project": "/home/user/projects/demo",
+    "path": "/home/user/projects/demo/dist/bundle.js",
+    "rule": "build",
+    "kind": "file",
+    "size_bytes": 32768
+  }
+]
+```
+
+说明：
+
+- 没有 `schema_version` 字段。
+- `clean --json` 不是严格 JSON 协议；后续可能追加 dry-run 文本、确认提示或删除摘要。详见第 7.5 节。
+- 计划项按 `(project, path)` 字符串排序；不保证按体积或规则名排序。
+- `size_bytes` 是计划时估算值；删除前文件可能变化，实际释放空间以操作系统结果为准。
+
+### 9.3 JSON 使用建议
+
+- 把标准输出与标准错误分开采集。
+- 同时检查退出码：`scan` 可能输出部分结果但返回 `1`；`clean` 可能在 JSON 后追加文本。
+- 不要依赖字段顺序；不要假设未来版本一定保留同样的字段集合。
+- 处理路径时按 JSON 字符串解析，不要按空白或分隔符二次切分。
+- 对 `last_modified` 使用支持时区偏移的 ISO 8601 解析器。
+
+## 10. 备份清单 `manifest.json`（schema v2）
+
+### 10.1 顶层结构
+
+`<run_dir>/manifest.json` 使用 UTF-8、缩进 2、末尾换行。顶层字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `schema_version` | integer | 固定为 `2`。 |
+| `created_at` | string | manifest 生成时的 UTC ISO 8601 时间。 |
+| `tool` | string | 固定为 `"proj-janitor"`。 |
+| `version` | string | 当前工具版本，`"0.1.0"`。 |
+| `include_artifacts` | boolean | 本次运行是否使用 `--include-artifacts`。 |
+| `always_archive` | boolean | 本次运行是否使用 `--always-archive`。 |
+| `records` | array[object] | 每个项目一条记录，顺序与计划顺序一致。 |
+
+### 10.2 记录字段
+
+记录由 `BackupRecord` 经 `dataclasses.asdict()` 序列化，所有记录包含相同字段集合：
+
+| 字段 | 类型 | Git 记录 | 归档记录 |
+| --- | --- | --- | --- |
+| `project` | string | 项目名 | 项目名 |
+| `source` | string | 项目绝对路径 | 项目绝对路径 |
+| `archive` | string \| null | `null` | 归档绝对路径 |
+| `archive_bytes` | integer | `0` | 归档文件大小 |
+| `source_bytes` | integer | 扫描时源体积 | 扫描时源体积 |
+| `sha256` | string \| null | `null` | 归档完整 SHA-256 |
+| `strategy` | string | `"git"` | `"archive"` |
+| `remote` | string \| null | Git remote 名，如 `origin` | `null` |
+| `remote_url` | string \| null | 通过校验的无凭据 GitHub URL | `null` |
+| `branch` | string \| null | 本地分支名 | `null` |
+| `commit` | string \| null | `HEAD` 提交 SHA | `null` |
+| `upstream` | string \| null | 上游引用，如 `origin/main` | `null` |
+| `verified` | string \| null | `"local-ref"` | `null` |
+| `fallback_reason` | string \| null | `null` | 归档原因 |
+
+`fallback_reason` 的常见值：
+
+- `include_artifacts`
+- `always_archive`
+- Git 可恢复性失败原因（见第 12.3 节）
+- `not recoverable from GitHub`
+
+### 10.3 示例
+
+```json
+{
+  "schema_version": 2,
+  "created_at": "2026-10-22T11:30:00.123456+00:00",
+  "tool": "proj-janitor",
+  "version": "0.1.0",
+  "include_artifacts": false,
+  "always_archive": false,
+  "records": [
+    {
+      "project": "demo",
+      "source": "/home/user/projects/demo",
+      "archive": null,
+      "archive_bytes": 0,
+      "source_bytes": 18432,
+      "sha256": null,
+      "strategy": "git",
+      "remote": "origin",
+      "remote_url": "https://github.com/owner/demo.git",
+      "branch": "main",
+      "commit": "012d539e58035346fc01fda81b8bc06c1440d4f3",
+      "upstream": "origin/main",
+      "verified": "local-ref",
+      "fallback_reason": null
+    },
+    {
+      "project": "old-tool",
+      "source": "/home/user/projects/old-tool",
+      "archive": "/home/user/backups/backup-20261022-193000/old-tool.tar.gz",
+      "archive_bytes": 13002342,
+      "source_bytes": 22984704,
+      "sha256": "9f2c1a7b3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd",
+      "strategy": "archive",
+      "remote": null,
+      "remote_url": null,
+      "branch": null,
+      "commit": null,
+      "upstream": null,
+      "verified": null,
+      "fallback_reason": "working tree is not clean"
+    }
+  ]
+}
+```
+
+### 10.4 语义与限制
+
+- `created_at` 使用 `datetime.now(timezone.utc).isoformat()`，通常带 `+00:00` 偏移。
+- `archive_bytes` 是归档文件自身大小；`source_bytes` 是备份前扫描到的源目录普通文件字节数。默认排除构建产物时，二者不可直接比较。
+- `sha256` 是归档文件的 SHA-256，不是源文件清单，也不是对归档内容逐文件的哈希。
+- `remote` 是 Git remote 名称，`remote_url` 是通过语法校验的 URL；二者不同。
+- Git 记录的 `verified: "local-ref"` 只表示本地引用检查通过，不表示已联网确认远端存在该提交。
+- 归档记录不保存 Git 可恢复性检查的详细字段；只保存 `fallback_reason`。
+- manifest 在所有项目处理完后写入；如果中途异常，可能只有部分归档而没有 manifest。
+- manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件。工具不加密、不做秘密扫描。
+- 当前没有 `restore` 子命令；恢复需按 manifest 手动执行 `git clone`/`git checkout` 或 `tar -xzf`。
+
+## 11. Python 内部 API
+
+### 11.1 扫描模块 `proj_janitor.scanner`
+
+| 函数 | 签名 | 返回/异常 | 说明 |
+| --- | --- | --- | --- |
+| `discover_projects` | `(root: Path, include_unmarked: bool = False) -> list[Project]` | `list[Project]`；根不存在时 `FileNotFoundError`，不是目录时 `NotADirectoryError`，遍历错误可能为 `OSError` | 展开 `~`，按第 5.3 节规则发现并扫描项目。 |
+| `scan_project` | `(path: Path) -> Project` | `Project` | 解析路径，收集标记、体积、修改时间和 Git 状态。 |
+| `measure_tree` | `(path: Path) -> tuple[int, datetime \| None]` | 字节数、带时区本地时间或 `None` | 不跟随符号链接，只统计普通文件。 |
+| `read_git_state` | `(path: Path) -> GitState \| None` | `GitState` 或 `None` | 无 `.git` 返回 `None`；Git 命令失败可能产生空字段。 |
+| `is_github_remote_url` | `(remote: str) -> bool` | `bool` | 纯语法校验；不联网、不验证仓库存在。 |
+| `inspect_git_recoverability` | `(project: Project, patterns: Iterable[str] = ()) -> GitRecovery` | `GitRecovery` | 执行第 12.3 节检查；失败以 `reason` 返回，不以异常表达常规 Git 失败。 |
+| `format_projects` | `(projects: Iterable[Project]) -> str` | 文本表格 | 空输入返回表头和分隔线，不返回 `No projects found.`。 |
+| `_git_run` / `_git_output` / `_git_ok` / `_git_count` | 私有辅助函数 | 子进程结果/字符串/布尔/整数或 `None` | 固定 10 秒超时；捕获 `OSError` 和 `SubprocessError`。 |
+
+### 11.2 备份模块 `proj_janitor.backup`
+
+| 函数 | 签名 | 返回/异常 | 说明 |
+| --- | --- | --- | --- |
+| `prepare_backup` | `(projects, dest: Path, include_artifacts=False, always_archive=False) -> tuple[Path, list[BackupPlan]]` | 运行目录、计划列表 | 只计算；不创建目录。`dest` 会 `expanduser().resolve()`。 |
+| `run_backup` | `(projects, dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[Path, list[BackupRecord]]` | 运行目录、记录列表 | `dry_run=True` 时不写文件并返回空记录；否则创建目录、归档并写 manifest。异常向上传播。 |
+| `backup_project` | `(project, run_dir, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | 写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
+| `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
+| `_make_filter` | 私有 | tarfile 过滤器或 `None` | 按路径段匹配排除模式；无模式时返回 `None`。 |
+
+### 11.3 清理模块 `proj_janitor.cleaner`
+
+| 函数 | 签名 | 返回/异常 | 说明 |
+| --- | --- | --- | --- |
+| `resolve_rules` | `(rule_names=None) -> Mapping[str, tuple[str, ...]]` | 规则映射；未知规则抛 `ValueError` | `None` 返回全部规则；否则按请求顺序构造子集。 |
+| `build_cleanup_plan` | `(project: Path, rule_names=None) -> list[CleanupAction]` | 计划列表 | 解析项目路径，递归遍历并排序；未知规则抛 `ValueError`。 |
+| `apply_cleanup` | `(actions: Iterable[CleanupAction]) -> CleanupResult` | `CleanupResult` | 删除计划项；逐项捕获 `OSError`/`ValueError` 到 `errors`，不抛给调用方。 |
+| `format_cleanup_plan` | `(actions) -> str` | 文本 | 空输入返回 `Nothing to clean.`。 |
+| `format_rules` | `() -> str` | 文本 | 按配置顺序输出规则及模式。 |
+| `_match` / `_action` | 私有 | 规则名/`CleanupAction` | 名称匹配和体积计算。 |
+
+`CleanupResult` 为不可变数据类，字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `removed` | integer | 成功删除项数。 |
+| `freed_bytes` | integer | 成功项的计划体积之和。 |
+| `errors` | tuple[string, ...] | 逐项错误文本，格式 `"{path}: {message}"`。 |
+
+### 11.4 模型与配置
+
+`proj_janitor.models` 暴露不可变数据类：
+
+| 类型 | 字段 |
+| --- | --- |
+| `GitState` | `branch: str \| None`，`dirty: bool \| None` |
+| `Project` | `path`，`name`，`markers`，`size_bytes`，`last_modified`，`git`；属性 `dirty_label`、`branch_label` |
+| `CleanupAction` | `project`，`path`，`rule`，`kind`，`size_bytes` |
+| `GitRecovery` | `eligible`，`reason`，`remote`，`remote_url`，`branch`，`commit`，`upstream`，`verified` |
+| `BackupRecord` | 第 10.2 节所列 14 个字段 |
+| `BackupPlan` | `project`，`archive_name`，`strategy`，`recovery`，`reason` |
+| `human_size` | `(size_bytes: int) -> str` |
+
+`proj_janitor.config` 暴露：
+
+| 名称 | 类型 | 说明 |
+| --- | --- | --- |
+| `PROJECT_MARKERS` | `tuple[str, ...]` | 16 个项目标记。 |
+| `ARTIFACT_RULES` | `dict[str, tuple[str, ...]]` | 5 组清理规则，顺序固定。 |
+| `ALL_RULES` | `tuple[str, ...]` | 规则名元组。 |
+| `artifact_patterns` | `(include_artifacts=False) -> tuple[str, ...]` | 展开并去重所有排除模式；`True` 返回空元组。 |
+
+### 11.5 副作用、异常与并发
+
+| 函数/流程 | 读取 | 写入 | 删除 | 网络 | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| `scan`/`discover_projects`/`scan_project` | 项目目录、`.git`、Git 命令 | 无 | 无 | 无 | Git 命令只读。 |
+| `prepare_backup` | 项目、Git 状态 | 无 | 无 | 无 | 仅计算路径和计划。 |
+| `run_backup` | 项目、Git 状态 | 运行目录、归档、manifest | 无 | 无 | 中途异常可能留下部分归档。 |
+| `build_cleanup_plan` | 项目目录、文件元数据 | 无 | 无 | 无 | `os.walk` 不跟随链接。 |
+| `apply_cleanup` | 目标存在性、类型 | 无 | 目录/文件 | 无 | 不进行确认，调用方负责授权。 |
+
+- 模块不使用线程、异步任务、锁或数据库。
+- 不保证多个进程同时操作同一项目、同一备份目标或同一清理目标时的结果。
+- 外部 Git 命令超时为 10 秒；超时被视为该 Git 检查失败。
+- `KeyboardInterrupt` 没有被统一捕获，可能中断备份或清理。
+- Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”。
+
+## 12. 错误清单
+
+### 12.1 CLI 消息
+
+| 场景 | 流 | 消息 |
+| --- | --- | --- |
+| `scan`/`backup` 无项目 | stderr | `No projects found.` |
+| `backup` 目标不是目录 | stderr | `error: destination is not a directory: {dest}` |
+| `backup` dry-run 标题 | stdout | `Dry run. Backup directory would be: {run_dir}` |
+| `backup` 完成 | stdout | `Backed up {n} project(s) to {run_dir}` |
+| `backup` manifest 路径 | stdout | `Manifest: {run_dir}/manifest.json` |
+| `clean` dry-run 提示 | stdout | `Dry run. Re-run with --apply to delete these items.` |
+| `clean` 非交互拒绝删除 | stderr | `error: refusing to delete without --yes in a non-interactive session` |
+| `clean` 确认提示 | stdout | `Delete {n} item(s)? [y/N] ` |
+| `clean` 用户取消 | stdout | `Aborted.` |
+| `clean` 删除完成 | stdout | `Removed {n} item(s), freed {size}.` |
+| `clean` 逐项删除错误 | stderr | `error: {path}: {message}` |
+| `clean` 规则/计划错误 | stderr | `error: {项目名}: {message}` |
+| 根路径错误 | stderr | `error: {异常文本}` |
+| `--rules` 为空 | stderr（argparse） | `at least one rule is required`（由 `ArgumentTypeError` 产生） |
+
+### 12.2 Python 异常
+
+| 异常 | 触发点 | 处理建议 |
+| --- | --- | --- |
+| `FileNotFoundError` | `discover_projects` 根不存在 | CLI 捕获并计入失败；API 调用方自行处理。 |
+| `NotADirectoryError` | 根不是目录 | 同上。 |
+| `OSError` | 目录遍历、归档、manifest 写入、删除 | CLI 在发现/删除阶段部分捕获；归档和 manifest 写入可能直接终止。 |
+| `ValueError` | 未知规则、目标越界、符号链接拒绝 | 计划阶段由 CLI 捕获；删除阶段由 `apply_cleanup` 收集。 |
+| `RuntimeError` | 内部计划不变量被破坏（缺少 recovery 或 archive name） | 属于程序缺陷/异常状态，不应在正常输入下出现。 |
+| `tarfile.TarError` | 归档读写失败 | CLI 未转换为友好错误；可能 traceback。 |
+| `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因。 |
+| `KeyboardInterrupt` | 用户中断 | 未捕获；可能留下部分备份或部分删除结果。 |
+
+### 12.3 Git 可恢复性失败原因
+
+`inspect_git_recoverability()` 按顺序检查，首个失败即返回。失败原因文本是 manifest 的 `fallback_reason` 来源之一：
+
+| 顺序 | 检查/条件 | `reason` |
+| --- | --- | --- |
+| 1 | 不存在 `.git` | `not a git repository` |
+| 2 | 无法读取符号分支（detached HEAD） | `detached HEAD` |
+| 3 | `git status --porcelain --untracked-files=all` 失败 | `git status failed` |
+| 4 | 工作区有改动或未跟踪文件 | `working tree is not clean` |
+| 5 | `git stash list` 失败 | `cannot inspect stashes` |
+| 6 | 存在 stash | `stash entries are not included` |
+| 7 | 当前分支没有 remote 或 remote 为 `.` | `branch has no upstream remote` |
+| 8 | 无法解析 `@{upstream}` | `branch has no upstream` |
+| 9 | 无法读取 remote URL | `remote URL is unavailable` |
+| 10 | URL 不是无凭据 GitHub URL | `remote is not a credential-free GitHub URL` |
+| 11 | 无法读取 `HEAD` | `HEAD is unavailable` |
+| 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
+| 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
+| 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
+| 15 | `git tag --list` 失败 | `cannot list tags` |
+| 16 | 存在本地 tag | `local tags are not included` |
+| 17 | 存在 `.gitmodules` 或 `git submodule status` 非空 | `submodules are not supported` |
+| 18 | `git submodule status` 失败 | `cannot inspect submodules` |
+| 19 | 存在 `.lfsconfig` 或 `.gitattributes` 命中 LFS | `Git LFS is not supported` |
+| 20 | LFS 属性检查失败 | `cannot inspect Git LFS attributes` |
+| 21 | 忽略文件列举失败 | `cannot inspect ignored files` |
+| 22 | 某忽略路径不属于允许的 artifact 模式 | `ignored path is not an artifact: {path}` |
+| 23 | 本地分支列举失败 | `cannot list local branches` |
+| 24 | 远程跟踪引用列举失败 | `cannot list remote-tracking refs` |
+| 25 | 没有远程跟踪引用 | `no remote-tracking refs` |
+| 26 | 某本地分支比较失败 | `cannot inspect local branch: {branch}` |
+| 27 | 某本地分支未完全推送 | `local branch is not fully pushed: {branch}` |
+
+补充：
+
+- 检查 22 的允许模式来自本次备份的 `artifact_patterns()`；默认排除构建产物，`--include-artifacts` 传入空模式，因此任何忽略文件都会阻止 URL-only。
+- 检查 19 的 LFS 探测使用 `git grep -l filter=lfs -- *.gitattributes`；返回码非 `0`/`1` 视为检查失败。
+- 检查 22 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
+- 检查 23/24 使用 `for-each-ref`；检查 25 要求至少存在一个 `refs/remotes/{remote}/` 引用。
+- 所有 Git 调用的超时为 10 秒；超时或无法启动 Git 会映射为对应的失败原因或 `None` 字段。
+
+### 12.4 处理策略
+
+| 阶段 | 策略 |
+| --- | --- |
+| 参数解析 | 交给 `argparse`，退出 `2`。 |
+| 根路径发现 | 单项失败输出到标准错误，继续其他根，最终退出 `1`。 |
+| 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`。 |
+| 备份归档 | 当前不在项目级捕获 `OSError`/`tarfile.TarError`；可能中止整个备份。 |
+| manifest 写入 | 未捕获 `OSError`；可能以 traceback 结束。 |
+| 清理删除 | 逐项捕获并汇总，已成功项不回滚。 |
+| Git 常规失败 | 转为 `GitRecovery.reason` 或空字段，不抛给用户。 |
+| 中断 | 不捕获 `KeyboardInterrupt`；可能留下部分结果。 |
+
+## 13. 兼容性与使用边界
+
+### 13.1 运行环境
+
+| 项目 | 说明 |
+| --- | --- |
+| Python | `>=3.10`；开发和自测使用 Python 3.12.3。 |
+| 依赖 | 仅 Python 标准库；无第三方运行时依赖。 |
+| 构建 | `setuptools>=68`；`pyproject.toml` 声明项目元数据。 |
+| 外部命令 | Git 状态和可恢复性检查需要本机 `git`；清理不需要 Git。 |
+| 操作系统 | 正式自测环境为 Linux；Windows/macOS 未做正式验证。 |
+| 终端 | 交互确认依赖 `sys.stdin.isatty()`；非交互环境必须 `--yes`。 |
+| 编码 | manifest 固定 UTF-8；终端输出受 locale 影响。 |
+
+### 13.2 路径与文件系统
+
+- 项目发现只处理根目录本身或直接子目录，不递归发现嵌套项目。
+- 根路径和备份目标支持 `~` 展开；项目路径在扫描后解析为绝对路径。
+- 扫描、清理计划和归档排除逻辑不跟随符号链接；符号链接目录不会被递归进入。
+- 清理删除时再次拒绝符号链接和越界目标；但计划与删除之间仍存在 TOCTOU 窗口。
+- 归档包含 `.git`，默认只排除 artifact 规则命中的路径；不会自动排除 secrets、日志或用户数据。
+- 硬链接按普通文件统计和归档；特殊文件类型的行为未做专门验证。
+
+### 13.3 版本与接口稳定性
+
+- CLI 版本为 `0.1.0`；`--version` 输出 `projjan 0.1.0`。
+- `scan --json` 和 `clean --json` 没有 `schema_version`，属于 v0.1.0 实现格式，后续可能调整。
+- manifest 有 `schema_version: 2`；字段变更应通过版本号区分，但 v0.1.0 不提供迁移工具。
+- Python 模块是内部实现；本文件列出的函数签名用于说明当前行为，不构成公共 API 承诺。
+- 没有配置文件兼容性、数据库迁移或插件接口。
+
+### 13.4 已知接口限制
+
+| 限制 | 影响 | 规避/说明 |
+| --- | --- | --- |
+| `clean --json` 混入文本 | 标准输出不是严格 JSON | 只取首个 JSON 值，或等待后续版本；不要直接喂给严格解析器。 |
+| `--list-rules` 仍要求 `ROOT` | 不能完全独立调用 | 使用 `projjan clean . --list-rules` 等占位根。 |
+| 备份归档异常未项目级隔离 | 单个项目失败可能中止整批 | 分批备份；失败后检查目录并重新运行。 |
+| manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、运行目录和 manifest 是否存在。 |
+| 无 `restore` | 不能自动恢复 | 按 manifest 手动 `git clone`/`git checkout` 或 `tar -xzf`。 |
+| 无归档校验命令 | 不能自动验证 SHA-256 | 手动使用 `sha256sum` 对比 manifest。 |
+| 归档包含 `.git` | 体积较大，可能包含敏感历史 | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份。 |
+| Git URL-only 仅本地证据 | 不保证远端实际可克隆 | 恢复前联网验证；重要项目使用 `--always-archive`。 |
+| 规则按名称匹配 | 可能误匹配同名目录 | 先 dry-run 审查计划；必要时缩小根范围。 |
+| 无并发控制 | 并发运行可能竞争目录/删除目标 | 串行执行；不要同时清理同一项目。 |
+
+### 13.5 恢复说明
+
+v0.1.0 不提供自动恢复。按 manifest 手动处理：
+
+```bash
+git clone <remote_url> <project>
+git checkout <commit>
+```
+
+或：
+
+```bash
+tar -xzf <archive>
+```
+
+恢复前应确认：
+
+- `remote_url` 无内嵌凭据；
+- `commit` 在远端实际存在（`verified` 仅为 `local-ref`）；
+- 归档 SHA-256 与 manifest 一致；
+- 解压目标不会覆盖现有数据。
+
+## 14. HTTP API
+
+### 14.1 结论
+
+v0.1.0 不提供 HTTP API、REST 接口、GraphQL、RPC、WebSocket 或任何网络服务端；也不调用 GitHub API 或其他远程接口。因此不存在以下内容：
+
+- 服务地址、端口、路由和 HTTP 方法；
+- 请求/响应 schema、状态码和错误码；
+- 认证、授权、限流、幂等和重试语义；
+- OpenAPI/Swagger 文档；
+- 跨域、TLS、代理和网关配置。
+
+### 14.2 替代集成方式
+
+需要在自动化平台中集成时，可：
+
+1. 以子进程方式调用 `projjan`，采集标准输出、标准错误和退出码；
+2. 直接导入 `proj_janitor` 的 Python 函数（内部接口，需接受版本变化风险）；
+3. 读取 `scan --json`、`clean --json` 和 `manifest.json` 进行后续处理。
+
+这些方式都不改变“本地 CLI、无网络服务”的产品边界。若未来需要 HTTP 服务，应作为独立需求重新设计，并补充认证、并发、审计和错误协议，不能把当前 CLI 输出直接视为 HTTP API 契约。
