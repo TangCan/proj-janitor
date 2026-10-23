@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tarfile
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from fnmatch import fnmatch
@@ -22,13 +23,15 @@ def prepare_backup(
     always_archive: bool = False,
 ) -> tuple[Path, list[BackupPlan]]:
     dest = dest.expanduser().resolve()
+    project_list = list(projects)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = _unique_directory(dest, f"backup-{timestamp}")
+    manifest_path = _unique_file(dest, f"manifest-{timestamp}.json")
     patterns = artifact_patterns(include_artifacts)
     plans: list[BackupPlan] = []
-    used_names: set[str] = set()
+    project_dirs = _project_directory_names(project_list)
+    used_archives: set[Path] = set()
 
-    for project in projects:
+    for project in project_list:
         recovery = None
         if include_artifacts:
             strategy = "archive"
@@ -46,19 +49,26 @@ def prepare_backup(
                 reason = recovery.reason or "not recoverable from GitHub"
 
         archive_name = None
+        archive_dir = None
         if strategy == "archive":
-            archive_name = _unique_archive_name(project.name, used_names)
-            used_names.add(archive_name)
+            archive_dir = project_dirs[project.path]
+            archive_name = _unique_archive_name(
+                project.name or "project",
+                timestamp,
+                dest / archive_dir,
+                used_archives,
+            )
         plans.append(
             BackupPlan(
                 project=project,
                 archive_name=archive_name,
                 strategy=strategy,
+                archive_dir=archive_dir,
                 recovery=recovery,
                 reason=reason,
             )
         )
-    return run_dir, plans
+    return manifest_path, plans
 
 
 def run_backup(
@@ -68,16 +78,16 @@ def run_backup(
     dry_run: bool = False,
     always_archive: bool = False,
 ) -> tuple[Path, list[BackupRecord]]:
-    run_dir, plans = prepare_backup(
+    manifest_path, plans = prepare_backup(
         projects,
         dest,
         include_artifacts=include_artifacts,
         always_archive=always_archive,
     )
     if dry_run:
-        return run_dir, []
+        return manifest_path, []
 
-    run_dir.mkdir(parents=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     patterns = artifact_patterns(include_artifacts)
     records: list[BackupRecord] = []
     for plan in plans:
@@ -103,12 +113,14 @@ def run_backup(
                 )
             )
             continue
-        if plan.archive_name is None:
-            raise RuntimeError("archive backup plan is missing an archive name")
+        if plan.archive_name is None or plan.archive_dir is None:
+            raise RuntimeError("archive backup plan is missing an archive path")
+        archive_dir = manifest_path.parent / plan.archive_dir
+        archive_dir.mkdir(parents=True, exist_ok=True)
         records.append(
             backup_project(
                 plan.project,
-                run_dir,
+                archive_dir,
                 patterns=patterns,
                 archive_name=plan.archive_name,
                 fallback_reason=plan.reason,
@@ -124,23 +136,22 @@ def run_backup(
         "always_archive": always_archive,
         "records": [asdict(record) for record in records],
     }
-    manifest_path = run_dir / "manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    return run_dir, records
+    return manifest_path, records
 
 
 def backup_project(
     project: Project,
-    run_dir: Path,
+    archive_dir: Path,
     patterns: Iterable[str] = (),
     archive_name: str | None = None,
     fallback_reason: str | None = None,
 ) -> BackupRecord:
     name = archive_name or f"{project.name}.tar.gz"
-    archive = run_dir / name
+    archive = archive_dir / name
     patterns = tuple(patterns)
 
     with tarfile.open(archive, "w:gz") as tar:
@@ -187,20 +198,44 @@ def _make_filter(
     return exclude
 
 
-def _unique_directory(parent: Path, name: str) -> Path:
+def _unique_file(parent: Path, name: str) -> Path:
     candidate = parent / name
+    stem = candidate.stem
+    suffix = candidate.suffix
     counter = 2
     while candidate.exists():
-        candidate = parent / f"{name}-{counter}"
+        candidate = parent / f"{stem}-{counter}{suffix}"
         counter += 1
     return candidate
 
 
-def _unique_archive_name(project_name: str, used: set[str]) -> str:
-    base = f"{project_name}.tar.gz"
-    if base not in used:
-        return base
+def _project_directory_names(projects: Iterable[Project]) -> dict[Path, str]:
+    project_list = list(projects)
+    counts = Counter(project.name or "project" for project in project_list)
+    names: dict[Path, str] = {}
+    for project in project_list:
+        base = project.name or "project"
+        if counts[base] > 1:
+            digest = hashlib.sha256(
+                str(project.path).encode("utf-8"),
+            ).hexdigest()[:8]
+            names[project.path] = f"{base}-{digest}"
+        else:
+            names[project.path] = base
+    return names
+
+
+def _unique_archive_name(
+    project_name: str,
+    timestamp: str,
+    archive_dir: Path,
+    used: set[Path],
+) -> str:
+    base = f"{project_name}-{timestamp}.tar.gz"
+    candidate = archive_dir / base
     counter = 2
-    while f"{project_name}-{counter}.tar.gz" in used:
+    while candidate in used or candidate.exists():
+        candidate = archive_dir / f"{project_name}-{timestamp}-{counter}.tar.gz"
         counter += 1
-    return f"{project_name}-{counter}.tar.gz"
+    used.add(candidate)
+    return candidate.name

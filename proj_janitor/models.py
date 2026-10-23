@@ -79,6 +79,7 @@ class BackupPlan:
     project: Project
     archive_name: str | None
     strategy: str
+    archive_dir: str | None = None
     recovery: GitRecovery | None = None
     reason: str | None = None
 

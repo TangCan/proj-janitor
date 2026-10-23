@@ -55,15 +55,29 @@ projjan backup ~/richard_plus --dest ~/backups/projects --always-archive
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
-每次备份创建 `backup-YYYYmmdd-HHMMSS/`：
+每次实际备份在 `--dest` 顶层写一个 `manifest-YYYYmmdd-HHMMSS.json`，不再创建 `backup-.../` 运行目录。纯 `git` 备份只产生这个清单：
 
 ```text
-backup-20261022-153000/
-├── amp_zk.tar.gz
-└── manifest.json
+backups/
+└── manifest-20261023-113453.json
 ```
 
-`manifest.json` 使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive` 和 `records`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
+需要归档的项目按项目名放入独立子目录。同一项目不同时间的归档共用该目录，归档文件名带运行时间戳：
+
+```text
+backups/
+├── manifest-20261023-103117.json
+├── xtask_todo/
+│   └── xtask_todo-20261023-103117.tar.gz
+└── another_project/
+    └── another_project-20261023-103117.tar.gz
+```
+
+- 不同根目录下存在同名项目时，项目目录会追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
+- 同一秒内重复归档同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有归档。
+- 旧版本生成的 `backup-YYYYmmdd-HHMMSS/` 目录不会被自动迁移或删除。
+
+清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive` 和 `records`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
 
 ### 3. 清理
 
@@ -98,7 +112,7 @@ projjan clean ~/richard_plus --apply
 
 ### 4. 恢复
 
-当前版本不提供 `restore` 子命令。按 `manifest.json` 中的记录手动恢复：
+当前版本不提供 `restore` 子命令。按 `manifest-YYYYmmdd-HHMMSS.json` 中的记录手动恢复：
 
 ```bash
 # git 策略：重新克隆并检出备份时的提交
@@ -128,12 +142,12 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 47 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
+当前 48 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
 
 ## 后续计划
 
 - 支持 `git bundle`，保留完整提交历史并减小归档体积。
 - 增量备份与保留策略（例如只保留最近 N 份）。
-- 增加 `restore` 子命令（当前按 `manifest.json` 手动恢复）。
+- 增加 `restore` 子命令（当前按 `manifest-*.json` 手动恢复）。
 - 配置文件（排除规则、备份目标、保留策略）。
-- 归档校验命令（按 `manifest.json` 验证 SHA-256）。
+- 归档校验命令（按 `manifest-*.json` 验证 SHA-256）。

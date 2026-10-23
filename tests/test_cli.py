@@ -173,10 +173,9 @@ class GitCliTests(unittest.TestCase):
             self.assertIn("[git] app:", out)
             self.assertNotIn("[archive]", out)
 
+            manifest_path = next(dest.glob("manifest-*.json"))
             manifest = json.loads(
-                (next(dest.iterdir()) / "manifest.json").read_text(
-                    encoding="utf-8",
-                ),
+                manifest_path.read_text(encoding="utf-8"),
             )
             entry = manifest["records"][0]
             self.assertEqual(entry["strategy"], "git")
@@ -203,10 +202,9 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("[archive] app:", out)
 
+            manifest_path = next(dest.glob("manifest-*.json"))
             manifest = json.loads(
-                (next(dest.iterdir()) / "manifest.json").read_text(
-                    encoding="utf-8",
-                ),
+                manifest_path.read_text(encoding="utf-8"),
             )
             self.assertTrue(manifest["always_archive"])
             self.assertEqual(

@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     backup = subparsers.add_parser(
         "backup",
-        help="archive projects into a timestamped backup directory",
+        help="record Git remotes or archive projects into a destination",
     )
     backup.add_argument("roots", nargs="+", type=Path)
     backup.add_argument(
@@ -143,13 +143,13 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         return 1
 
     if args.dry_run:
-        run_dir, plans = prepare_backup(
+        manifest_path, plans = prepare_backup(
             projects,
             dest,
             include_artifacts=args.include_artifacts,
             always_archive=args.always_archive,
         )
-        print(f"Dry run. Backup directory would be: {run_dir}")
+        print(f"Dry run. Manifest would be: {manifest_path}")
         for plan in plans:
             if plan.strategy == "git":
                 recovery = plan.recovery
@@ -158,20 +158,21 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 print(f"  [git] {plan.project.name}: {url} @ {commit}")
             else:
                 archive_name = plan.archive_name or f"{plan.project.name}.tar.gz"
+                archive = manifest_path.parent / (plan.archive_dir or "")
                 print(
                     f"  [archive] {plan.project.name}: "
                     f"{human_size(plan.project.size_bytes)}"
-                    f" -> {run_dir / archive_name} ({plan.reason})"
+                    f" -> {archive / archive_name} ({plan.reason})"
                 )
         return 1 if failures else 0
 
-    run_dir, records = run_backup(
+    manifest_path, records = run_backup(
         projects,
         dest,
         include_artifacts=args.include_artifacts,
         always_archive=args.always_archive,
     )
-    print(f"Backed up {len(records)} project(s) to {run_dir}")
+    print(f"Backed up {len(records)} project(s).")
     for record in records:
         if record.strategy == "git":
             commit = record.commit[:12] if record.commit else "-"
@@ -188,7 +189,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 f"{human_size(record.archive_bytes)}"
                 f"  sha256:{digest}  {record.archive}{reason}"
             )
-    print(f"Manifest: {run_dir / 'manifest.json'}")
+    print(f"Manifest: {manifest_path}")
     return 1 if failures else 0
 
 
