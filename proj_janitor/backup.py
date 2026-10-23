@@ -21,17 +21,27 @@ def prepare_backup(
     dest: Path,
     include_artifacts: bool = False,
     always_archive: bool = False,
-) -> tuple[Path, list[BackupPlan]]:
+) -> tuple[list[Path], list[BackupPlan]]:
     dest = dest.expanduser().resolve()
     project_list = list(projects)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    manifest_path = _unique_file(dest, f"manifest-{timestamp}.json")
     patterns = artifact_patterns(include_artifacts)
     plans: list[BackupPlan] = []
+    manifest_paths: list[Path] = []
     project_dirs = _project_directory_names(project_list)
     used_archives: set[Path] = set()
+    used_manifests: set[Path] = set()
 
     for project in project_list:
+        project_dir = project_dirs[project.path]
+        manifest_path = _unique_file(
+            dest / project_dir,
+            f"manifest-{timestamp}.json",
+            used_manifests,
+        )
+        used_manifests.add(manifest_path)
+        manifest_paths.append(manifest_path)
+
         recovery = None
         if include_artifacts:
             strategy = "archive"
@@ -49,13 +59,11 @@ def prepare_backup(
                 reason = recovery.reason or "not recoverable from GitHub"
 
         archive_name = None
-        archive_dir = None
         if strategy == "archive":
-            archive_dir = project_dirs[project.path]
             archive_name = _unique_archive_name(
                 project.name or "project",
                 timestamp,
-                dest / archive_dir,
+                dest / project_dir,
                 used_archives,
             )
         plans.append(
@@ -63,12 +71,11 @@ def prepare_backup(
                 project=project,
                 archive_name=archive_name,
                 strategy=strategy,
-                archive_dir=archive_dir,
                 recovery=recovery,
                 reason=reason,
             )
         )
-    return manifest_path, plans
+    return manifest_paths, plans
 
 
 def run_backup(
@@ -77,70 +84,68 @@ def run_backup(
     include_artifacts: bool = False,
     dry_run: bool = False,
     always_archive: bool = False,
-) -> tuple[Path, list[BackupRecord]]:
-    manifest_path, plans = prepare_backup(
+) -> tuple[list[Path], list[BackupRecord]]:
+    manifest_paths, plans = prepare_backup(
         projects,
         dest,
         include_artifacts=include_artifacts,
         always_archive=always_archive,
     )
     if dry_run:
-        return manifest_path, []
+        return manifest_paths, []
 
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     patterns = artifact_patterns(include_artifacts)
     records: list[BackupRecord] = []
-    for plan in plans:
+    created_at = datetime.now(timezone.utc).isoformat()
+    for manifest_path, plan in zip(manifest_paths, plans, strict=True):
         if plan.strategy == "git":
             recovery = plan.recovery
             if recovery is None:
                 raise RuntimeError("git backup plan is missing recovery details")
-            records.append(
-                BackupRecord(
-                    project=plan.project.name,
-                    source=str(plan.project.path),
-                    archive=None,
-                    archive_bytes=0,
-                    source_bytes=plan.project.size_bytes,
-                    sha256=None,
-                    strategy="git",
-                    remote=recovery.remote,
-                    remote_url=recovery.remote_url,
-                    branch=recovery.branch,
-                    commit=recovery.commit,
-                    upstream=recovery.upstream,
-                    verified=recovery.verified,
-                )
+            record = BackupRecord(
+                project=plan.project.name,
+                source=str(plan.project.path),
+                archive=None,
+                archive_bytes=0,
+                source_bytes=plan.project.size_bytes,
+                sha256=None,
+                strategy="git",
+                remote=recovery.remote,
+                remote_url=recovery.remote_url,
+                branch=recovery.branch,
+                commit=recovery.commit,
+                upstream=recovery.upstream,
+                verified=recovery.verified,
             )
-            continue
-        if plan.archive_name is None or plan.archive_dir is None:
-            raise RuntimeError("archive backup plan is missing an archive path")
-        archive_dir = manifest_path.parent / plan.archive_dir
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        records.append(
-            backup_project(
+        else:
+            if plan.archive_name is None:
+                raise RuntimeError("archive backup plan is missing an archive name")
+            archive_dir = manifest_path.parent
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            record = backup_project(
                 plan.project,
                 archive_dir,
                 patterns=patterns,
                 archive_name=plan.archive_name,
                 fallback_reason=plan.reason,
             )
-        )
 
-    manifest = {
-        "schema_version": 2,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "tool": "proj-janitor",
-        "version": __version__,
-        "include_artifacts": include_artifacts,
-        "always_archive": always_archive,
-        "records": [asdict(record) for record in records],
-    }
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return manifest_path, records
+        records.append(record)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "schema_version": 2,
+            "created_at": created_at,
+            "tool": "proj-janitor",
+            "version": __version__,
+            "include_artifacts": include_artifacts,
+            "always_archive": always_archive,
+            "records": [asdict(record)],
+        }
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return manifest_paths, records
 
 
 def backup_project(
@@ -198,12 +203,16 @@ def _make_filter(
     return exclude
 
 
-def _unique_file(parent: Path, name: str) -> Path:
+def _unique_file(
+    parent: Path,
+    name: str,
+    used: set[Path] | None = None,
+) -> Path:
     candidate = parent / name
     stem = candidate.stem
     suffix = candidate.suffix
     counter = 2
-    while candidate.exists():
+    while candidate.exists() or (used is not None and candidate in used):
         candidate = parent / f"{stem}-{counter}{suffix}"
         counter += 1
     return candidate

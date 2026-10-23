@@ -11,8 +11,8 @@ from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
 
-def make_project(root: Path) -> Path:
-    project = root / "app"
+def make_project(root: Path, name: str = "app") -> Path:
+    project = root / name
     (project / "src").mkdir(parents=True)
     (project / "src" / "main.py").write_text("print('hi')\n", encoding="utf-8")
     (project / "node_modules" / "pkg").mkdir(parents=True)
@@ -31,11 +31,16 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_path, records = run_backup([scan_project(project)], dest)
+            manifest_paths, records = run_backup(
+                [scan_project(project)],
+                dest,
+            )
 
             self.assertEqual(len(records), 1)
+            self.assertEqual(len(manifest_paths), 1)
+            manifest_path = manifest_paths[0]
             self.assertTrue(manifest_path.is_file())
-            self.assertEqual(manifest_path.parent, dest)
+            self.assertEqual(manifest_path.parent, dest / "app")
             self.assertTrue(manifest_path.name.startswith("manifest-"))
             archive = Path(records[0].archive)
             self.assertEqual(archive.parent, dest / "app")
@@ -45,6 +50,7 @@ class BackupTests(unittest.TestCase):
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["tool"], "proj-janitor")
+            self.assertEqual(len(manifest["records"]), 1)
             self.assertEqual(manifest["records"][0]["sha256"], records[0].sha256)
             self.assertEqual(
                 manifest["records"][0]["archive"],
@@ -66,7 +72,7 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
                 include_artifacts=True,
@@ -76,7 +82,7 @@ class BackupTests(unittest.TestCase):
                 names = tar.getnames()
 
             self.assertTrue(any("node_modules" in name for name in names))
-            self.assertTrue(manifest_path.is_file())
+            self.assertTrue(manifest_paths[0].is_file())
             self.assertEqual(Path(records[0].archive).parent, dest / "app")
 
     def test_dry_run_creates_nothing(self) -> None:
@@ -85,14 +91,15 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
                 dry_run=True,
             )
 
             self.assertEqual(records, [])
-            self.assertFalse(manifest_path.exists())
+            self.assertTrue(manifest_paths)
+            self.assertFalse(any(path.exists() for path in manifest_paths))
             self.assertFalse(dest.exists())
 
     def test_duplicate_names_are_disambiguated(self) -> None:
@@ -105,7 +112,7 @@ class BackupTests(unittest.TestCase):
                 (project / "pyproject.toml").write_text("", encoding="utf-8")
 
             dest = root / "backups"
-            _, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(first), scan_project(second)],
                 dest,
             )
@@ -115,8 +122,14 @@ class BackupTests(unittest.TestCase):
             self.assertTrue(all(path.parent == dest for path in archive_dirs))
             self.assertTrue(all(path.name.startswith("app-") for path in archive_dirs))
             self.assertEqual(len({path.name for path in archive_dirs}), 2)
+            self.assertEqual(
+                [path.parent for path in manifest_paths],
+                archive_dirs,
+            )
             for record in records:
                 self.assertTrue(Path(record.archive).is_file())
+            for path in manifest_paths:
+                self.assertTrue(path.is_file())
 
     def test_repeated_archives_share_project_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -124,11 +137,11 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            first_manifest, first_records = run_backup(
+            first_manifests, first_records = run_backup(
                 [scan_project(project)],
                 dest,
             )
-            second_manifest, second_records = run_backup(
+            second_manifests, second_records = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -140,9 +153,32 @@ class BackupTests(unittest.TestCase):
             self.assertNotEqual(first_archive, second_archive)
             self.assertTrue(first_archive.is_file())
             self.assertTrue(second_archive.is_file())
-            self.assertTrue(first_manifest.is_file())
-            self.assertTrue(second_manifest.is_file())
-            self.assertEqual(len(list(dest.glob("manifest-*.json"))), 2)
+            self.assertEqual(first_manifests[0].parent, dest / "app")
+            self.assertEqual(second_manifests[0].parent, dest / "app")
+            self.assertNotEqual(first_manifests[0], second_manifests[0])
+            self.assertEqual(len(list((dest / "app").glob("manifest-*.json"))), 2)
+
+    def test_batch_run_writes_manifest_per_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = make_project(root, "first")
+            second = make_project(root, "second")
+            dest = root / "backups"
+
+            manifest_paths, records = run_backup(
+                [scan_project(first), scan_project(second)],
+                dest,
+            )
+
+            self.assertEqual(len(records), 2)
+            self.assertEqual(len(manifest_paths), 2)
+            self.assertEqual(
+                {path.parent.name for path in manifest_paths},
+                {"first", "second"},
+            )
+            for path in manifest_paths:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(len(manifest["records"]), 1)
 
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
@@ -154,12 +190,14 @@ class GitStrategyBackupTests(unittest.TestCase):
             dest = root / "backups"
             head = git(project, "rev-parse", "HEAD")
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
             )
 
             self.assertEqual(len(records), 1)
+            self.assertEqual(len(manifest_paths), 1)
+            manifest_path = manifest_paths[0]
             record = records[0]
             self.assertEqual(record.strategy, "git")
             self.assertIsNone(record.archive)
@@ -175,7 +213,9 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(record.upstream, "origin/main")
             self.assertEqual(record.verified, "local-ref")
             self.assertIsNone(record.fallback_reason)
-            self.assertEqual(list(dest.iterdir()), [manifest_path])
+            self.assertEqual(manifest_path.parent, dest / "app")
+            self.assertEqual(list(dest.iterdir()), [dest / "app"])
+            self.assertEqual(list((dest / "app").iterdir()), [manifest_path])
 
             manifest = json.loads(
                 manifest_path.read_text(encoding="utf-8"),
@@ -200,7 +240,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             )
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -213,7 +253,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             )
             self.assertNotIn("secret-token", record.remote_url or "")
 
-            manifest = manifest_path.read_text(encoding="utf-8")
+            manifest = manifest_paths[0].read_text(encoding="utf-8")
             self.assertNotIn("secret-token", manifest)
             self.assertIn(
                 '"remote_url": "https://github.com/acme/app.git"',
@@ -227,7 +267,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             (project / "main.py").write_text("print('dirty')\n", encoding="utf-8")
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -243,7 +283,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertIsNotNone(record.sha256)
 
             manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8"),
+                manifest_paths[0].read_text(encoding="utf-8"),
             )
             entry = manifest["records"][0]
             self.assertEqual(entry["strategy"], "archive")
@@ -258,7 +298,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             project = make_pushed_repo(root)
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
                 always_archive=True,
@@ -271,7 +311,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(Path(record.archive).parent, dest / "app")
 
             manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8"),
+                manifest_paths[0].read_text(encoding="utf-8"),
             )
             self.assertTrue(manifest["always_archive"])
 
@@ -281,7 +321,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             project = make_pushed_repo(root)
             dest = root / "backups"
 
-            manifest_path, records = run_backup(
+            manifest_paths, records = run_backup(
                 [scan_project(project)],
                 dest,
                 include_artifacts=True,
@@ -294,7 +334,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(Path(record.archive).parent, dest / "app")
 
             manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8"),
+                manifest_paths[0].read_text(encoding="utf-8"),
             )
             self.assertTrue(manifest["include_artifacts"])
 

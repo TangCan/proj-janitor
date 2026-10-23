@@ -143,14 +143,14 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         return 1
 
     if args.dry_run:
-        manifest_path, plans = prepare_backup(
+        manifest_paths, plans = prepare_backup(
             projects,
             dest,
             include_artifacts=args.include_artifacts,
             always_archive=args.always_archive,
         )
-        print(f"Dry run. Manifest would be: {manifest_path}")
-        for plan in plans:
+        _print_dry_run_manifests(manifest_paths)
+        for manifest_path, plan in zip(manifest_paths, plans, strict=True):
             if plan.strategy == "git":
                 recovery = plan.recovery
                 url = recovery.remote_url if recovery else "-"
@@ -158,15 +158,15 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 print(f"  [git] {plan.project.name}: {url} @ {commit}")
             else:
                 archive_name = plan.archive_name or f"{plan.project.name}.tar.gz"
-                archive = manifest_path.parent / (plan.archive_dir or "")
+                archive = manifest_path.parent / archive_name
                 print(
                     f"  [archive] {plan.project.name}: "
                     f"{human_size(plan.project.size_bytes)}"
-                    f" -> {archive / archive_name} ({plan.reason})"
+                    f" -> {archive} ({plan.reason})"
                 )
         return 1 if failures else 0
 
-    manifest_path, records = run_backup(
+    manifest_paths, records = run_backup(
         projects,
         dest,
         include_artifacts=args.include_artifacts,
@@ -189,8 +189,26 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 f"{human_size(record.archive_bytes)}"
                 f"  sha256:{digest}  {record.archive}{reason}"
             )
-    print(f"Manifest: {manifest_path}")
+    _print_manifests(manifest_paths)
     return 1 if failures else 0
+
+
+def _print_dry_run_manifests(manifest_paths: Sequence[Path]) -> None:
+    if len(manifest_paths) == 1:
+        print(f"Dry run. Manifest would be: {manifest_paths[0]}")
+        return
+    print("Dry run. Manifests would be:")
+    for manifest_path in manifest_paths:
+        print(f"  {manifest_path}")
+
+
+def _print_manifests(manifest_paths: Sequence[Path]) -> None:
+    if len(manifest_paths) == 1:
+        print(f"Manifest: {manifest_paths[0]}")
+        return
+    print("Manifests:")
+    for manifest_path in manifest_paths:
+        print(f"  {manifest_path}")
 
 
 def _cmd_clean(args: argparse.Namespace) -> int:

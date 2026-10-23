@@ -173,7 +173,7 @@ class GitCliTests(unittest.TestCase):
             self.assertIn("[git] app:", out)
             self.assertNotIn("[archive]", out)
 
-            manifest_path = next(dest.glob("manifest-*.json"))
+            manifest_path = next(dest.glob("*/manifest-*.json"))
             manifest = json.loads(
                 manifest_path.read_text(encoding="utf-8"),
             )
@@ -202,7 +202,7 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("[archive] app:", out)
 
-            manifest_path = next(dest.glob("manifest-*.json"))
+            manifest_path = next(dest.glob("*/manifest-*.json"))
             manifest = json.loads(
                 manifest_path.read_text(encoding="utf-8"),
             )

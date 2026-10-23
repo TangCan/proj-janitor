@@ -55,26 +55,31 @@ projjan backup ~/richard_plus --dest ~/backups/projects --always-archive
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
-每次实际备份在 `--dest` 顶层写一个 `manifest-YYYYmmdd-HHMMSS.json`，不再创建 `backup-.../` 运行目录。纯 `git` 备份只产生这个清单：
+每个项目使用一个稳定的项目目录，不再创建 `backup-.../` 运行目录。纯 `git` 备份只在该目录下写清单：
 
 ```text
 backups/
-└── manifest-20261023-113453.json
+└── xtask_todo/
+    ├── manifest-20261023-122828.json
+    └── manifest-20261023-122832.json
 ```
 
-需要归档的项目按项目名放入独立子目录。同一项目不同时间的归档共用该目录，归档文件名带运行时间戳：
+需要归档的项目也写入同一个项目目录，归档文件名带运行时间戳：
 
 ```text
 backups/
-├── manifest-20261023-103117.json
 ├── xtask_todo/
+│   ├── manifest-20261023-103117.json
 │   └── xtask_todo-20261023-103117.tar.gz
 └── another_project/
+    ├── manifest-20261023-103117.json
     └── another_project-20261023-103117.tar.gz
 ```
 
+- 一次运行包含多个项目时，每个项目目录各写一份只包含该项目记录的清单。
+- 同一项目不同时间的清单和归档共用项目目录，文件名带时间戳。
 - 不同根目录下存在同名项目时，项目目录会追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
-- 同一秒内重复归档同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有归档。
+- 同一秒内重复备份同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有文件。
 - 旧版本生成的 `backup-YYYYmmdd-HHMMSS/` 目录不会被自动迁移或删除。
 
 清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive` 和 `records`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
@@ -142,7 +147,7 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 48 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
+当前 49 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
 
 ## 后续计划
 
