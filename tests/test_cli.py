@@ -129,6 +129,32 @@ class GitCliTests(unittest.TestCase):
             self.assertIn("https://github.com/acme/app.git", out)
             self.assertFalse(dest.exists())
 
+    def test_backup_dry_run_redacts_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(
+                project,
+                "remote",
+                "set-url",
+                "origin",
+                "https://user:secret-token@github.com/acme/app.git",
+            )
+            dest = root / "backups"
+
+            code, out, _ = run_cli(
+                "backup",
+                str(root),
+                "--dest",
+                str(dest),
+                "--dry-run",
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("[git] app:", out)
+            self.assertIn("https://github.com/acme/app.git", out)
+            self.assertNotIn("secret-token", out)
+
     def test_backup_records_git_strategy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

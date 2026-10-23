@@ -5,11 +5,14 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from proj_janitor.scanner import (
+    _remote_tag_refs,
     discover_projects,
     inspect_git_recoverability,
     is_github_remote_url,
+    sanitize_remote_url,
     scan_project,
 )
 from tests.support import (
@@ -113,6 +116,9 @@ class GithubUrlTests(unittest.TestCase):
         for url in (
             "https://github.com/acme/app",
             "https://github.com/acme/app.git",
+            "https://token@github.com/acme/app.git",
+            "https://user:token@github.com/acme/app.git",
+            "https://x-access-token:ghp_example@github.com/acme/app.git",
             "ssh://git@github.com/acme/app.git",
             "git@github.com:acme/app.git",
         ):
@@ -122,7 +128,6 @@ class GithubUrlTests(unittest.TestCase):
     def test_rejects_non_github_or_ambiguous_urls(self) -> None:
         for url in (
             "http://github.com/acme/app.git",
-            "https://user:token@github.com/acme/app.git",
             "https://github.com.evil.com/acme/app.git",
             "https://gitlab.com/acme/app.git",
             "/tmp/acme/app.git",
@@ -134,6 +139,22 @@ class GithubUrlTests(unittest.TestCase):
         ):
             with self.subTest(url=url):
                 self.assertFalse(is_github_remote_url(url))
+
+    def test_sanitizes_https_credentials(self) -> None:
+        self.assertEqual(
+            sanitize_remote_url(
+                "https://user:secret-token@github.com/acme/app.git",
+            ),
+            "https://github.com/acme/app.git",
+        )
+        self.assertEqual(
+            sanitize_remote_url("https://secret-token@github.com/acme/app"),
+            "https://github.com/acme/app",
+        )
+        self.assertEqual(
+            sanitize_remote_url("git@github.com:acme/app.git"),
+            "git@github.com:acme/app.git",
+        )
 
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
@@ -155,6 +176,26 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertEqual(state.commit, git(project, "rev-parse", "HEAD"))
             self.assertEqual(state.upstream, "origin/main")
             self.assertEqual(state.verified, "local-ref")
+
+    def test_credentialed_https_remote_is_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(
+                project,
+                "remote",
+                "set-url",
+                "origin",
+                "https://user:secret-token@github.com/acme/app.git",
+            )
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertTrue(state.eligible)
+            self.assertEqual(
+                state.remote_url,
+                "https://github.com/acme/app.git",
+            )
+            self.assertNotIn("secret-token", state.remote_url or "")
 
     def test_unpushed_commit_is_not_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -188,6 +229,88 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertFalse(state.eligible)
             self.assertEqual(state.reason, "stash entries are not included")
 
+    def test_remote_tag_refs_returns_raw_tag_object_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            git(project, "tag", "v1")
+            git(project, "tag", "-a", "v2", "-m", "v2")
+            git(project, "push", "-q", str(remote), "v1", "v2")
+
+            refs = _remote_tag_refs(project, str(remote))
+
+            self.assertEqual(
+                refs,
+                {
+                    "v1": git(project, "rev-parse", "v1"),
+                    "v2": git(project, "rev-parse", "v2"),
+                },
+            )
+
+    def test_pushed_tag_is_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "tag", "v1")
+            tag_sha = git(project, "rev-parse", "v1")
+
+            with patch(
+                "proj_janitor.scanner._remote_tag_refs",
+                return_value={"v1": tag_sha},
+            ):
+                state = inspect_git_recoverability(scan_project(project))
+
+            self.assertTrue(state.eligible)
+            self.assertIsNone(state.reason)
+
+    def test_local_only_tag_blocks_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "tag", "v1")
+
+            with patch(
+                "proj_janitor.scanner._remote_tag_refs",
+                return_value={},
+            ):
+                state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(state.reason, "local tag is not pushed: v1")
+
+    def test_tag_with_different_remote_target_blocks_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "tag", "v1")
+
+            with patch(
+                "proj_janitor.scanner._remote_tag_refs",
+                return_value={"v1": "0" * 40},
+            ):
+                state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "local tag differs from remote: v1",
+            )
+
+    def test_tag_verification_failure_blocks_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "tag", "v1")
+
+            with patch(
+                "proj_janitor.scanner._remote_tag_refs",
+                return_value=None,
+            ):
+                state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "cannot verify local tags on remote",
+            )
+
     def test_non_github_remote_is_not_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -205,7 +328,7 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertFalse(state.eligible)
             self.assertEqual(
                 state.reason,
-                "remote is not a credential-free GitHub URL",
+                "remote is not a supported GitHub URL",
             )
 
     def _pushed_repo_with_ignored_dir(self, root: Path) -> Path:

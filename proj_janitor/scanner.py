@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from proj_janitor.config import PROJECT_MARKERS
 from proj_janitor.models import GitRecovery, GitState, Project, human_size
@@ -123,14 +123,30 @@ def is_github_remote_url(remote: str) -> bool:
             return False
         if parsed.scheme != "https" or parsed.hostname != "github.com":
             return False
-        if parsed.username is not None or parsed.password is not None:
-            return False
         if parsed.port not in (None, 443):
             return False
         if parsed.query or parsed.fragment:
             return False
+        # Accept embedded PATs for private remotes, but callers must persist
+        # only the sanitized URL.
         return _valid_github_path(parsed.path.lstrip("/"))
     return False
+
+
+def sanitize_remote_url(remote: str) -> str:
+    """Return a URL safe to persist, without HTTPS userinfo."""
+    if not remote.startswith("https://"):
+        return remote
+    try:
+        parsed = urlsplit(remote)
+    except ValueError:
+        return remote
+    if parsed.scheme != "https" or parsed.hostname != "github.com":
+        return remote
+    host = parsed.hostname
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return urlunsplit(("https", host, parsed.path, "", ""))
 
 
 def _valid_github_path(path: str) -> bool:
@@ -196,7 +212,8 @@ def inspect_git_recoverability(
     if not remote_url:
         return GitRecovery(False, "remote URL is unavailable")
     if not is_github_remote_url(remote_url):
-        return GitRecovery(False, "remote is not a credential-free GitHub URL")
+        return GitRecovery(False, "remote is not a supported GitHub URL")
+    safe_remote_url = sanitize_remote_url(remote_url)
 
     head = _git_output(path, "rev-parse", "HEAD")
     if not head:
@@ -209,12 +226,6 @@ def inspect_git_recoverability(
         return GitRecovery(False, "cannot compare HEAD with upstream")
     if ahead != 0:
         return GitRecovery(False, "HEAD is ahead of upstream")
-
-    tags = _git_output(path, "tag", "--list")
-    if tags is None:
-        return GitRecovery(False, "cannot list tags")
-    if tags:
-        return GitRecovery(False, "local tags are not included")
 
     if (path / ".gitmodules").exists():
         return GitRecovery(False, "submodules are not supported")
@@ -311,16 +322,64 @@ def inspect_git_recoverability(
                 f"local branch is not fully pushed: {local_branch}",
             )
 
+    tag_error = _verify_local_tags(path, remote)
+    if tag_error is not None:
+        return GitRecovery(False, tag_error)
+
     return GitRecovery(
         True,
         None,
         remote=remote,
-        remote_url=remote_url,
+        remote_url=safe_remote_url,
         branch=branch,
         commit=head,
         upstream=upstream,
         verified="local-ref",
     )
+
+
+def _verify_local_tags(path: Path, remote: str) -> str | None:
+    local_tags = _git_output(
+        path,
+        "for-each-ref",
+        "--format=%(refname:short) %(objectname)",
+        "refs/tags",
+    )
+    if local_tags is None:
+        return "cannot list tags"
+    if not local_tags:
+        return None
+
+    remote_tags = _remote_tag_refs(path, remote)
+    if remote_tags is None:
+        return "cannot verify local tags on remote"
+
+    for line in local_tags.splitlines():
+        name, separator, sha = line.partition(" ")
+        if not separator or not name or not sha:
+            return "cannot list tags"
+        remote_sha = remote_tags.get(name)
+        if remote_sha is None:
+            return f"local tag is not pushed: {name}"
+        if remote_sha != sha:
+            return f"local tag differs from remote: {name}"
+    return None
+
+
+def _remote_tag_refs(path: Path, remote: str) -> dict[str, str] | None:
+    output = _git_output(path, "ls-remote", "--tags", "--refs", remote)
+    if output is None:
+        return None
+
+    refs: dict[str, str] = {}
+    prefix = "refs/tags/"
+    for line in output.splitlines():
+        sha, separator, reference = line.partition("\t")
+        if not separator:
+            return None
+        if reference.startswith(prefix):
+            refs[reference[len(prefix) :]] = sha
+    return refs
 
 
 def _git_run(path: Path, *args: str) -> subprocess.CompletedProcess[str] | None:

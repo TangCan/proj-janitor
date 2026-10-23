@@ -148,6 +148,38 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertIsNone(entry["sha256"])
             self.assertEqual(entry["commit"], head)
 
+    def test_credentialed_remote_is_recorded_without_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(
+                project,
+                "remote",
+                "set-url",
+                "origin",
+                "https://user:secret-token@github.com/acme/app.git",
+            )
+
+            run_dir, records = run_backup(
+                [scan_project(project)],
+                root / "backups",
+            )
+
+            record = records[0]
+            self.assertEqual(record.strategy, "git")
+            self.assertEqual(
+                record.remote_url,
+                "https://github.com/acme/app.git",
+            )
+            self.assertNotIn("secret-token", record.remote_url or "")
+
+            manifest = (run_dir / "manifest.json").read_text(encoding="utf-8")
+            self.assertNotIn("secret-token", manifest)
+            self.assertIn(
+                '"remote_url": "https://github.com/acme/app.git"',
+                manifest,
+            )
+
     def test_dirty_repo_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
