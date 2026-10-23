@@ -5,32 +5,32 @@
 | 项目 | 内容 |
 | --- | --- |
 | 项目名称 | proj-janitor（proj_janitor） |
-| 项目描述 | 本地项目盘点、备份与安全清理命令行工具 |
+| 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | v0.1.0 |
-| 源码提交 | `012d539e58035346fc01fda81b8bc06c1440d4f3` |
-| 源码标签 | `v0.1.0` |
-| 文档日期 | 2026-10-22 |
+| 文档版本 | v0.1.0（post-v0.1.0 一致性修订） |
+| 源码提交 | `e38a13a3e5b4b8bd759e34ed7bc31dd4f05c44fc`（代码基线） |
+| 源码标签 | `v0.1.0` 仍指向 `012d539e58035346fc01fda81b8bc06c1440d4f3`，不含 post-v0.1.0 变更 |
+| 文档日期 | 2026-10-23 |
 | 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
-| 编制依据 | v0.1.0 源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
+| 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 v0.1.0 已实现代码和测试整理，不代表存在经批准的外部接口契约。命令行为以源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
+> 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
 ## 2. 概述
 
 ### 2.1 目的与范围
 
-本文说明 `proj_janitor` v0.1.0 对用户和自动化脚本暴露的接口，包括：
+本文说明 `proj_janitor` 当前版本（`v0.1.0` 基线加 post-v0.1.0 变更）对用户和自动化脚本暴露的接口，包括：
 
 - 命令行入口、子命令、参数、输出和退出码；
-- `scan` 和 `clean` 的 JSON 输出；
-- `backup` 生成的备份清单 `manifest.json`（schema v2）；
+- `scan`、`clean` 和 `restore` 的 JSON 输出；
+- `backup` 生成的按项目备份清单 `manifest-<时间戳>.json`（schema v2）；
 - 可供 Python 调用的模块级函数及其输入、输出、异常和副作用；
 - 错误分类、Git 可恢复性失败原因、兼容性和明确不支持的外部接口。
 
-本文覆盖的接口是 v0.1.0 已实现行为，不构成对未来版本的兼容性承诺。Python 模块整体属于内部实现，除本文列出的函数外，不保证稳定的导入路径、函数签名或行为。
+本文覆盖的接口是代码基线已实现行为，不构成对未来版本的兼容性承诺。Python 模块整体属于内部实现，除本文列出的函数外，不保证稳定的导入路径、函数签名或行为。
 
 ### 2.2 接口分类
 
@@ -38,12 +38,12 @@
 | --- | --- | --- | --- |
 | CLI | `projjan` 控制台脚本、`python3 -m proj_janitor` | 用户、Shell 脚本 | v0.1.0 行为；后续可能调整 |
 | 文本输出 | 标准输出/标准错误 | 用户、终端日志 | 面向人阅读，不建议作为机器协议 |
-| JSON 输出 | `scan --json`、`clean --json` | 自动化脚本 | 无独立 schema 版本号，字段可能变化 |
-| 备份清单 | `<run_dir>/manifest.json` | 恢复、审计、外部工具 | `schema_version: 2` |
+| JSON 输出 | `scan --json`、`clean --json`、`restore --json` | 自动化脚本 | 无独立 schema 版本号，字段可能变化 |
+| 备份清单 | `DEST/<project>/manifest-<timestamp>.json` | 恢复、审计、外部工具 | `schema_version: 2` |
 | Python API | `proj_janitor` 包内函数 | 本仓库测试、内部扩展 | 内部接口，非稳定公共 API |
-| 文件系统接口 | 读取项目、写入归档、删除目标 | 操作系统 | 受本地权限和文件系统语义约束 |
-| Git 接口 | 本机 `git` 子进程 | 扫描和备份决策 | 依赖外部 Git 可执行文件 |
-| HTTP API | 无 | 无 | v0.1.0 不提供 |
+| 文件系统接口 | 读取项目、写入归档、读取 manifest/归档、写入恢复目录、删除目标 | 操作系统 | 受本地权限和文件系统语义约束 |
+| Git 接口 | 本机 `git` 子进程 | 扫描、备份决策、tag 校验和恢复 | 依赖外部 Git 可执行文件 |
+| HTTP API | 无 | 无 | 当前不提供 |
 
 ### 2.3 通用约定
 
@@ -51,26 +51,27 @@
 | --- | --- |
 | 标准输出 | 正常结果、表格、JSON、dry-run 提示和成功摘要写入标准输出。 |
 | 标准错误 | 参数错误、根路径错误、无项目提示、拒绝删除和逐项删除错误写入标准错误。 |
-| 退出码 | `0` 表示成功；`1` 表示根路径/项目处理/删除失败或无项目可备份；`2` 表示用法错误、拒绝删除或用户取消。详见第 8 节。 |
+| 退出码 | `0` 表示成功；`1` 表示根路径/项目处理/删除失败、无项目可备份或恢复失败；`2` 表示用法错误、拒绝删除或用户取消。详见第 9 节。 |
 | 路径 | 项目路径在扫描后解析为绝对路径；`~` 在根路径和备份目标上展开；输出中的路径按当前平台字符串表示。 |
 | 体积 | 统一以字节整数传递；文本输出使用 `B`、`KiB`、`MiB`、`GiB`、`TiB`，非字节单位保留一位小数。 |
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
-| 网络 | v0.1.0 不发起网络请求，不调用 GitHub API，不监听端口；仅调用本机 `git` 读取本地仓库状态。 |
+| 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
 | 配置 | 无配置文件、无环境变量配置；项目标记和清理规则由 `config.py` 静态定义。 |
-| 并发 | 无线程、异步任务、文件锁或事务；不承诺多个实例并发操作同一目录时的行为。 |
+| 并发 | 无线程、异步任务、文件锁或事务；不承诺多个实例并发操作同一目录时的行为；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
 
-v0.1.0 不提供以下接口：
+当前版本不提供以下接口：
 
-- `restore` 子命令或自动恢复流程；
+- 独立 `verify` 子命令；归档 SHA-256 校验内置于 `restore`；
+- 恢复覆盖、回滚、断点续传、进度显示或远程提交预检；
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
 - 自定义清理规则文件、配置文件或每项目排除文件；
 - Git LFS、submodule、tag、detached HEAD 的完整备份；
-- 远端仓库实际抓取、提交存在性联网验证或 GitHub 认证；
-- 归档解压校验、恢复演练、归档内容秘密扫描；
+- GitHub API 认证、远端提交存在性预检或自动恢复演练；
+- 归档内容秘密扫描；
 - Windows/macOS 的正式兼容性承诺。
 
 ## 3. 程序入口
@@ -113,7 +114,7 @@ exit_code = main(["scan", "/path/to/projects"])
 `main(argv: Sequence[str] | None = None) -> int`：
 
 - `argv` 为 `None` 时使用 `sys.argv[1:]`；
-- 解析参数并分派到 `scan`、`backup` 或 `clean`；
+- 解析参数并分派到 `scan`、`backup`、`restore` 或 `clean`；
 - 返回整数退出码；
 - 参数错误由 `argparse` 直接抛出 `SystemExit`，不会以普通返回值返回。
 
@@ -135,7 +136,8 @@ exit_code = main(["scan", "/path/to/projects"])
 | 命令 | 用途 | 默认是否写入 |
 | --- | --- | --- |
 | `scan` | 发现项目，输出体积、修改时间、项目标记和 Git 状态 | 只读 |
-| `backup` | 按 Git 可恢复性记录位置或创建 `tar.gz`，并生成 manifest | 写入备份目录 |
+| `backup` | 按 Git 可恢复性记录位置或创建 `tar.gz`，并按项目生成 manifest | 写入备份目录 |
+| `restore` | 按 manifest 恢复 Git 项目或归档项目 | 写入恢复目标 |
 | `clean` | 按白名单生成清理计划；确认后删除构建产物 | 默认 dry-run |
 
 ## 4. `--version`
@@ -265,7 +267,7 @@ No projects found.
 
 ### 5.6 JSON 输出
 
-`--json` 时输出 JSON 数组，不输出表头。字段见第 9.1 节。
+`--json` 时输出 JSON 数组，不输出表头。字段见第 10.1 节。
 
 示例（示意）：
 
@@ -338,54 +340,55 @@ projjan backup ROOT [ROOT ...] --dest DEST [--dry-run]
 说明：
 
 - `--include-artifacts` 和 `--always-archive` 都会跳过 Git 可恢复性检查。此时归档记录不会携带 `remote`、`remote_url`、`branch`、`commit`、`upstream` 或 `verified`。
-- Git 策略只记录本地 Git 引用证据（`verified: "local-ref"`），不联网确认远端是否存在该提交。
+- Git 策略记录本地 Git 引用证据（`verified: "local-ref"`）；存在本地 tag 时会联网查询远程 tag，但不抓取远程提交，也不证明远端仍存在该提交。
+- HTTPS GitHub URL 可内嵌 PAT；`remote_url` 在写入记录、manifest 和 CLI 输出前会去除用户名、密码/token、查询字符串和片段。
 - 归档策略会记录 `fallback_reason`；如果没有具体原因，使用 `not recoverable from GitHub`。
-- Git 可恢复性检查的完整失败原因见第 12.3 节。
+- Git 可恢复性检查的完整失败原因见第 13.3 节。
 
 ### 6.3 dry-run 行为与输出
 
-`--dry-run` 调用 `prepare_backup()`，只计算运行目录和计划，不创建任何文件，也不要求 `--dest` 已存在。
+`--dry-run` 调用 `prepare_backup()`，只计算每个项目的备份目录、清单路径和计划，不创建任何文件，也不要求 `--dest` 已存在。
 
 输出格式：
 
 ```text
-Dry run. Backup directory would be: /path/to/backups/backup-20261022-153000
+Dry run. Manifest would be: /path/to/backups/demo/manifest-20261023-135243.json
   [git] demo: https://github.com/owner/demo.git @ 012d539e5803
-  [archive] old-tool: 12.4 MiB -> /path/to/backups/backup-20261022-153000/old-tool.tar.gz (working tree is not clean)
+  [archive] old-tool: 12.4 MiB -> /path/to/backups/old-tool/old-tool-20261023-135243.tar.gz (working tree is not clean)
 ```
 
-- Git 行显示远程 URL 和提交 SHA 前 12 位；缺失时分别显示 `-`。
-- 归档行显示源体积、目标归档路径和原因。
+- 每个项目各有一行清单路径；Git 行显示脱敏后的远程 URL 和提交 SHA 前 12 位，缺失时分别显示 `-`。
+- 归档行显示源体积、项目目录下的目标归档路径和原因。
 - dry-run 的退出码为 `0`，除非项目发现阶段有根路径失败（`1`）。
 
 ### 6.4 实际运行与输出
 
 非 dry-run 时调用 `run_backup()`：
 
-1. 再次执行 `prepare_backup()` 计算计划和唯一运行目录。
-2. `mkdir(parents=True)` 创建运行目录。
-3. 对每个项目：Git 策略直接写记录；归档策略写 `tar.gz` 并计算 SHA-256。
-4. 所有项目处理后，写入 `<run_dir>/manifest.json`。
-5. 输出摘要：
+1. 再次执行 `prepare_backup()` 计算每个项目的计划、项目目录和唯一文件名。
+2. 对每个项目创建 `DEST/<项目名>/`；Git 策略直接写记录，归档策略写 `tar.gz` 并计算 SHA-256。
+3. 每个项目单独写入 `DEST/<项目名>/manifest-<时间戳>.json`，清单只包含该项目的一条记录。
+4. 输出摘要：
 
 ```text
-Backed up 2 project(s) to /path/to/backups/backup-20261022-153000
+Backed up 2 project(s).
   [git] demo: https://github.com/owner/demo.git @ 012d539e5803
-  [archive] old-tool: 12.4 MiB  sha256:9f2c1a7b3d4e  /path/to/backups/backup-20261022-153000/old-tool.tar.gz  (working tree is not clean)
-Manifest: /path/to/backups/backup-20261022-153000/manifest.json
+  [archive] old-tool: 12.4 MiB  sha256:9f2c1a7b3d4e  /path/to/backups/old-tool/old-tool-20261023-135243.tar.gz  (working tree is not clean)
+Manifest: /path/to/backups/demo/manifest-20261023-135243.json
+Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 ```
 
-归档行中的 SHA-256 只显示前 12 位；完整值在 manifest 中。`fallback_reason` 存在时在末尾以括号显示。
+归档行中的 SHA-256 只显示前 12 位；完整值在 manifest 中。`fallback_reason` 存在时在末尾以括号显示。批量运行会为每个项目各打印一行 `Manifest:`。
 
 ### 6.5 目录与归档命名
 
-- 运行目录：`backup-YYYYmmdd-HHMMSS`，使用本地时间。
-- 如果同名目录已存在，依次尝试 `-2`、`-3` 等后缀。
-- 归档默认名为 `<项目名>.tar.gz`。
-- 同一次运行中项目名重复时，第二个及以后使用 `<项目名>-2.tar.gz`、`<项目名>-3.tar.gz` 等。
+- 每个项目使用稳定目录：`DEST/<项目名>/`，不创建按运行时间命名的运行目录。
+- 不同根目录下存在同名项目时，项目目录名追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
+- 归档默认名为 `<项目名>-YYYYmmdd-HHMMSS.tar.gz`，与清单放在同一项目目录。
+- 同一秒内重复备份同一项目时，清单和归档文件名追加 `-2`、`-3` 等后缀，不覆盖已有文件。
 - 归档使用 `tar.add(project.path, arcname=project.name)`，因此归档内顶层目录是项目名。
 - 未使用 `--include-artifacts` 时，按 `artifact_patterns()` 排除构建产物和依赖缓存；匹配的是路径中的任一段名称。
-- 归档会包含 `.git` 目录；该行为不等同于 `git bundle`，也不保证恢复完整 Git 历史的所有边界情况。
+- 归档会包含 `.git` 目录；该行为不等同于 `git bundle`，也不保证恢复完整 Git 历史的所有边界情况。若远程 URL 内嵌 PAT，`.git/config` 也可能保留该凭据。
 
 ### 6.6 退出码与错误
 
@@ -398,7 +401,7 @@ Manifest: /path/to/backups/backup-20261022-153000/manifest.json
 | 归档、manifest 写入或文件系统异常 | 未捕获 | 可能以 Python traceback 结束，且不保证 manifest 存在。 |
 | 参数缺失或非法 | `2` | `argparse` 用法错误。 |
 
-注意：`run_backup()` 在逐个项目归档时没有把单个项目的 `OSError`/`tarfile.TarError` 转换为记录级错误。某个项目归档中途失败时，命令可能终止，已生成的归档保留，但本次 manifest 可能缺失。该限制见第 13.4 节。
+注意：`run_backup()` 在逐个项目归档时没有把单个项目的 `OSError`/`tarfile.TarError` 转换为记录级错误。某个项目归档中途失败时，命令可能终止，已生成的归档保留，但本次 manifest 可能缺失。该限制见第 14.4 节。
 
 ### 6.7 示例
 
@@ -504,7 +507,7 @@ Dry run. Re-run with --apply to delete these items.
 
 ### 7.5 JSON 输出
 
-`--json` 时先输出计划数组，字段见第 9.2 节。随后根据 `--apply`、确认和结果继续输出文本。因此 `clean --json` 的标准输出不是严格纯 JSON：
+`--json` 时先输出计划数组，字段见第 10.2 节。随后根据 `--apply`、确认和结果继续输出文本。因此 `clean --json` 的标准输出不是严格纯 JSON：
 
 | 场景 | 标准输出内容 |
 | --- | --- |
@@ -563,24 +566,116 @@ projjan clean ~/projects --apply --yes
 projjan clean . --list-rules
 ```
 
-## 8. 退出码
+## 8. `restore`
+
+### 8.1 语法与参数
+
+```text
+projjan restore MANIFEST --dest DIR [--project NAME]
+                   [--dry-run] [--no-verify] [--json]
+```
+
+| 参数 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `MANIFEST` | 是 | 无 | `backup` 生成的 schema v2 清单路径。 |
+| `--dest DIR` | 是 | 无 | 恢复父目录；实际恢复到 `DIR/<项目名>/`。支持 `~` 展开。 |
+| `--project NAME` | 否 | 全部记录 | 只恢复指定项目；可重复指定。 |
+| `--dry-run` | 否 | 关闭 | 只校验并展示计划，不创建恢复目录。 |
+| `--no-verify` | 否 | 关闭 | 跳过归档 SHA-256 校验；不推荐用于不可信归档。 |
+| `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
+
+### 8.2 行为
+
+1. 读取 UTF-8 JSON manifest，要求 `schema_version` 为 `2`，`records` 为非空对象数组。
+2. 校验项目名不含绝对路径、`/`、`\`、`..` 或 NUL；同名项目拒绝恢复。
+3. 预检所有目标路径；`--dest/<项目名>` 已存在或是符号链接时拒绝覆盖，且不会开始恢复。
+4. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号，执行 `git clone --no-checkout -- <remote_url> <temp>`，再执行 `git checkout --detach <commit>`，确认 HEAD 后移动到目标目录。
+5. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、`..`、特殊文件和越界链接，再移动到目标目录。
+6. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
+7. Git 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。
+
+### 8.3 输出
+
+人类可读 dry-run：
+
+```text
+Restore plan: 1 project(s)
+  [archive] demo: /path/to/backups/demo/demo-20261023-135243.tar.gz (sha256 verified) -> /path/to/restored/demo
+Dry run. Re-run without --dry-run to restore.
+```
+
+实际恢复：
+
+```text
+Restored 1 project(s).
+  [archive] demo -> /path/to/restored/demo
+```
+
+Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> <目标路径>`。
+
+`--json` 的顶层结构：
+
+```json
+{
+  "dry_run": true,
+  "projects": [
+    {
+      "project": "demo",
+      "strategy": "archive",
+      "target": "/path/to/restored/demo",
+      "archive": "/path/to/backups/demo/demo-20261023-135243.tar.gz",
+      "remote_url": null,
+      "commit": null,
+      "sha256": "9f2c...",
+      "sha256_verified": true
+    }
+  ]
+}
+```
+
+非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`；`dry_run` 为 `false`。
+
+### 8.4 退出码与错误
+
+| 情况 | 退出码 | 说明 |
+| --- | --- | --- |
+| 全部恢复成功或 dry-run 成功 | `0` | 目标目录已创建或仅输出计划。 |
+| manifest 不存在/不可读/结构非法 | `1` | 标准错误输出 `error: ...`。 |
+| `--project` 指定的项目不存在 | `1` | 不开始恢复。 |
+| 项目名不安全或目标已存在 | `1` | 拒绝覆盖，不开始恢复。 |
+| 归档缺失、SHA-256 不匹配、解压失败 | `1` | 不创建目标目录。 |
+| Git URL/提交非法、clone/checkout 失败 | `1` | 清理临时目录，不创建目标目录。 |
+| 参数缺失或非法 | `2` | `argparse` 用法错误。 |
+
+### 8.5 示例
+
+```bash
+projjan restore ~/backups/projects/xtask_todo/manifest-20261023-122828.json \
+  --dest ~/restored
+projjan restore <manifest> --dest ~/restored --dry-run
+projjan restore <manifest> --dest ~/restored --project xtask_todo
+projjan restore <manifest> --dest ~/restored --json
+```
+
+## 9. 退出码
 
 | 退出码 | 通用含义 | 典型场景 |
 | --- | --- | --- |
-| `0` | 成功 | 扫描完成；备份及 manifest 写入完成；清理计划为空或删除完成；`--version`/`--help`/`--list-rules`。 |
-| `1` | 部分失败或无可处理对象 | 根路径错误；`backup` 无项目；`DEST` 不是目录；清理计划/删除出现错误。 |
+| `0` | 成功 | 扫描完成；备份及 manifest 写入完成；恢复完成或 dry-run 成功；清理计划为空或删除完成；`--version`/`--help`/`--list-rules`。 |
+| `1` | 部分失败或无可处理对象 | 根路径错误；`backup` 无项目；`DEST` 不是目录；manifest/归档无效；SHA-256 不匹配；恢复目标已存在；Git 恢复失败；清理计划/删除出现错误。 |
 | `2` | 用法错误或拒绝执行 | `argparse` 参数错误；缺少子命令；非交互删除未给 `--yes`；用户取消确认。 |
 
 补充：
 
 - `scan` 的“没有项目”本身不是错误；只有根路径失败才返回 `1`。
 - `backup` 的“没有项目”返回 `1`，且不检查目标目录。
+- `restore` 的 manifest/归档校验、目标已存在和 Git 恢复失败均返回 `1`；参数错误返回 `2`。
 - `clean` 的 `--list-rules` 在参数解析通过后直接返回 `0`，不验证根路径。
 - Python API 不统一返回退出码；调用方需要捕获异常或检查返回对象。
 
-## 9. JSON 输出
+## 10. JSON 输出
 
-### 9.1 `scan --json` 数组元素
+### 10.1 `scan --json` 数组元素
 
 顶层为 JSON 数组。每个元素结构：
 
@@ -625,7 +720,7 @@ projjan clean . --list-rules
 - `size_bytes` 不是 `du` 的磁盘块占用。
 - `last_modified` 的时区偏移由运行环境决定，不是固定 UTC。
 
-### 9.2 `clean --json` 数组元素
+### 10.2 `clean --json` 数组元素
 
 顶层为 JSON 数组。每个元素结构：
 
@@ -665,7 +760,25 @@ projjan clean . --list-rules
 - 计划项按 `(project, path)` 字符串排序；不保证按体积或规则名排序。
 - `size_bytes` 是计划时估算值；删除前文件可能变化，实际释放空间以操作系统结果为准。
 
-### 9.3 JSON 使用建议
+### 10.3 `restore --json` 对象
+
+顶层为对象，包含 `dry_run` 布尔值和 `projects` 数组：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `dry_run` | boolean | 是否为 dry-run。 |
+| `projects[].project` | string | 项目名。 |
+| `projects[].strategy` | string | `"git"` 或 `"archive"`。 |
+| `projects[].target` | string | 恢复目标绝对路径。 |
+| `projects[].archive` | string/null | 归档路径；Git 策略为 `null`。 |
+| `projects[].remote_url` | string/null | 脱敏后的远程 URL；归档策略为 `null`。 |
+| `projects[].commit` | string/null | manifest 中的提交号；归档策略为 `null`。 |
+| `projects[].sha256` | string/null | manifest 中的归档哈希；Git 策略为 `null`。 |
+| `projects[].sha256_verified` | boolean | dry-run 计划是否已完成哈希校验；非 dry-run 结果不包含该字段。 |
+
+非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`。
+
+### 10.4 JSON 使用建议
 
 - 把标准输出与标准错误分开采集。
 - 同时检查退出码：`scan` 可能输出部分结果但返回 `1`；`clean` 可能在 JSON 后追加文本。
@@ -673,11 +786,11 @@ projjan clean . --list-rules
 - 处理路径时按 JSON 字符串解析，不要按空白或分隔符二次切分。
 - 对 `last_modified` 使用支持时区偏移的 ISO 8601 解析器。
 
-## 10. 备份清单 `manifest.json`（schema v2）
+## 11. 备份清单 `manifest-<timestamp>.json`（schema v2）
 
-### 10.1 顶层结构
+### 11.1 顶层结构
 
-`<run_dir>/manifest.json` 使用 UTF-8、缩进 2、末尾换行。顶层字段：
+`DEST/<项目名>/manifest-<时间戳>.json` 使用 UTF-8、缩进 2、末尾换行。每个清单只包含当前项目的一条记录。顶层字段：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -687,9 +800,9 @@ projjan clean . --list-rules
 | `version` | string | 当前工具版本，`"0.1.0"`。 |
 | `include_artifacts` | boolean | 本次运行是否使用 `--include-artifacts`。 |
 | `always_archive` | boolean | 本次运行是否使用 `--always-archive`。 |
-| `records` | array[object] | 每个项目一条记录，顺序与计划顺序一致。 |
+| `records` | array[object] | 每个清单只包含当前项目的一条记录；批量运行按项目分别写清单。 |
 
-### 10.2 记录字段
+### 11.2 记录字段
 
 记录由 `BackupRecord` 经 `dataclasses.asdict()` 序列化，所有记录包含相同字段集合：
 
@@ -703,7 +816,7 @@ projjan clean . --list-rules
 | `sha256` | string \| null | `null` | 归档完整 SHA-256 |
 | `strategy` | string | `"git"` | `"archive"` |
 | `remote` | string \| null | Git remote 名，如 `origin` | `null` |
-| `remote_url` | string \| null | 通过校验的无凭据 GitHub URL | `null` |
+| `remote_url` | string \| null | 通过校验并脱敏的 GitHub URL（不含用户名/token/查询/片段） | `null` |
 | `branch` | string \| null | 本地分支名 | `null` |
 | `commit` | string \| null | `HEAD` 提交 SHA | `null` |
 | `upstream` | string \| null | 上游引用，如 `origin/main` | `null` |
@@ -714,10 +827,10 @@ projjan clean . --list-rules
 
 - `include_artifacts`
 - `always_archive`
-- Git 可恢复性失败原因（见第 12.3 节）
+- Git 可恢复性失败原因（见第 13.3 节）
 - `not recoverable from GitHub`
 
-### 10.3 示例
+### 11.3 示例
 
 ```json
 {
@@ -747,7 +860,7 @@ projjan clean . --list-rules
     {
       "project": "old-tool",
       "source": "/home/user/projects/old-tool",
-      "archive": "/home/user/backups/backup-20261022-193000/old-tool.tar.gz",
+      "archive": "/home/user/backups/old-tool/old-tool-20261022-193000.tar.gz",
       "archive_bytes": 13002342,
       "source_bytes": 22984704,
       "sha256": "9f2c1a7b3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcd",
@@ -764,21 +877,21 @@ projjan clean . --list-rules
 }
 ```
 
-### 10.4 语义与限制
+### 11.4 语义与限制
 
 - `created_at` 使用 `datetime.now(timezone.utc).isoformat()`，通常带 `+00:00` 偏移。
 - `archive_bytes` 是归档文件自身大小；`source_bytes` 是备份前扫描到的源目录普通文件字节数。默认排除构建产物时，二者不可直接比较。
 - `sha256` 是归档文件的 SHA-256，不是源文件清单，也不是对归档内容逐文件的哈希。
 - `remote` 是 Git remote 名称，`remote_url` 是通过语法校验的 URL；二者不同。
-- Git 记录的 `verified: "local-ref"` 只表示本地引用检查通过，不表示已联网确认远端存在该提交。
+- Git 记录的 `verified: "local-ref"` 只表示本地引用检查通过；存在本地 tag 时会查询远程 tag，但不表示已联网确认远端存在该提交。
 - 归档记录不保存 Git 可恢复性检查的详细字段；只保存 `fallback_reason`。
-- manifest 在所有项目处理完后写入；如果中途异常，可能只有部分归档而没有 manifest。
-- manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件。工具不加密、不做秘密扫描。
-- 当前没有 `restore` 子命令；恢复需按 manifest 手动执行 `git clone`/`git checkout` 或 `tar -xzf`。
+- 每个项目处理完成后写入自己的 manifest；如果中途异常，可能只有部分归档或部分 manifest（DEF-003）。
+- manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件，且 `.git/config` 可能保留内嵌 PAT。工具不加密、不做秘密扫描。
+- `restore` 读取 schema v2 manifest；Git 策略重新克隆并检出提交，归档策略校验 SHA-256 后安全解压。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
 
-## 11. Python 内部 API
+## 12. Python 内部 API
 
-### 11.1 扫描模块 `proj_janitor.scanner`
+### 12.1 扫描模块 `proj_janitor.scanner`
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
@@ -786,22 +899,27 @@ projjan clean . --list-rules
 | `scan_project` | `(path: Path) -> Project` | `Project` | 解析路径，收集标记、体积、修改时间和 Git 状态。 |
 | `measure_tree` | `(path: Path) -> tuple[int, datetime \| None]` | 字节数、带时区本地时间或 `None` | 不跟随符号链接，只统计普通文件。 |
 | `read_git_state` | `(path: Path) -> GitState \| None` | `GitState` 或 `None` | 无 `.git` 返回 `None`；Git 命令失败可能产生空字段。 |
-| `is_github_remote_url` | `(remote: str) -> bool` | `bool` | 纯语法校验；不联网、不验证仓库存在。 |
-| `inspect_git_recoverability` | `(project: Project, patterns: Iterable[str] = ()) -> GitRecovery` | `GitRecovery` | 执行第 12.3 节检查；失败以 `reason` 返回，不以异常表达常规 Git 失败。 |
+| `is_github_remote_url` | `(remote: str) -> bool` | `bool` | 纯语法校验；HTTPS 允许内嵌 PAT；不联网、不验证仓库存在。 |
+| `sanitize_remote_url` | `(remote: str) -> str` | 可持久化 URL | 去除 HTTPS userinfo、查询字符串和片段；非 HTTPS 原样返回。 |
+| `inspect_git_recoverability` | `(project: Project, patterns: Iterable[str] = ()) -> GitRecovery` | `GitRecovery` | 执行第 13.3 节检查；存在本地 tag 时调用 `git ls-remote --tags --refs`；失败以 `reason` 返回。 |
+| `_verify_local_tags` | `(path: Path, remote: str) -> str \| None` | 通过返回 `None`，否则返回首个 tag 失败原因 | 比较本地 tag 与远程同名 tag 的原始对象 ID。 |
+| `_remote_tag_refs` | `(path: Path, remote: str) -> dict[str, str] \| None` | tag 名到对象 ID 的映射，查询失败返回 `None` | 解析 `git ls-remote --tags --refs`。 |
 | `format_projects` | `(projects: Iterable[Project]) -> str` | 文本表格 | 空输入返回表头和分隔线，不返回 `No projects found.`。 |
 | `_git_run` / `_git_output` / `_git_ok` / `_git_count` | 私有辅助函数 | 子进程结果/字符串/布尔/整数或 `None` | 固定 10 秒超时；捕获 `OSError` 和 `SubprocessError`。 |
 
-### 11.2 备份模块 `proj_janitor.backup`
+### 12.2 备份模块 `proj_janitor.backup`
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
-| `prepare_backup` | `(projects, dest: Path, include_artifacts=False, always_archive=False) -> tuple[Path, list[BackupPlan]]` | 运行目录、计划列表 | 只计算；不创建目录。`dest` 会 `expanduser().resolve()`。 |
-| `run_backup` | `(projects, dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[Path, list[BackupRecord]]` | 运行目录、记录列表 | `dry_run=True` 时不写文件并返回空记录；否则创建目录、归档并写 manifest。异常向上传播。 |
-| `backup_project` | `(project, run_dir, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | 写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
+| `prepare_backup` | `(projects, dest: Path, include_artifacts=False, always_archive=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 只计算；不创建目录。`dest` 会 `expanduser().resolve()`。 |
+| `run_backup` | `(projects, dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[list[Path], list[BackupRecord]]` | 每项目 manifest 路径、记录列表 | `dry_run=True` 时不写文件并返回空记录；否则创建项目目录、归档并按项目写 manifest。异常向上传播。 |
+| `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | `archive_dir` 为项目备份目录；写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器或 `None` | 按路径段匹配排除模式；无模式时返回 `None`。 |
+| `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名项目追加 8 位路径哈希。 |
+| `_unique_file` / `_unique_archive_name` | 私有 | 不冲突的文件路径/归档名 | 同一秒重复运行时追加 `-2`、`-3`。 |
 
-### 11.3 清理模块 `proj_janitor.cleaner`
+### 12.3 清理模块 `proj_janitor.cleaner`
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
@@ -820,7 +938,20 @@ projjan clean . --list-rules
 | `freed_bytes` | integer | 成功项的计划体积之和。 |
 | `errors` | tuple[string, ...] | 逐项错误文本，格式 `"{path}: {message}"`。 |
 
-### 11.4 模型与配置
+### 12.4 恢复模块 `proj_janitor.restore`
+
+| 函数/类型 | 签名 | 返回/异常 | 说明 |
+| --- | --- | --- | --- |
+| `restore_from_manifest` | `(manifest_path: Path, dest: Path, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dry_run=True` 不写文件。 |
+| `plan_restore` | `(manifest_path: Path, dest: Path, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、目标不存在、归档 SHA-256 和 Git 字段。 |
+| `load_manifest` | `(path: Path) -> tuple[Path, dict]` | 规范化路径和 JSON 对象 | 要求 `schema_version == 2`、`records` 为非空对象数组。 |
+| `RestoreError` | `RuntimeError` 子类 | 异常 | CLI 捕获后输出 `error: ...` 并返回 `1`。 |
+| `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验。 |
+| `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
+
+内部函数：`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
+
+### 12.5 模型与配置
 
 `proj_janitor.models` 暴露不可变数据类：
 
@@ -830,8 +961,10 @@ projjan clean . --list-rules
 | `Project` | `path`，`name`，`markers`，`size_bytes`，`last_modified`，`git`；属性 `dirty_label`、`branch_label` |
 | `CleanupAction` | `project`，`path`，`rule`，`kind`，`size_bytes` |
 | `GitRecovery` | `eligible`，`reason`，`remote`，`remote_url`，`branch`，`commit`，`upstream`，`verified` |
-| `BackupRecord` | 第 10.2 节所列 14 个字段 |
+| `BackupRecord` | 第 11.2 节所列 14 个字段 |
 | `BackupPlan` | `project`，`archive_name`，`strategy`，`recovery`，`reason` |
+| `RestorePlan` | `project`，`strategy`，`target`，`archive`，`remote_url`，`commit`，`sha256`，`hash_verified` |
+| `RestoreResult` | `project`，`strategy`，`target` |
 | `human_size` | `(size_bytes: int) -> str` |
 
 `proj_janitor.config` 暴露：
@@ -843,33 +976,38 @@ projjan clean . --list-rules
 | `ALL_RULES` | `tuple[str, ...]` | 规则名元组。 |
 | `artifact_patterns` | `(include_artifacts=False) -> tuple[str, ...]` | 展开并去重所有排除模式；`True` 返回空元组。 |
 
-### 11.5 副作用、异常与并发
+### 12.6 副作用、异常与并发
 
 | 函数/流程 | 读取 | 写入 | 删除 | 网络 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | `scan`/`discover_projects`/`scan_project` | 项目目录、`.git`、Git 命令 | 无 | 无 | 无 | Git 命令只读。 |
-| `prepare_backup` | 项目、Git 状态 | 无 | 无 | 无 | 仅计算路径和计划。 |
-| `run_backup` | 项目、Git 状态 | 运行目录、归档、manifest | 无 | 无 | 中途异常可能留下部分归档。 |
+| `prepare_backup` | 项目、Git 状态 | 无 | 无 | 无 | 仅计算路径和计划；存在本地 tag 时只读查询远程。 |
+| `run_backup` | 项目、Git 状态 | 项目目录、归档、manifest | 无 | 无 | 中途异常可能留下部分归档；单项目 `OSError` 仍可能中止整批。 |
+| `restore_from_manifest` | manifest、归档、远程仓库 | 恢复目标目录 | 无 | Git 克隆 | 目标已存在时拒绝；多项目中途失败不回滚。 |
 | `build_cleanup_plan` | 项目目录、文件元数据 | 无 | 无 | 无 | `os.walk` 不跟随链接。 |
 | `apply_cleanup` | 目标存在性、类型 | 无 | 目录/文件 | 无 | 不进行确认，调用方负责授权。 |
 
 - 模块不使用线程、异步任务、锁或数据库。
 - 不保证多个进程同时操作同一项目、同一备份目标或同一清理目标时的结果。
 - 外部 Git 命令超时为 10 秒；超时被视为该 Git 检查失败。
-- `KeyboardInterrupt` 没有被统一捕获，可能中断备份或清理。
-- Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”。
+- `KeyboardInterrupt` 没有被统一捕获，可能中断备份、恢复或清理。
+- Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”；`restore` 的常规失败统一抛 `RestoreError`。
 
-## 12. 错误清单
+## 13. 错误清单
 
-### 12.1 CLI 消息
+### 13.1 CLI 消息
 
 | 场景 | 流 | 消息 |
 | --- | --- | --- |
 | `scan`/`backup` 无项目 | stderr | `No projects found.` |
 | `backup` 目标不是目录 | stderr | `error: destination is not a directory: {dest}` |
-| `backup` dry-run 标题 | stdout | `Dry run. Backup directory would be: {run_dir}` |
-| `backup` 完成 | stdout | `Backed up {n} project(s) to {run_dir}` |
-| `backup` manifest 路径 | stdout | `Manifest: {run_dir}/manifest.json` |
+| `backup` dry-run 标题 | stdout | `Dry run. Manifest would be: {path}`；多项目为 `Dry run. Manifests would be:` |
+| `backup` 完成 | stdout | `Backed up {n} project(s).` |
+| `backup` manifest 路径 | stdout | `Manifest: {path}`；多项目为 `Manifests:` |
+| `restore` dry-run 标题 | stdout | `Restore plan: {n} project(s)` |
+| `restore` dry-run 结尾 | stdout | `Dry run. Re-run without --dry-run to restore.` |
+| `restore` 完成 | stdout | `Restored {n} project(s).` |
+| `restore` 失败 | stderr | `error: {RestoreError 文本}` |
 | `clean` dry-run 提示 | stdout | `Dry run. Re-run with --apply to delete these items.` |
 | `clean` 非交互拒绝删除 | stderr | `error: refusing to delete without --yes in a non-interactive session` |
 | `clean` 确认提示 | stdout | `Delete {n} item(s)? [y/N] ` |
@@ -880,20 +1018,21 @@ projjan clean . --list-rules
 | 根路径错误 | stderr | `error: {异常文本}` |
 | `--rules` 为空 | stderr（argparse） | `at least one rule is required`（由 `ArgumentTypeError` 产生） |
 
-### 12.2 Python 异常
+### 13.2 Python 异常
 
 | 异常 | 触发点 | 处理建议 |
 | --- | --- | --- |
 | `FileNotFoundError` | `discover_projects` 根不存在 | CLI 捕获并计入失败；API 调用方自行处理。 |
 | `NotADirectoryError` | 根不是目录 | 同上。 |
-| `OSError` | 目录遍历、归档、manifest 写入、删除 | CLI 在发现/删除阶段部分捕获；归档和 manifest 写入可能直接终止。 |
+| `OSError` | 目录遍历、归档、manifest 写入、删除、恢复读取/写入 | CLI 在发现/删除阶段部分捕获；备份归档和 manifest 写入可能直接终止；`restore` 会将归档读取错误转为 `RestoreError`。 |
 | `ValueError` | 未知规则、目标越界、符号链接拒绝 | 计划阶段由 CLI 捕获；删除阶段由 `apply_cleanup` 收集。 |
 | `RuntimeError` | 内部计划不变量被破坏（缺少 recovery 或 archive name） | 属于程序缺陷/异常状态，不应在正常输入下出现。 |
-| `tarfile.TarError` | 归档读写失败 | CLI 未转换为友好错误；可能 traceback。 |
-| `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因。 |
+| `RestoreError` | manifest/归档无效、SHA-256 不匹配、目标已存在、Git 恢复失败 | CLI 捕获后输出 `error:` 并返回 `1`。 |
+| `tarfile.TarError` | 归档读写失败 | `restore` 捕获并转为 `RestoreError`；备份阶段可能 traceback。 |
+| `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因；`restore` 的 Git 失败转为 `RestoreError`。 |
 | `KeyboardInterrupt` | 用户中断 | 未捕获；可能留下部分备份或部分删除结果。 |
 
-### 12.3 Git 可恢复性失败原因
+### 13.3 Git 可恢复性失败原因
 
 `inspect_git_recoverability()` 按顺序检查，首个失败即返回。失败原因文本是 manifest 的 `fallback_reason` 来源之一：
 
@@ -908,34 +1047,37 @@ projjan clean . --list-rules
 | 7 | 当前分支没有 remote 或 remote 为 `.` | `branch has no upstream remote` |
 | 8 | 无法解析 `@{upstream}` | `branch has no upstream` |
 | 9 | 无法读取 remote URL | `remote URL is unavailable` |
-| 10 | URL 不是无凭据 GitHub URL | `remote is not a credential-free GitHub URL` |
+| 10 | URL 不是受支持的 GitHub URL | `remote is not a supported GitHub URL` |
 | 11 | 无法读取 `HEAD` | `HEAD is unavailable` |
 | 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
 | 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
-| 15 | `git tag --list` 失败 | `cannot list tags` |
-| 16 | 存在本地 tag | `local tags are not included` |
-| 17 | 存在 `.gitmodules` 或 `git submodule status` 非空 | `submodules are not supported` |
-| 18 | `git submodule status` 失败 | `cannot inspect submodules` |
-| 19 | 存在 `.lfsconfig` 或 `.gitattributes` 命中 LFS | `Git LFS is not supported` |
-| 20 | LFS 属性检查失败 | `cannot inspect Git LFS attributes` |
-| 21 | 忽略文件列举失败 | `cannot inspect ignored files` |
-| 22 | 某忽略路径不属于允许的 artifact 模式 | `ignored path is not an artifact: {path}` |
-| 23 | 本地分支列举失败 | `cannot list local branches` |
-| 24 | 远程跟踪引用列举失败 | `cannot list remote-tracking refs` |
-| 25 | 没有远程跟踪引用 | `no remote-tracking refs` |
-| 26 | 某本地分支比较失败 | `cannot inspect local branch: {branch}` |
-| 27 | 某本地分支未完全推送 | `local branch is not fully pushed: {branch}` |
+| 15 | 存在 `.gitmodules` 或 `git submodule status` 非空 | `submodules are not supported` |
+| 16 | `git submodule status` 失败 | `cannot inspect submodules` |
+| 17 | 存在 `.lfsconfig` 或 `.gitattributes` 命中 LFS | `Git LFS is not supported` |
+| 18 | LFS 属性检查失败 | `cannot inspect Git LFS attributes` |
+| 19 | 忽略文件列举失败 | `cannot inspect ignored files` |
+| 20 | 某忽略路径不属于允许的 artifact 模式 | `ignored path is not an artifact: {path}` |
+| 21 | 本地分支列举失败 | `cannot list local branches` |
+| 22 | 远程跟踪引用列举失败 | `cannot list remote-tracking refs` |
+| 23 | 没有远程跟踪引用 | `no remote-tracking refs` |
+| 24 | 某本地分支比较失败 | `cannot inspect local branch: {branch}` |
+| 25 | 某本地分支未完全推送 | `local branch is not fully pushed: {branch}` |
+| 26 | 本地 tag 列举失败 | `cannot list tags` |
+| 27 | 本地 tag 未推送到远程 | `local tag is not pushed: {name}` |
+| 28 | 本地 tag 与远程同名 tag 对象不一致 | `local tag differs from remote: {name}` |
+| 29 | 远程 tag 查询失败 | `cannot verify local tags on remote` |
 
 补充：
 
-- 检查 22 的允许模式来自本次备份的 `artifact_patterns()`；默认排除构建产物，`--include-artifacts` 传入空模式，因此任何忽略文件都会阻止 URL-only。
-- 检查 19 的 LFS 探测使用 `git grep -l filter=lfs -- *.gitattributes`；返回码非 `0`/`1` 视为检查失败。
-- 检查 22 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
-- 检查 23/24 使用 `for-each-ref`；检查 25 要求至少存在一个 `refs/remotes/{remote}/` 引用。
+- 检查 20 的允许模式来自本次备份的 `artifact_patterns()`；默认排除构建产物，`--include-artifacts` 传入空模式，因此任何忽略文件都会阻止 URL-only。
+- 检查 17 的 LFS 探测使用 `git grep -l filter=lfs -- *.gitattributes`；返回码非 `0`/`1` 视为检查失败。
+- 检查 20 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
+- 检查 21/22 使用 `for-each-ref`；检查 23 要求至少存在一个 `refs/remotes/{remote}/` 引用。
+- 检查 26 使用 `git for-each-ref refs/tags` 读取本地 tag；检查 27/28/29 通过 `git ls-remote --tags --refs` 比较远程 tag 的原始对象 ID。没有本地 tag 时不发起远程查询。
 - 所有 Git 调用的超时为 10 秒；超时或无法启动 Git 会映射为对应的失败原因或 `None` 字段。
 
-### 12.4 处理策略
+### 13.4 处理策略
 
 | 阶段 | 策略 |
 | --- | --- |
@@ -944,13 +1086,14 @@ projjan clean . --list-rules
 | 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`。 |
 | 备份归档 | 当前不在项目级捕获 `OSError`/`tarfile.TarError`；可能中止整个备份。 |
 | manifest 写入 | 未捕获 `OSError`；可能以 traceback 结束。 |
+| 恢复 | 将 manifest、归档、SHA-256、目标和 Git 失败转为 `RestoreError`，CLI 输出 `error:` 并返回 `1`；多项目中途失败不回滚已完成项目。 |
 | 清理删除 | 逐项捕获并汇总，已成功项不回滚。 |
 | Git 常规失败 | 转为 `GitRecovery.reason` 或空字段，不抛给用户。 |
-| 中断 | 不捕获 `KeyboardInterrupt`；可能留下部分结果。 |
+| 中断 | 不捕获 `KeyboardInterrupt`；可能留下部分备份、恢复或删除结果。 |
 
-## 13. 兼容性与使用边界
+## 14. 兼容性与使用边界
 
-### 13.1 运行环境
+### 14.1 运行环境
 
 | 项目 | 说明 |
 | --- | --- |
@@ -962,7 +1105,7 @@ projjan clean . --list-rules
 | 终端 | 交互确认依赖 `sys.stdin.isatty()`；非交互环境必须 `--yes`。 |
 | 编码 | manifest 固定 UTF-8；终端输出受 locale 影响。 |
 
-### 13.2 路径与文件系统
+### 14.2 路径与文件系统
 
 - 项目发现只处理根目录本身或直接子目录，不递归发现嵌套项目。
 - 根路径和备份目标支持 `~` 展开；项目路径在扫描后解析为绝对路径。
@@ -971,7 +1114,7 @@ projjan clean . --list-rules
 - 归档包含 `.git`，默认只排除 artifact 规则命中的路径；不会自动排除 secrets、日志或用户数据。
 - 硬链接按普通文件统计和归档；特殊文件类型的行为未做专门验证。
 
-### 13.3 版本与接口稳定性
+### 14.3 版本与接口稳定性
 
 - CLI 版本为 `0.1.0`；`--version` 输出 `projjan 0.1.0`。
 - `scan --json` 和 `clean --json` 没有 `schema_version`，属于 v0.1.0 实现格式，后续可能调整。
@@ -979,48 +1122,56 @@ projjan clean . --list-rules
 - Python 模块是内部实现；本文件列出的函数签名用于说明当前行为，不构成公共 API 承诺。
 - 没有配置文件兼容性、数据库迁移或插件接口。
 
-### 13.4 已知接口限制
+### 14.4 已知接口限制
 
 | 限制 | 影响 | 规避/说明 |
 | --- | --- | --- |
 | `clean --json` 混入文本 | 标准输出不是严格 JSON | 只取首个 JSON 值，或等待后续版本；不要直接喂给严格解析器。 |
 | `--list-rules` 仍要求 `ROOT` | 不能完全独立调用 | 使用 `projjan clean . --list-rules` 等占位根。 |
 | 备份归档异常未项目级隔离 | 单个项目失败可能中止整批 | 分批备份；失败后检查目录并重新运行。 |
-| manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、运行目录和 manifest 是否存在。 |
-| 无 `restore` | 不能自动恢复 | 按 manifest 手动 `git clone`/`git checkout` 或 `tar -xzf`。 |
-| 无归档校验命令 | 不能自动验证 SHA-256 | 手动使用 `sha256sum` 对比 manifest。 |
-| 归档包含 `.git` | 体积较大，可能包含敏感历史 | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份。 |
+| manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、项目备份目录和 manifest 是否存在。 |
+| `restore` 不覆盖已有目录 | 目标存在时整批规划失败 | 换一个 `--dest`，或先自行移走旧目录；没有 `--force`。 |
+| `restore` 多项目不回滚 | 中途失败会留下已恢复项目 | 逐个项目恢复，或失败后人工清理已完成目标。 |
+| `restore` 不预检远程提交 | 远程删除/强推后 Git 恢复可能失败 | 恢复前确认 `remote_url` 和 `commit` 仍可访问；重要项目保留归档。 |
+| Git 恢复为 detached HEAD | 不自动恢复原分支 | 恢复后按需创建分支：`git switch -c main`。 |
+| 无独立 `verify` 命令 | 不能单独验证归档 | `restore --dry-run` 会校验 SHA-256；也可手工 `sha256sum` 对比 manifest。 |
+| 归档包含 `.git` | 体积较大，可能包含敏感历史或内嵌 PAT | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份；PAT 归档按敏感数据处理。 |
 | Git URL-only 仅本地证据 | 不保证远端实际可克隆 | 恢复前联网验证；重要项目使用 `--always-archive`。 |
 | 规则按名称匹配 | 可能误匹配同名目录 | 先 dry-run 审查计划；必要时缩小根范围。 |
 | 无并发控制 | 并发运行可能竞争目录/删除目标 | 串行执行；不要同时清理同一项目。 |
 
-### 13.5 恢复说明
+### 14.5 恢复说明
 
-v0.1.0 不提供自动恢复。按 manifest 手动处理：
-
-```bash
-git clone <remote_url> <project>
-git checkout <commit>
-```
-
-或：
+当前版本提供 `restore`，优先使用：
 
 ```bash
-tar -xzf <archive>
+projjan restore <manifest> --dest <dir> --dry-run
+projjan restore <manifest> --dest <dir>
 ```
 
 恢复前应确认：
 
-- `remote_url` 无内嵌凭据；
-- `commit` 在远端实际存在（`verified` 仅为 `local-ref`）；
-- 归档 SHA-256 与 manifest 一致；
-- 解压目标不会覆盖现有数据。
+- manifest 的 `schema_version` 为 `2`，且目标 `--dest/<项目名>/` 不存在；
+- Git 记录的 `commit` 在远端实际存在（`verified` 仅为 `local-ref`，不代表远程 HEAD 可克隆）；
+- 归档记录的 SHA-256 与文件一致；`--dry-run` 会提前校验；
+- 归档来自可信来源，且不会把不受信任的 `.git` 内容直接投入生产使用。
 
-## 14. HTTP API
+需要手工兜底时，可按 manifest 执行：
 
-### 14.1 结论
+```bash
+git clone <remote_url> <project>
+git -C <project> checkout --detach <commit>
 
-v0.1.0 不提供 HTTP API、REST 接口、GraphQL、RPC、WebSocket 或任何网络服务端；也不调用 GitHub API 或其他远程接口。因此不存在以下内容：
+tar -xzf <archive>
+```
+
+手工恢复不会获得工具的路径/链接校验、SHA-256 校验和覆盖保护，风险由操作者承担。
+
+## 15. HTTP API
+
+### 15.1 结论
+
+当前版本（`v0.1.0` 基线加 post-v0.1.0 变更）不提供 HTTP API、REST 接口、GraphQL、RPC、WebSocket 或任何网络服务端；也不调用 GitHub API 或其他远程接口。网络访问仅限 `git ls-remote` 的 tag 查询和 `restore` 的 Git 克隆。因此不存在以下内容：
 
 - 服务地址、端口、路由和 HTTP 方法；
 - 请求/响应 schema、状态码和错误码；
@@ -1028,12 +1179,12 @@ v0.1.0 不提供 HTTP API、REST 接口、GraphQL、RPC、WebSocket 或任何网
 - OpenAPI/Swagger 文档；
 - 跨域、TLS、代理和网关配置。
 
-### 14.2 替代集成方式
+### 15.2 替代集成方式
 
 需要在自动化平台中集成时，可：
 
 1. 以子进程方式调用 `projjan`，采集标准输出、标准错误和退出码；
 2. 直接导入 `proj_janitor` 的 Python 函数（内部接口，需接受版本变化风险）；
-3. 读取 `scan --json`、`clean --json` 和 `manifest.json` 进行后续处理。
+3. 读取 `scan --json`、`clean --json`、`restore --json` 和 `manifest-<timestamp>.json` 进行后续处理。
 
 这些方式都不改变“本地 CLI、无网络服务”的产品边界。若未来需要 HTTP 服务，应作为独立需求重新设计，并补充认证、并发、审计和错误协议，不能把当前 CLI 输出直接视为 HTTP API 契约。
