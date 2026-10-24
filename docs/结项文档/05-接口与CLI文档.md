@@ -822,7 +822,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 ### 10.4 JSON 使用建议
 
 - 把标准输出与标准错误分开采集。
-- 同时检查退出码：`scan` 可能输出部分结果但返回 `1`；`clean` 可能在 JSON 后追加文本。
+- 同时检查退出码：`scan` 可能输出部分结果但返回 `1`；`clean --json` 的 stdout 保持纯 JSON，错误信息写入 stderr。
 - 不要依赖字段顺序；不要假设未来版本一定保留同样的字段集合。
 - 处理路径时按 JSON 字符串解析，不要按空白或分隔符二次切分。
 - 对 `last_modified` 使用支持时区偏移的 ISO 8601 解析器。
