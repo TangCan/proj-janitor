@@ -8,9 +8,9 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | v0.1.0（post-v0.1.0 一致性修订） |
-| 源码提交 | `e38a13a3e5b4b8bd759e34ed7bc31dd4f05c44fc`（代码基线） |
+| 源码提交 | `64808dfa2d05f6f3bb343336e8c6ec3bedb0b209`（代码基线） |
 | 源码标签 | `v0.1.0` 仍指向 `012d539e58035346fc01fda81b8bc06c1440d4f3`，不含 post-v0.1.0 变更 |
-| 文档日期 | 2026-10-23 |
+| 文档日期 | 2026-10-24 |
 | 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
@@ -571,32 +571,42 @@ projjan clean . --list-rules
 ### 8.1 语法与参数
 
 ```text
-projjan restore MANIFEST --dest DIR [--project NAME]
-                   [--dry-run] [--no-verify] [--json]
+projjan restore MANIFEST [--dest DIR] [--project NAME]
+                   [--dry-run] [--no-verify] [--yes] [--json]
 ```
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `MANIFEST` | 是 | 无 | `backup` 生成的 schema v2 清单路径。 |
-| `--dest DIR` | 是 | 无 | 恢复父目录；实际恢复到 `DIR/<项目名>/`。支持 `~` 展开。 |
+| `--dest DIR` | 否 | 原始位置 | 恢复父目录；指定后恢复到 `DIR/<项目名>/`。省略时恢复到每条记录的 `source`。支持 `~` 展开。 |
 | `--project NAME` | 否 | 全部记录 | 只恢复指定项目；可重复指定。 |
 | `--dry-run` | 否 | 关闭 | 只校验并展示计划，不创建恢复目录。 |
 | `--no-verify` | 否 | 关闭 | 跳过归档 SHA-256 校验；不推荐用于不可信归档。 |
+| `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
 
 1. 读取 UTF-8 JSON manifest，要求 `schema_version` 为 `2`，`records` 为非空对象数组。
 2. 校验项目名不含绝对路径、`/`、`\`、`..` 或 NUL；同名项目拒绝恢复。
-3. 预检所有目标路径；`--dest/<项目名>` 已存在或是符号链接时拒绝覆盖，且不会开始恢复。
-4. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号，执行 `git clone --no-checkout -- <remote_url> <temp>`，再执行 `git checkout --detach <commit>`，确认 HEAD 后移动到目标目录。
-5. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、`..`、特殊文件和越界链接，再移动到目标目录。
-6. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
-7. Git 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。
+3. 未指定 `--dest` 时，逐条读取记录的 `source` 作为目标：
+   - `source` 必须是非空、绝对路径，不能包含 NUL 或 `..`；
+   - `source` 的文件名必须等于项目名，不能是文件系统根；
+   - 解析父目录；父目录存在但不是目录时拒绝；
+   - 目标已存在或是符号链接时拒绝覆盖。
+4. 指定 `--dest` 时，目标固定为 `--dest/<项目名>/`；`--dest` 已存在但不是目录时拒绝。
+5. 同一批恢复中目标路径重复时拒绝，避免一条记录覆盖另一条记录的目标。
+6. 预检所有目标路径后才会开始恢复；任一目标已存在或是符号链接时整批不开始。
+7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号，执行 `git clone --no-checkout -- <remote_url> <temp>`，再执行 `git checkout --detach <commit>`，确认 HEAD 后移动到目标目录。
+8. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、`..`、特殊文件和越界链接，再移动到目标目录。
+9. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
+10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
+11. Git 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。
+12. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
 ### 8.3 输出
 
-人类可读 dry-run：
+人类可读 dry-run（指定 `--dest`）：
 
 ```text
 Restore plan: 1 project(s)
@@ -604,11 +614,28 @@ Restore plan: 1 project(s)
 Dry run. Re-run without --dry-run to restore.
 ```
 
+省略 `--dest` 的 dry-run 会额外提示目标来自原始位置：
+
+```text
+Restore plan: 1 project(s)
+Targets are the original backup locations:
+  [archive] demo: /path/to/backups/demo/demo-20261023-135243.tar.gz (sha256 verified) -> /home/user/projects/demo
+Dry run. Re-run without --dry-run to restore.
+```
+
+原始位置实际恢复前的交互确认：
+
+```text
+About to restore to original locations:
+  /home/user/projects/demo
+Restore 1 project(s)? [y/N]
+```
+
 实际恢复：
 
 ```text
 Restored 1 project(s).
-  [archive] demo -> /path/to/restored/demo
+  [archive] demo -> /home/user/projects/demo
 ```
 
 Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> <目标路径>`。
@@ -618,22 +645,24 @@ Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> 
 ```json
 {
   "dry_run": true,
+  "mode": "original",
   "projects": [
     {
       "project": "demo",
       "strategy": "archive",
-      "target": "/path/to/restored/demo",
+      "target": "/home/user/projects/demo",
       "archive": "/path/to/backups/demo/demo-20261023-135243.tar.gz",
       "remote_url": null,
       "commit": null,
       "sha256": "9f2c...",
-      "sha256_verified": true
+      "sha256_verified": true,
+      "in_place": true
     }
   ]
 }
 ```
 
-非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`；`dry_run` 为 `false`。
+`mode` 为 `"original"`（省略 `--dest`）或 `"dest"`（指定 `--dest`）；`in_place` 只在 dry-run 计划中出现。非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`；`dry_run` 为 `false`。
 
 ### 8.4 退出码与错误
 
@@ -642,19 +671,29 @@ Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> 
 | 全部恢复成功或 dry-run 成功 | `0` | 目标目录已创建或仅输出计划。 |
 | manifest 不存在/不可读/结构非法 | `1` | 标准错误输出 `error: ...`。 |
 | `--project` 指定的项目不存在 | `1` | 不开始恢复。 |
-| 项目名不安全或目标已存在 | `1` | 拒绝覆盖，不开始恢复。 |
+| 项目名不安全、`source` 非法或目标重复 | `1` | 不开始恢复。 |
+| 目标已存在或为符号链接 | `1` | 拒绝覆盖，不开始恢复。 |
 | 归档缺失、SHA-256 不匹配、解压失败 | `1` | 不创建目标目录。 |
 | Git URL/提交非法、clone/checkout 失败 | `1` | 清理临时目录，不创建目标目录。 |
+| 原始位置恢复未给 `--yes` 且非交互 | `2` | 标准错误输出拒绝原因。 |
+| 原始位置恢复使用 `--json` 但未给 `--yes` | `2` | 标准输出为空，不写文件。 |
+| 用户在确认时输入 `n` 或 EOF | `2` | 输出 `Aborted.`，不写文件。 |
 | 参数缺失或非法 | `2` | `argparse` 用法错误。 |
 
 ### 8.5 示例
 
 ```bash
-projjan restore ~/backups/projects/xtask_todo/manifest-20261023-122828.json \
-  --dest ~/restored
+# 恢复到 manifest 记录的原始位置；交互确认
+projjan restore ~/backups/projects/xtask_todo/manifest-20261023-122828.json
+
+# 非交互执行原始位置恢复
+projjan restore <manifest> --yes
+
+# 恢复到副本目录
+projjan restore <manifest> --dest ~/restored
 projjan restore <manifest> --dest ~/restored --dry-run
 projjan restore <manifest> --dest ~/restored --project xtask_todo
-projjan restore <manifest> --dest ~/restored --json
+projjan restore <manifest> --dest ~/restored --json --dry-run
 ```
 
 ## 9. 退出码
@@ -669,7 +708,7 @@ projjan restore <manifest> --dest ~/restored --json
 
 - `scan` 的“没有项目”本身不是错误；只有根路径失败才返回 `1`。
 - `backup` 的“没有项目”返回 `1`，且不检查目标目录。
-- `restore` 的 manifest/归档校验、目标已存在和 Git 恢复失败均返回 `1`；参数错误返回 `2`。
+- `restore` 的 manifest/归档校验、`source` 非法、目标已存在、目标重复和 Git 恢复失败均返回 `1`；原始位置恢复缺少 `--yes`、用户取消或参数错误返回 `2`。
 - `clean` 的 `--list-rules` 在参数解析通过后直接返回 `0`，不验证根路径。
 - Python API 不统一返回退出码；调用方需要捕获异常或检查返回对象。
 
@@ -762,11 +801,12 @@ projjan restore <manifest> --dest ~/restored --json
 
 ### 10.3 `restore --json` 对象
 
-顶层为对象，包含 `dry_run` 布尔值和 `projects` 数组：
+顶层为对象，包含 `dry_run`、`mode` 和 `projects` 数组：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `dry_run` | boolean | 是否为 dry-run。 |
+| `mode` | string | `"original"`（省略 `--dest`）或 `"dest"`（指定 `--dest`）。 |
 | `projects[].project` | string | 项目名。 |
 | `projects[].strategy` | string | `"git"` 或 `"archive"`。 |
 | `projects[].target` | string | 恢复目标绝对路径。 |
@@ -775,8 +815,9 @@ projjan restore <manifest> --dest ~/restored --json
 | `projects[].commit` | string/null | manifest 中的提交号；归档策略为 `null`。 |
 | `projects[].sha256` | string/null | manifest 中的归档哈希；Git 策略为 `null`。 |
 | `projects[].sha256_verified` | boolean | dry-run 计划是否已完成哈希校验；非 dry-run 结果不包含该字段。 |
+| `projects[].in_place` | boolean | 是否为原始位置模式；只在 dry-run 计划中出现。 |
 
-非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`。
+非 dry-run 时 `projects` 元素只包含 `project`、`strategy` 和 `target`；`mode` 仍保留。
 
 ### 10.4 JSON 使用建议
 
@@ -809,7 +850,7 @@ projjan restore <manifest> --dest ~/restored --json
 | 字段 | 类型 | Git 记录 | 归档记录 |
 | --- | --- | --- | --- |
 | `project` | string | 项目名 | 项目名 |
-| `source` | string | 项目绝对路径 | 项目绝对路径 |
+| `source` | string | 项目绝对路径；`restore` 省略 `--dest` 时作为恢复目标 | 项目绝对路径；`restore` 省略 `--dest` 时作为恢复目标 |
 | `archive` | string \| null | `null` | 归档绝对路径 |
 | `archive_bytes` | integer | `0` | 归档文件大小 |
 | `source_bytes` | integer | 扫描时源体积 | 扫描时源体积 |
@@ -887,7 +928,7 @@ projjan restore <manifest> --dest ~/restored --json
 - 归档记录不保存 Git 可恢复性检查的详细字段；只保存 `fallback_reason`。
 - 每个项目处理完成后写入自己的 manifest；如果中途异常，可能只有部分归档或部分 manifest（DEF-003）。
 - manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件，且 `.git/config` 可能保留内嵌 PAT。工具不加密、不做秘密扫描。
-- `restore` 读取 schema v2 manifest；Git 策略重新克隆并检出提交，归档策略校验 SHA-256 后安全解压。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
+- `restore` 读取 schema v2 manifest；Git 策略重新克隆并检出提交，归档策略校验 SHA-256 后安全解压。指定 `--dest` 时恢复到 `DIR/<项目名>/`；省略时使用记录中的 `source` 作为目标，因此 manifest 可影响写入位置，必须来自可信来源。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
 
 ## 12. Python 内部 API
 
@@ -942,14 +983,15 @@ projjan restore <manifest> --dest ~/restored --json
 
 | 函数/类型 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
-| `restore_from_manifest` | `(manifest_path: Path, dest: Path, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dry_run=True` 不写文件。 |
-| `plan_restore` | `(manifest_path: Path, dest: Path, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、目标不存在、归档 SHA-256 和 Git 字段。 |
+| `restore_from_manifest` | `(manifest_path: Path, dest: Path \| None, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dest=None` 表示原始位置模式；`dry_run=True` 不写文件。 |
+| `plan_restore` | `(manifest_path: Path, dest: Path \| None, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、`source`/目标不存在、目标重复、归档 SHA-256 和 Git 字段；`dest=None` 时使用记录的 `source`。 |
+| `execute_restore` | `(plans: Iterable[RestorePlan]) -> list[RestoreResult]` | 结果列表；文件系统错误抛 `RestoreError` | 创建目标父目录并按顺序执行已校验的计划；不做交互确认。 |
 | `load_manifest` | `(path: Path) -> tuple[Path, dict]` | 规范化路径和 JSON 对象 | 要求 `schema_version == 2`、`records` 为非空对象数组。 |
 | `RestoreError` | `RuntimeError` 子类 | 异常 | CLI 捕获后输出 `error: ...` 并返回 `1`。 |
-| `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验。 |
+| `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
-内部函数：`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
+内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
 
 ### 12.5 模型与配置
 
@@ -963,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json
 | `GitRecovery` | `eligible`，`reason`，`remote`，`remote_url`，`branch`，`commit`，`upstream`，`verified` |
 | `BackupRecord` | 第 11.2 节所列 14 个字段 |
 | `BackupPlan` | `project`，`archive_name`，`strategy`，`recovery`，`reason` |
-| `RestorePlan` | `project`，`strategy`，`target`，`archive`，`remote_url`，`commit`，`sha256`，`hash_verified` |
+| `RestorePlan` | `project`，`strategy`，`target`，`archive`，`remote_url`，`commit`，`sha256`，`hash_verified`，`in_place` |
 | `RestoreResult` | `project`，`strategy`，`target` |
 | `human_size` | `(size_bytes: int) -> str` |
 
@@ -983,7 +1025,7 @@ projjan restore <manifest> --dest ~/restored --json
 | `scan`/`discover_projects`/`scan_project` | 项目目录、`.git`、Git 命令 | 无 | 无 | 无 | Git 命令只读。 |
 | `prepare_backup` | 项目、Git 状态 | 无 | 无 | 无 | 仅计算路径和计划；存在本地 tag 时只读查询远程。 |
 | `run_backup` | 项目、Git 状态 | 项目目录、归档、manifest | 无 | 无 | 中途异常可能留下部分归档；单项目 `OSError` 仍可能中止整批。 |
-| `restore_from_manifest` | manifest、归档、远程仓库 | 恢复目标目录 | 无 | Git 克隆 | 目标已存在时拒绝；多项目中途失败不回滚。 |
+| `restore_from_manifest` | manifest、归档、远程仓库 | 恢复目标目录（`--dest` 或原始 `source`） | 无 | Git 克隆 | 目标已存在时拒绝；多项目中途失败不回滚；原始位置模式由 CLI 负责确认，Python API 不做确认。 |
 | `build_cleanup_plan` | 项目目录、文件元数据 | 无 | 无 | 无 | `os.walk` 不跟随链接。 |
 | `apply_cleanup` | 目标存在性、类型 | 无 | 目录/文件 | 无 | 不进行确认，调用方负责授权。 |
 
@@ -1005,7 +1047,13 @@ projjan restore <manifest> --dest ~/restored --json
 | `backup` 完成 | stdout | `Backed up {n} project(s).` |
 | `backup` manifest 路径 | stdout | `Manifest: {path}`；多项目为 `Manifests:` |
 | `restore` dry-run 标题 | stdout | `Restore plan: {n} project(s)` |
+| `restore` 原始位置 dry-run 提示 | stdout | `Targets are the original backup locations:` |
 | `restore` dry-run 结尾 | stdout | `Dry run. Re-run without --dry-run to restore.` |
+| `restore` 原始位置确认标题 | stdout | `About to restore to original locations:` |
+| `restore` 原始位置确认提示 | stdout | `Restore {n} project(s)? [y/N] ` |
+| `restore` 原始位置非交互拒绝 | stderr | `error: refusing to restore to original locations without --yes in a non-interactive session` |
+| `restore` 原始位置 JSON 缺少 `--yes` | stderr | `error: --yes is required for original-location restore with --json` |
+| `restore` 用户取消 | stdout | `Aborted.` |
 | `restore` 完成 | stdout | `Restored {n} project(s).` |
 | `restore` 失败 | stderr | `error: {RestoreError 文本}` |
 | `clean` dry-run 提示 | stdout | `Dry run. Re-run with --apply to delete these items.` |
@@ -1027,7 +1075,7 @@ projjan restore <manifest> --dest ~/restored --json
 | `OSError` | 目录遍历、归档、manifest 写入、删除、恢复读取/写入 | CLI 在发现/删除阶段部分捕获；备份归档和 manifest 写入可能直接终止；`restore` 会将归档读取错误转为 `RestoreError`。 |
 | `ValueError` | 未知规则、目标越界、符号链接拒绝 | 计划阶段由 CLI 捕获；删除阶段由 `apply_cleanup` 收集。 |
 | `RuntimeError` | 内部计划不变量被破坏（缺少 recovery 或 archive name） | 属于程序缺陷/异常状态，不应在正常输入下出现。 |
-| `RestoreError` | manifest/归档无效、SHA-256 不匹配、目标已存在、Git 恢复失败 | CLI 捕获后输出 `error:` 并返回 `1`。 |
+| `RestoreError` | manifest/归档无效、`source` 非法、SHA-256 不匹配、目标已存在/重复、Git 恢复失败 | CLI 捕获后输出 `error:` 并返回 `1`。 |
 | `tarfile.TarError` | 归档读写失败 | `restore` 捕获并转为 `RestoreError`；备份阶段可能 traceback。 |
 | `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因；`restore` 的 Git 失败转为 `RestoreError`。 |
 | `KeyboardInterrupt` | 用户中断 | 未捕获；可能留下部分备份或部分删除结果。 |
@@ -1130,7 +1178,10 @@ projjan restore <manifest> --dest ~/restored --json
 | `--list-rules` 仍要求 `ROOT` | 不能完全独立调用 | 使用 `projjan clean . --list-rules` 等占位根。 |
 | 备份归档异常未项目级隔离 | 单个项目失败可能中止整批 | 分批备份；失败后检查目录并重新运行。 |
 | manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、项目备份目录和 manifest 是否存在。 |
-| `restore` 不覆盖已有目录 | 目标存在时整批规划失败 | 换一个 `--dest`，或先自行移走旧目录；没有 `--force`。 |
+| `restore` 不覆盖已有目录 | 目标存在时整批规划失败 | 指定 `--dest`，或先自行移走旧目录；没有 `--force`。 |
+| 原始位置依赖 manifest 的 `source` | 伪造/损坏的 manifest 可把写入导向任意可写路径；换机器后路径通常不存在 | 仅对可信 manifest 使用；跨机器/跨用户时使用 `--dest`；实际恢复前用 `--dry-run` 核对目标。 |
+| 原始位置恢复需要确认 | 非交互脚本或 `--json` 未给 `--yes` 时返回 `2` | 交互终端输入 `y`，或在可信脚本中显式加 `--yes`。 |
+| 原始位置不可并发/不可重复 | 目标已存在即拒绝，不会合并或覆盖 | 先确认目标已移走；需要保留旧目录时使用 `--dest` 恢复到新位置。 |
 | `restore` 多项目不回滚 | 中途失败会留下已恢复项目 | 逐个项目恢复，或失败后人工清理已完成目标。 |
 | `restore` 不预检远程提交 | 远程删除/强推后 Git 恢复可能失败 | 恢复前确认 `remote_url` 和 `commit` 仍可访问；重要项目保留归档。 |
 | Git 恢复为 detached HEAD | 不自动恢复原分支 | 恢复后按需创建分支：`git switch -c main`。 |
@@ -1145,13 +1196,23 @@ projjan restore <manifest> --dest ~/restored --json
 当前版本提供 `restore`，优先使用：
 
 ```bash
+# 恢复到原始位置：先预览，再交互确认
+projjan restore <manifest> --dry-run
+projjan restore <manifest>
+
+# 恢复到指定副本目录
 projjan restore <manifest> --dest <dir> --dry-run
 projjan restore <manifest> --dest <dir>
+
+# 非交互脚本恢复原始位置
+projjan restore <manifest> --yes
 ```
 
 恢复前应确认：
 
-- manifest 的 `schema_version` 为 `2`，且目标 `--dest/<项目名>/` 不存在；
+- manifest 的 `schema_version` 为 `2`；目标路径不存在且不是符号链接；
+- 省略 `--dest` 时，manifest 的 `source` 指向预期的原始路径，且当前机器/目录布局与备份时一致；manifest 来源可信；
+- 指定 `--dest` 时，目标 `--dest/<项目名>/` 不存在；
 - Git 记录的 `commit` 在远端实际存在（`verified` 仅为 `local-ref`，不代表远程 HEAD 可克隆）；
 - 归档记录的 SHA-256 与文件一致；`--dry-run` 会提前校验；
 - 归档来自可信来源，且不会把不受信任的 `.git` 内容直接投入生产使用。
