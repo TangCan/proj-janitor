@@ -211,6 +211,7 @@ Rust 版开发检查：
 
 ```bash
 cargo check
+cargo test
 ```
 
 ## 后续计划

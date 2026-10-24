@@ -1642,6 +1642,162 @@ fn set_mode(path: &Path, mode: u32) -> anyhow::Result<()> {
 fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir(PathBuf);
+    impl TestDir {
+        fn new() -> Self {
+            let path = env::temp_dir().join(format!(
+                "projjan-test-{}-{}",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
+        assert_eq!(
+            github_url("https://alice:secret@github.com/team/project.git").as_deref(),
+            Some("https://github.com/team/project.git")
+        );
+        assert_eq!(
+            github_url("git@github.com:team/project.git").as_deref(),
+            Some("git@github.com:team/project.git")
+        );
+        assert_eq!(
+            github_url("ssh://git@github.com/team/project").as_deref(),
+            Some("ssh://git@github.com/team/project")
+        );
+        assert!(github_url("https://github.com.attacker.invalid/team/project").is_none());
+        assert!(github_url("https://github.com/team/project/extra").is_none());
+        assert_eq!(
+            redact_remote("https://alice:secret@github.com/team/project"),
+            "https://github.com/team/project"
+        );
+    }
+
+    #[test]
+    fn restore_rejects_git_options_and_malformed_commit_ids() {
+        assert!(
+            validate_git_restore("https://github.com/team/project.git", &"a".repeat(40)).is_ok()
+        );
+        assert!(validate_git_restore("--upload-pack=evil", &"a".repeat(40)).is_err());
+        assert!(validate_git_restore("https://github.com/team/project.git", "--help").is_err());
+        assert!(validate_git_restore("https://github.com/team/project.git", "abc").is_err());
+    }
+
+    #[test]
+    fn archive_paths_and_links_cannot_escape_project_root() {
+        assert!(safe_archive_path(
+            Path::new("project/src/main.rs"),
+            "project"
+        ));
+        assert!(!safe_archive_path(
+            Path::new("project/../../outside"),
+            "project"
+        ));
+        assert!(!safe_archive_path(Path::new("/project/file"), "project"));
+        assert!(safe_archive_link(
+            Path::new("project/src/link"),
+            Path::new("../main.rs"),
+            "project"
+        ));
+        assert!(!safe_archive_link(
+            Path::new("project/link"),
+            Path::new("../../outside"),
+            "project"
+        ));
+        assert!(!safe_archive_link(
+            Path::new("project/link"),
+            Path::new("/etc/passwd"),
+            "project"
+        ));
+    }
+
+    #[test]
+    fn manifest_v2_accepts_python_style_null_record_fields() {
+        let json = r#"{
+            "schema_version":2,
+            "created_at":"2026-10-24T00:00:00+00:00",
+            "tool":"proj-janitor",
+            "version":"0.1.0",
+            "include_artifacts":false,
+            "always_archive":false,
+            "records":[{
+                "project":"demo","source":"/tmp/demo","archive":null,
+                "archive_bytes":0,"source_bytes":1,"sha256":null,"strategy":"git",
+                "remote":"origin","remote_url":"https://github.com/team/demo",
+                "branch":"main","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "upstream":"origin/main","verified":"local-ref","fallback_reason":null
+            }]
+        }"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.records[0].strategy, "git");
+        assert!(manifest.records[0].archive.is_none());
+    }
+
+    #[test]
+    fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
+        let temp = TestDir::new();
+        let project = temp.0.join("demo");
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::create_dir_all(project.join("target/cache")).unwrap();
+        fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(project.join("src/main.sh"), "#!/bin/sh\necho ok\n").unwrap();
+        fs::write(project.join("target/cache/blob"), "regenerable").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{PermissionsExt, symlink};
+            fs::set_permissions(
+                project.join("src/main.sh"),
+                fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+            symlink("main.sh", project.join("src/current")).unwrap();
+        }
+
+        let archive = temp.0.join("demo.tar.gz");
+        create_archive(&project, &archive, false).unwrap();
+        let restored = temp.0.join("restored/demo");
+        extract_archive(&archive, &restored, "demo").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(restored.join("pyproject.toml")).unwrap(),
+            "[project]\n"
+        );
+        assert!(!restored.join("target").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(restored.join("src/main.sh"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+            assert_eq!(
+                fs::read_link(restored.join("src/current")).unwrap(),
+                PathBuf::from("main.sh")
+            );
+        }
+    }
+}
 fn safe_archive_path(p: &Path, project: &str) -> bool {
     !p.is_absolute()
         && p.components().all(|c| matches!(c, Component::Normal(_)))
