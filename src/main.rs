@@ -8,7 +8,7 @@ use std::{
     collections::HashSet,
     env,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, IsTerminal, Read, Write},
     path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
@@ -1643,6 +1643,54 @@ fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn safe_archive_path(p: &Path, project: &str) -> bool {
+    !p.is_absolute()
+        && p.components().all(|c| matches!(c, Component::Normal(_)))
+        && p.components()
+            .next()
+            .is_some_and(|c| c.as_os_str() == project)
+}
+
+fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool {
+    if link.is_absolute() {
+        return false;
+    }
+    let mut parts: Vec<String> = name
+        .parent()
+        .unwrap_or(Path::new(""))
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if parts.first().is_none_or(|part| part != project) {
+        return false;
+    }
+    for component in link.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.len() <= 1 {
+                    return false;
+                }
+                parts.pop();
+            }
+            Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    !parts.is_empty() && parts[0] == project
+}
+
+#[cfg(unix)]
+fn create_symlink(target: &Path, link: &Path) -> anyhow::Result<()> {
+    std::os::unix::fs::symlink(target, link)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_symlink(_target: &Path, _link: &Path) -> anyhow::Result<()> {
+    anyhow::bail!("restoring symbolic links is currently supported on Unix only")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1876,7 +1924,7 @@ mod tests {
         );
         let backup_dir = temp.0.join("backups");
         backup_cmd(
-            &[project.clone()],
+            std::slice::from_ref(&project),
             Some(backup_dir.clone()),
             false,
             false,
@@ -1985,52 +2033,3 @@ mod tests {
         );
     }
 }
-fn safe_archive_path(p: &Path, project: &str) -> bool {
-    !p.is_absolute()
-        && p.components().all(|c| matches!(c, Component::Normal(_)))
-        && p.components()
-            .next()
-            .is_some_and(|c| c.as_os_str() == project)
-}
-
-fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool {
-    if link.is_absolute() {
-        return false;
-    }
-    let mut parts: Vec<String> = name
-        .parent()
-        .unwrap_or(Path::new(""))
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    if parts.first().is_none_or(|part| part != project) {
-        return false;
-    }
-    for component in link.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if parts.len() <= 1 {
-                    return false;
-                }
-                parts.pop();
-            }
-            Component::RootDir | Component::Prefix(_) => return false,
-        }
-    }
-    !parts.is_empty() && parts[0] == project
-}
-
-#[cfg(unix)]
-fn create_symlink(target: &Path, link: &Path) -> anyhow::Result<()> {
-    std::os::unix::fs::symlink(target, link)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn create_symlink(_target: &Path, _link: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("restoring symbolic links is currently supported on Unix only")
-}
-
-use std::io::IsTerminal;
