@@ -6,6 +6,7 @@
 
 - `scan` 只读：报告项目大小、Git 分支和工作区状态。
 - `backup` 优先记录可恢复信息：已推送到 GitHub 的干净项目只写入远程 URL 和提交 SHA；其余项目回退为 `tar.gz` 并记录 SHA-256。
+- 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；先校验 manifest 和归档 SHA-256，且不覆盖已有目录。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
@@ -40,10 +41,18 @@ projjan scan ~/richard_plus --all
 ### 2. 备份
 
 ```bash
-projjan backup ~/richard_plus/amp_zk ~/richard_plus/bos_dynamic --dest ~/backups/projects
-projjan backup ~/richard_plus --dest ~/backups/projects --dry-run
-projjan backup ~/richard_plus --dest ~/backups/projects --include-artifacts
-projjan backup ~/richard_plus --dest ~/backups/projects --always-archive
+projjan backup ~/richard_plus/amp_zk ~/richard_plus/bos_dynamic --backup-dest ~/backups/projects
+projjan backup ~/richard_plus --backup-dest ~/backups/projects --dry-run
+projjan backup ~/richard_plus --backup-dest ~/backups/projects --include-artifacts
+projjan backup ~/richard_plus --backup-dest ~/backups/projects --always-archive
+```
+
+也可设置默认备份目录，之后省略选项：
+
+```bash
+export BACKUP_DEST=~/backups/projects
+projjan backup ~/richard_plus --dry-run
+projjan backup ~/richard_plus
 ```
 
 备份策略按项目自动选择：
@@ -109,12 +118,12 @@ projjan clean . --list-rules
 
 ```bash
 projjan scan ~/richard_plus
-projjan backup ~/richard_plus --dest ~/backups/projects
+projjan backup ~/richard_plus --backup-dest ~/backups/projects
 projjan clean ~/richard_plus
 projjan clean ~/richard_plus --apply
 ```
 
-旧项目确认不再需要后，再手动删除源目录，备份归档保留在 `--dest` 中。
+旧项目确认不再需要后，再手动删除源目录，备份归档保留在 `BACKUP_DEST` 或 `--backup-dest` 指定的位置。
 
 ### 4. 恢复
 
@@ -180,7 +189,7 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 92 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
+当前 98 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
 
 ## 后续计划
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -77,10 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backup.add_argument("roots", nargs="+", type=Path)
     backup.add_argument(
-        "--dest",
-        required=True,
+        "--backup-dest",
+        default=os.environ.get("BACKUP_DEST") or None,
+        required=not bool(os.environ.get("BACKUP_DEST")),
         type=Path,
-        help="backup root directory",
+        help="backup root directory (default: BACKUP_DEST)",
     )
     backup.add_argument(
         "--dry-run",
@@ -186,15 +188,18 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         print("No projects found.", file=sys.stderr)
         return 1
 
-    dest = args.dest.expanduser()
-    if dest.exists() and not dest.is_dir():
-        print(f"error: destination is not a directory: {dest}", file=sys.stderr)
+    backup_dest = args.backup_dest.expanduser()
+    if backup_dest.exists() and not backup_dest.is_dir():
+        print(
+            f"error: destination is not a directory: {backup_dest}",
+            file=sys.stderr,
+        )
         return 1
 
     if args.dry_run:
         manifest_paths, plans = prepare_backup(
             projects,
-            dest,
+            backup_dest,
             include_artifacts=args.include_artifacts,
             always_archive=args.always_archive,
         )
@@ -217,7 +222,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
 
     manifest_paths, records, backup_failures = run_backup(
         projects,
-        dest,
+        backup_dest,
         include_artifacts=args.include_artifacts,
         always_archive=args.always_archive,
     )

@@ -22,11 +22,11 @@ from proj_janitor.scanner import inspect_git_recoverability
 
 def prepare_backup(
     projects: Iterable[Project],
-    dest: Path,
+    backup_dest: Path,
     include_artifacts: bool = False,
     always_archive: bool = False,
 ) -> tuple[list[Path], list[BackupPlan]]:
-    dest = dest.expanduser().resolve()
+    backup_dest = backup_dest.expanduser().resolve()
     project_list = list(projects)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     patterns = artifact_patterns(include_artifacts)
@@ -39,7 +39,7 @@ def prepare_backup(
     for project in project_list:
         project_dir = project_dirs[project.path]
         manifest_path = _unique_file(
-            dest / project_dir,
+            backup_dest / project_dir,
             f"manifest-{timestamp}.json",
             used_manifests,
         )
@@ -67,7 +67,7 @@ def prepare_backup(
             archive_name = _unique_archive_name(
                 project.name or "project",
                 timestamp,
-                dest / project_dir,
+                backup_dest / project_dir,
                 used_archives,
             )
         plans.append(
@@ -84,14 +84,14 @@ def prepare_backup(
 
 def run_backup(
     projects: Iterable[Project],
-    dest: Path,
+    backup_dest: Path,
     include_artifacts: bool = False,
     dry_run: bool = False,
     always_archive: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     manifest_paths, plans = prepare_backup(
         projects,
-        dest,
+        backup_dest,
         include_artifacts=include_artifacts,
         always_archive=always_archive,
     )

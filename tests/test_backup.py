@@ -27,6 +27,31 @@ def make_project(root: Path, name: str = "app") -> Path:
 
 
 class BackupTests(unittest.TestCase):
+    def test_backup_api_names_destination_backup_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            manifest_paths, plans = backup_module.prepare_backup(
+                [scan_project(project)], backup_dest=backup_dest
+            )
+
+            self.assertEqual(manifest_paths[0].parent, backup_dest / "app")
+            self.assertEqual(plans[0].project.name, "app")
+            self.assertFalse(backup_dest.exists())
+
+    def test_backup_api_rejects_legacy_dest_keyword(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = scan_project(make_project(Path(tmp)))
+
+            with self.assertRaisesRegex(TypeError, "unexpected keyword argument"):
+                backup_module.prepare_backup(
+                    [project], dest=Path(tmp) / "backups"
+                )
+            with self.assertRaisesRegex(TypeError, "unexpected keyword argument"):
+                run_backup([project], dest=Path(tmp) / "backups")
+
     def test_backup_writes_archive_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

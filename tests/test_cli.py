@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from proj_janitor import backup as backup_module
-from proj_janitor.cli import main
+from proj_janitor.cli import build_parser, main
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
 
@@ -61,7 +61,7 @@ class CliTests(unittest.TestCase):
             code, out, _ = run_cli(
                 "backup",
                 tmp,
-                "--dest",
+                "--backup-dest",
                 str(dest),
                 "--dry-run",
             )
@@ -69,6 +69,57 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Dry run", out)
             self.assertFalse(dest.exists())
+
+    def test_backup_uses_backup_dest_environment_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "env-backups"
+
+            with mock.patch.dict(
+                "os.environ", {"BACKUP_DEST": str(backup_dest)}
+            ):
+                code, out, err = run_cli("backup", str(project))
+
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            self.assertTrue(list((backup_dest / "app").glob("manifest-*.json")))
+
+    def test_backup_dest_option_overrides_environment_variable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            env_dest = root / "env-backups"
+            cli_dest = root / "cli-backups"
+
+            with mock.patch.dict(
+                "os.environ", {"BACKUP_DEST": str(env_dest)}
+            ):
+                code, out, err = run_cli(
+                    "backup", str(project), "--backup-dest", str(cli_dest)
+                )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            self.assertTrue(list((cli_dest / "app").glob("manifest-*.json")))
+            self.assertFalse(env_dest.exists())
+
+    def test_backup_destination_is_required_without_environment_variable(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(SystemExit) as exc:
+                run_cli("backup", ".")
+
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_backup_dest_option_rejects_legacy_dest(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exc:
+                    build_parser().parse_args(
+                        ["backup", ".", "--dest", "/tmp/backups"]
+                    )
+
+        self.assertEqual(exc.exception.code, 2)
 
     def test_backup_project_failure_reports_and_continues(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,7 +155,7 @@ class CliTests(unittest.TestCase):
                 side_effect=fail_bad_project,
             ):
                 code, out, err = run_cli(
-                    "backup", str(root), "--dest", str(dest)
+                    "backup", str(root), "--backup-dest", str(dest)
                 )
 
             self.assertEqual(code, 1)
@@ -124,7 +175,7 @@ class CliTests(unittest.TestCase):
             code, _, _ = run_cli(
                 "backup",
                 tmp,
-                "--dest",
+                "--backup-dest",
                 str(backups),
             )
             self.assertEqual(code, 0)
@@ -152,7 +203,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             restored = root / "restored"
 
@@ -176,7 +227,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -192,7 +243,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -212,7 +263,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -229,7 +280,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -246,7 +297,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -270,7 +321,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -290,7 +341,7 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             project = make_project(root)
             backups = root / "backups"
-            run_cli("backup", tmp, "--dest", str(backups))
+            run_cli("backup", tmp, "--backup-dest", str(backups))
             manifest = next(backups.glob("*/manifest-*.json"))
             original = project.resolve()
             shutil.rmtree(project)
@@ -426,7 +477,7 @@ class GitCliTests(unittest.TestCase):
             code, out, _ = run_cli(
                 "backup",
                 str(root),
-                "--dest",
+                "--backup-dest",
                 str(dest),
                 "--dry-run",
             )
@@ -453,7 +504,7 @@ class GitCliTests(unittest.TestCase):
             code, out, _ = run_cli(
                 "backup",
                 str(root),
-                "--dest",
+                "--backup-dest",
                 str(dest),
                 "--dry-run",
             )
@@ -473,7 +524,7 @@ class GitCliTests(unittest.TestCase):
             code, out, _ = run_cli(
                 "backup",
                 str(root),
-                "--dest",
+                "--backup-dest",
                 str(dest),
             )
 
@@ -502,7 +553,7 @@ class GitCliTests(unittest.TestCase):
             code, out, _ = run_cli(
                 "backup",
                 str(root),
-                "--dest",
+                "--backup-dest",
                 str(dest),
                 "--always-archive",
             )

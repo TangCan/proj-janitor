@@ -57,7 +57,7 @@
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
 | 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
-| 配置 | 无配置文件、无环境变量配置；项目标记和清理规则由 `config.py` 静态定义。 |
+| 配置 | 无配置文件；`BACKUP_DEST` 环境变量可提供默认备份目录。项目标记和清理规则由 `config.py` 静态定义。 |
 | 并发 | 无线程、异步任务、文件锁或事务；不承诺多个实例并发操作同一目录时的行为；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
@@ -314,14 +314,16 @@ projjan scan ~/projects ~/archive --json
 ### 6.1 语法与参数
 
 ```text
-projjan backup ROOT [ROOT ...] --dest DEST [--dry-run]
+projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
                  [--include-artifacts] [--always-archive]
 ```
+
+`--backup-dest` 与环境变量 `BACKUP_DEST` 二选一；同时指定时命令行参数优先。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同，但不启用“未标记目录”。 |
-| `--dest DEST` | 是 | 无 | 备份根目录；不存在时在实际运行中创建。支持 `~` 展开。 |
+| `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` | 备份根目录；未设置环境变量时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
@@ -347,7 +349,7 @@ projjan backup ROOT [ROOT ...] --dest DEST [--dry-run]
 
 ### 6.3 dry-run 行为与输出
 
-`--dry-run` 调用 `prepare_backup()`，只计算每个项目的备份目录、清单路径和计划，不创建任何文件，也不要求 `--dest` 已存在。
+`--dry-run` 调用 `prepare_backup()`，只计算每个项目的备份目录、清单路径和计划，不创建任何文件。备份目录由 `--backup-dest` 指定，或在省略该选项时从 `BACKUP_DEST` 读取。
 
 输出格式：
 
@@ -395,21 +397,26 @@ Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 | 情况 | 退出码 | 说明 |
 | --- | --- | --- |
 | 全部项目处理成功 | `0` | manifest 已写入。 |
-| 没有发现项目 | `1` | 标准错误输出 `No projects found.`；不检查 `DEST`。 |
+| 没有发现项目 | `1` | 标准错误输出 `No projects found.`。 |
 | `DEST` 存在但不是目录 | `1` | 标准错误输出 `error: destination is not a directory: {dest}`。 |
-| 某个根路径失败但其他项目成功 | `1` | 仍会完成备份并写 manifest；错误已写标准错误。 |
-| 归档、manifest 写入或文件系统异常 | 未捕获 | 可能以 Python traceback 结束，且不保证 manifest 存在。 |
+| 某项目归档或写 manifest 失败 | `1` | 报错后继续处理其他项目；失败项目的部分输出会尝试清理。 |
+| 未提供 `--backup-dest` 且未设置 `BACKUP_DEST` | `2` | `argparse` 报必填参数缺失。 |
 | 参数缺失或非法 | `2` | `argparse` 用法错误。 |
-
-注意：`run_backup()` 在逐个项目归档时没有把单个项目的 `OSError`/`tarfile.TarError` 转换为记录级错误。某个项目归档中途失败时，命令可能终止，已生成的归档保留，但本次 manifest 可能缺失。该限制见第 14.4 节。
 
 ### 6.7 示例
 
 ```bash
-projjan backup ~/projects/demo --dest ~/backups/projects --dry-run
-projjan backup ~/projects --dest ~/backups/projects
-projjan backup ~/projects --dest ~/backups/projects --include-artifacts
-projjan backup ~/projects --dest ~/backups/projects --always-archive
+projjan backup ~/projects/demo --backup-dest ~/backups/projects --dry-run
+projjan backup ~/projects --backup-dest ~/backups/projects
+projjan backup ~/projects --backup-dest ~/backups/projects --include-artifacts
+projjan backup ~/projects --backup-dest ~/backups/projects --always-archive
+```
+
+也可设置默认目录后省略该选项：
+
+```bash
+export BACKUP_DEST=~/backups/projects
+projjan backup ~/projects --dry-run
 ```
 
 ## 7. `clean`
@@ -952,8 +959,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
-| `prepare_backup` | `(projects, dest: Path, include_artifacts=False, always_archive=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 只计算；不创建目录。`dest` 会 `expanduser().resolve()`。 |
-| `run_backup` | `(projects, dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[list[Path], list[BackupRecord]]` | 每项目 manifest 路径、记录列表 | `dry_run=True` 时不写文件并返回空记录；否则创建项目目录、归档并按项目写 manifest。异常向上传播。 |
+| `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
+| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | 备份根目录参数为 `backup_dest`；dry-run 不写文件。 |
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | `archive_dir` 为项目备份目录；写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器或 `None` | 按路径段匹配排除模式；无模式时返回 `None`。 |
