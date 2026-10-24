@@ -53,13 +53,24 @@ fn dry_run(project: &Path, env_dest: &Path, cli_dest: Option<&Path>) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn normalized_output(output: &str) -> String {
+    output.replace('\\', "/")
+}
+
 #[test]
 fn backup_reads_backup_dest_from_environment() {
     let temp = TestDir::new();
     let project = temp.project();
     let env_dest = temp.0.join("from-env");
     let output = dry_run(&project, &env_dest, None);
-    assert!(output.contains(&env_dest.join("demo").to_string_lossy().to_string()));
+    assert!(
+        normalized_output(&output).contains(&normalized_path(&env_dest.join("demo"))),
+        "unexpected dry-run output: {output}"
+    );
 }
 
 #[test]
@@ -69,6 +80,10 @@ fn command_line_backup_dest_overrides_environment() {
     let env_dest = temp.0.join("from-env");
     let cli_dest = temp.0.join("from-cli");
     let output = dry_run(&project, &env_dest, Some(&cli_dest));
-    assert!(output.contains(&cli_dest.join("demo").to_string_lossy().to_string()));
-    assert!(!output.contains(&env_dest.to_string_lossy().to_string()));
+    let output = normalized_output(&output);
+    assert!(
+        output.contains(&normalized_path(&cli_dest.join("demo"))),
+        "unexpected dry-run output: {output}"
+    );
+    assert!(!output.contains(&normalized_path(&env_dest)));
 }
