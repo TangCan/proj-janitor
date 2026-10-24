@@ -19,10 +19,18 @@
 安装 Rust 工具链后，在仓库根目录运行：
 
 ```bash
-cargo install --locked --path .
+cargo install --locked proj-janitor
 ```
 
-安装后可直接使用 `projjan`。发布到 crates.io 后，可改用 `cargo install proj-janitor`；目前尚未发布到 crates.io。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
+当前 crates.io 版本为 `0.2.0`；也可指定版本安装：
+
+```bash
+cargo install --locked proj-janitor --version 0.2.0
+```
+
+发布内容与验证信息见 [Rust 版 0.2.0 发布记录](docs/发布记录/0.2.0-Rust版.md)。
+
+从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
 Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档恢复支持 Unix 上的项目内符号链接，拒绝越界链接和特殊文件；Git 策略恢复仍需本机安装 Git。
 
@@ -206,12 +214,20 @@ python3 -m unittest discover -s tests -v
 ```
 
 当前 98 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
+Rust 版 9 项单元与 CLI 集成测试通过；`cargo clippy --all-targets --locked -- -D warnings`、crates.io 包构建与安装验证通过（2026-10-24）。
 
 Rust 版开发检查：
 
 ```bash
-cargo check
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
 cargo test
+```
+
+Python 版回归检查：
+
+```bash
+python3 -m unittest discover -s tests -v
 ```
 
 ## 许可证
