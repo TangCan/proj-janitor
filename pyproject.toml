@@ -13,6 +13,10 @@ license-files = ["LICENSE"]
 authors = [{ name = "Richard" }]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/TangCan/proj-janitor"
+Repository = "https://github.com/TangCan/proj-janitor"
+
 [project.scripts]
 projjan = "proj_janitor.cli:main"
 

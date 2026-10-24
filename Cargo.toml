@@ -5,6 +5,9 @@ edition = "2024"
 description = "Scan, back up, restore, and clean old projects safely"
 readme = "README.md"
 license = "MIT"
+homepage = "https://github.com/TangCan/proj-janitor"
+repository = "https://github.com/TangCan/proj-janitor"
+documentation = "https://docs.rs/proj-janitor"
 include = ["Cargo.toml", "Cargo.lock", "LICENSE", "README.md", "src/**", "tests/rust_cli.rs"]
 
 [[bin]]
