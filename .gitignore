@@ -12,3 +12,4 @@ venv/
 htmlcov/
 backups/
 .DS_Store
+/target/
