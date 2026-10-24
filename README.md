@@ -214,7 +214,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 当前 98 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
-Rust 版 9 项单元与 CLI 集成测试通过；`cargo clippy --all-targets --locked -- -D warnings`、crates.io 包构建与安装验证通过（2026-10-24）。
+Rust 版目前有 12 项单元与 CLI 集成测试；`cargo clippy --all-targets --locked -- -D warnings`、crates.io 包构建与安装验证通过（2026-10-24）。
 
 Rust 版开发检查：
 

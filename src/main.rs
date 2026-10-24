@@ -1778,6 +1778,49 @@ mod tests {
         true
     }
 
+    fn git_ok(path: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .args(args)
+            .arg(path)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    fn raw_test_archive(
+        temp: &TestDir,
+        archive_name: &str,
+        member_name: &str,
+        link_target: Option<&str>,
+    ) -> PathBuf {
+        let archive_path = temp.0.join(archive_name);
+        let mut header = Header::new_gnu();
+        header.set_entry_type(if link_target.is_some() {
+            EntryType::Symlink
+        } else {
+            EntryType::Regular
+        });
+        header.set_mode(0o644);
+        header.set_size(if link_target.is_some() { 0 } else { 4 });
+        header.set_path("demo/safe-entry").unwrap();
+        if let Some(target) = link_target {
+            header.set_link_name_literal(target.as_bytes()).unwrap();
+        }
+        let name = member_name.as_bytes();
+        assert!(name.len() < 100);
+        let raw = header.as_mut_bytes();
+        raw[..100].fill(0);
+        raw[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+
+        let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+        let mut tar = Builder::new(encoder);
+        let data: &[u8] = if link_target.is_some() { b"" } else { b"evil" };
+        tar.append(&header, data).unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+        archive_path
+    }
+
     #[test]
     fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
         assert_eq!(
@@ -2031,5 +2074,84 @@ mod tests {
             fs::read_to_string(restore_root.join("demo/data.txt")).unwrap(),
             "restore me\n"
         );
+    }
+
+    #[test]
+    fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
+        let temp = TestDir::new();
+        let traversal = raw_test_archive(&temp, "traversal.tar.gz", "demo/../../escape", None);
+        let traversal_target = temp.0.join("restored-traversal/demo");
+        assert!(extract_archive(&traversal, &traversal_target, "demo").is_err());
+        assert!(!traversal_target.exists());
+        assert!(!temp.0.join("restored-traversal/escape").exists());
+
+        let escaping_link = raw_test_archive(
+            &temp,
+            "escaping-link.tar.gz",
+            "demo/link",
+            Some("../../escape"),
+        );
+        let link_target = temp.0.join("restored-link/demo");
+        assert!(extract_archive(&escaping_link, &link_target, "demo").is_err());
+        assert!(!link_target.exists());
+        assert!(!temp.0.join("restored-link/escape").exists());
+    }
+
+    #[test]
+    fn clean_apply_removes_only_artifacts_and_preserves_project_files() {
+        let temp = TestDir::new();
+        let project = temp.0.join("demo");
+        fs::create_dir_all(project.join("target/debug")).unwrap();
+        fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(project.join("src.txt"), "keep\n").unwrap();
+        fs::write(project.join("target/debug/cache"), "remove\n").unwrap();
+
+        clean_cmd(std::slice::from_ref(&project), &[], true, true, true, false).unwrap();
+
+        assert!(!project.join("target").exists());
+        assert_eq!(
+            fs::read_to_string(project.join("src.txt")).unwrap(),
+            "keep\n"
+        );
+        assert!(project.join("pyproject.toml").is_file());
+    }
+
+    #[test]
+    fn remote_tag_check_uses_remote_refs_and_rejects_a_mismatched_tag() {
+        let temp = TestDir::new();
+        let project = temp.0.join("demo");
+        if !pushed_github_fixture(&project) {
+            eprintln!("git unavailable; skipping Git recovery fixture");
+            return;
+        }
+        let remote = temp.0.join("remote.git");
+        assert!(
+            git_ok(&remote, &["init", "--bare"]),
+            "could not create bare remote"
+        );
+        assert!(local_git(
+            &project,
+            &["tag", "-a", "v1", "-m", "fixture tag"]
+        ));
+        let remote_arg = remote.to_string_lossy().into_owned();
+        assert!(local_git(
+            &project,
+            &["push", &remote_arg, "main", "--tags"]
+        ));
+        assert!(verify_local_tags(&project, &remote_arg).is_ok());
+
+        fs::write(project.join("tracked.txt"), "second commit\n").unwrap();
+        assert!(local_git(&project, &["add", "tracked.txt"]));
+        assert!(local_git(
+            &project,
+            &["commit", "-m", "second fixture commit"]
+        ));
+        assert!(local_git(&project, &["push", &remote_arg, "main"]));
+        assert!(local_git(&project, &["tag", "-f", "v1", "HEAD"]));
+
+        match verify_local_tags(&project, &remote_arg) {
+            Err(reason) => assert_eq!(reason, "local tag differs from remote: v1"),
+            Ok(_) => panic!("mismatched remote tag was accepted"),
+        }
     }
 }
