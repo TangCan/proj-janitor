@@ -16,7 +16,7 @@
 
 ### Rust 命令行版（推荐免 Python 环境）
 
-安装 Rust 工具链后，在仓库根目录运行：
+需要 Rust 1.88 或更新版本。安装 Rust 工具链后，在仓库根目录运行：
 
 ```bash
 cargo install --locked proj-janitor
