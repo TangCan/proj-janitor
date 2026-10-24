@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | v0.1.0（post-v0.1.0 一致性修订） |
-| 源码提交 | `64808dfa2d05f6f3bb343336e8c6ec3bedb0b209`（代码基线） |
+| 源码提交 | `2884075b455cf5171de6b8f469708e1ff25b655b`（当前代码基线） |
 | 源码标签 | `v0.1.0` 仍指向 `012d539e58035346fc01fda81b8bc06c1440d4f3`，不含 post-v0.1.0 变更 |
 | 文档日期 | 2026-10-24 |
 | 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
@@ -507,17 +507,17 @@ Dry run. Re-run with --apply to delete these items.
 
 ### 7.5 JSON 输出
 
-`--json` 时先输出计划数组，字段见第 10.2 节。随后根据 `--apply`、确认和结果继续输出文本。因此 `clean --json` 的标准输出不是严格纯 JSON：
+`--json` 时 stdout 只输出计划数组，字段见第 10.2 节。确认提示、执行摘要和错误写入 stderr，因此 stdout 可直接交给 JSON 解析器：
 
 | 场景 | 标准输出内容 |
 | --- | --- |
-| `--json`，dry-run，有计划项 | JSON 数组，随后是 `Dry run. Re-run with --apply to delete these items.` |
+| `--json`，dry-run，有计划项 | 仅 JSON 数组 |
 | `--json`，dry-run，无计划项 | 仅 `[]` |
 | `--json --apply`，非交互且无 `--yes` | JSON 数组，随后拒绝删除信息在标准错误，退出 `2` |
-| `--json --apply --yes` | JSON 数组，随后 `Removed N item(s), freed ...` |
-| `--json --apply`，交互确认 | JSON 数组先输出，再显示确认提示 |
+| `--json --apply --yes` | stdout 为 JSON 数组；执行摘要写入 stderr |
+| `--json --apply`，交互确认 | stdout 为 JSON 数组；确认提示写入 stderr |
 
-自动化调用方若需要纯 JSON，应只使用 dry-run 且自行忽略后续提示，或等待未来版本提供严格机器协议；v0.1.0 未提供该保证。
+修复自提交 `2884075` 起，stdout 保持单一 JSON 文档；自动化调用方仍应检查退出码并处理 stderr 错误信息。
 
 ### 7.6 删除与确认
 
@@ -795,7 +795,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 说明：
 
 - 没有 `schema_version` 字段。
-- `clean --json` 不是严格 JSON 协议；后续可能追加 dry-run 文本、确认提示或删除摘要。详见第 7.5 节。
+- `clean --json` 的 stdout 为单个 JSON 文档；确认提示、摘要和错误写入 stderr。详见第 7.5 节。
 - 计划项按 `(project, path)` 字符串排序；不保证按体积或规则名排序。
 - `size_bytes` 是计划时估算值；删除前文件可能变化，实际释放空间以操作系统结果为准。
 
@@ -1174,8 +1174,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 | 限制 | 影响 | 规避/说明 |
 | --- | --- | --- |
-| `clean --json` 混入文本 | 标准输出不是严格 JSON | 只取首个 JSON 值，或等待后续版本；不要直接喂给严格解析器。 |
-| `--list-rules` 仍要求 `ROOT` | 不能完全独立调用 | 使用 `projjan clean . --list-rules` 等占位根。 |
+| `clean --json` JSON 解析失败 | stdout 被外层脚本或命令包装污染 | 检查原始 stdout、stderr 和退出码；当前 CLI 有纯 JSON 回归测试。 |
+| `--list-rules` 可不带 `ROOT` | 独立输出规则列表 | 使用 `projjan clean --list-rules`。 |
 | 备份归档异常未项目级隔离 | 单个项目失败可能中止整批 | 分批备份；失败后检查目录并重新运行。 |
 | manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、项目备份目录和 manifest 是否存在。 |
 | `restore` 不覆盖已有目录 | 目标存在时整批规划失败 | 指定 `--dest`，或先自行移走旧目录；没有 `--force`。 |

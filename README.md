@@ -180,7 +180,7 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 77 项测试全部通过。无第三方运行时依赖，要求 Python 3.10+。
+当前 92 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
 
 ## 后续计划
 
