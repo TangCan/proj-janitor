@@ -1407,10 +1407,15 @@ fn restore_cmd(
             io::stdin().is_terminal() && !json,
             "--yes is required for original-location restore in non-interactive or JSON mode"
         );
-        eprintln!(
-            "Restore {} project(s) to original locations? [y/N]",
+        eprintln!("About to restore to original locations:");
+        for (record, target, _) in &plans {
+            eprintln!("  {}: {}", record.project, target.display());
+        }
+        eprint!(
+            "Restore {} project(s) to original locations? [y/N] ",
             plans.len()
         );
+        io::stderr().flush()?;
         let mut a = String::new();
         io::stdin().read_line(&mut a)?;
         anyhow::ensure!(
