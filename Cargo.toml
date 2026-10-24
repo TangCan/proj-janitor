@@ -4,7 +4,8 @@ version = "0.2.0"
 edition = "2024"
 description = "Scan, back up, restore, and clean old projects safely"
 readme = "README.md"
-include = ["Cargo.toml", "Cargo.lock", "README.md", "src/**", "tests/rust_cli.rs"]
+license = "MIT"
+include = ["Cargo.toml", "Cargo.lock", "LICENSE", "README.md", "src/**", "tests/rust_cli.rs"]
 
 [[bin]]
 name = "projjan"

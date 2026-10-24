@@ -214,6 +214,10 @@ cargo check
 cargo test
 ```
 
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。
+
 ## 后续计划
 
 - 支持 `git bundle`，保留完整提交历史并减小归档体积。
