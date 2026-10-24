@@ -10,10 +10,13 @@ use std::{
     fs::{self, File},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
-    process::Command,
+    process::{Command, Output, Stdio},
+    thread,
+    time::Duration,
 };
 use tar::{Archive, Builder, EntryType, Header};
 use url::Url;
+use wait_timeout::ChildExt;
 use walkdir::WalkDir;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -307,12 +310,38 @@ fn git_output(path: &Path, args: &[&str]) -> Option<String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 fn git_run(path: &Path, args: &[&str]) -> Option<std::process::Output> {
-    Command::new("git")
+    let mut child = Command::new("git")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .arg("-C")
         .arg(path)
         .args(args)
-        .output()
-        .ok()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    let stdout_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let status = match child.wait_timeout(Duration::from_secs(10)) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    Some(Output {
+        status,
+        stdout: stdout_reader.join().ok()?.ok()?,
+        stderr: stderr_reader.join().ok()?.ok()?,
+    })
 }
 
 fn github_url(remote: &str) -> Option<String> {
