@@ -8,8 +8,8 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | v0.1.0（post-v0.1.0 一致性修订） |
-| 源码提交 | `f3cb9dae153ba37e5c027b0e130299843db7ec88`（当前代码基线） |
-| 源码标签 | `v0.1.0` 仍指向 `012d539e58035346fc01fda81b8bc06c1440d4f3`，不含 post-v0.1.0 变更 |
+| 源码提交 | `763c41f41b71ba2f88e2a5dd7c1af3b83cc65ba4`（当前代码基线） |
+| 源码标签 | `v0.1.0` 仍指向 `f5bb224a9cc8541523019a569e13f50dd86944f9`，不含 post-v0.1.0 变更 |
 | 文档日期 | 2026-10-24 |
 | 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
@@ -355,7 +355,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 
 ```text
 Dry run. Manifest would be: /path/to/backups/demo/manifest-20261023-135243.json
-  [git] demo: https://github.com/owner/demo.git @ 012d539e5803
+  [git] demo: https://github.com/owner/demo.git @ f5bb224a9cc8
   [archive] old-tool: 12.4 MiB -> /path/to/backups/old-tool/old-tool-20261023-135243.tar.gz (working tree is not clean)
 ```
 
@@ -374,7 +374,7 @@ Dry run. Manifest would be: /path/to/backups/demo/manifest-20261023-135243.json
 
 ```text
 Backed up 2 project(s).
-  [git] demo: https://github.com/owner/demo.git @ 012d539e5803
+  [git] demo: https://github.com/owner/demo.git @ f5bb224a9cc8
   [archive] old-tool: 12.4 MiB  sha256:9f2c1a7b3d4e  /path/to/backups/old-tool/old-tool-20261023-135243.tar.gz  (working tree is not clean)
 Manifest: /path/to/backups/demo/manifest-20261023-135243.json
 Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
@@ -524,7 +524,7 @@ Dry run. Re-run with --apply to delete these items.
 | `--json --apply --yes` | stdout 为 JSON 数组；执行摘要写入 stderr |
 | `--json --apply`，交互确认 | stdout 为 JSON 数组；确认提示写入 stderr |
 
-修复自提交 `2884075` 起，stdout 保持单一 JSON 文档；自动化调用方仍应检查退出码并处理 stderr 错误信息。
+修复自提交 `c4fa6d9` 起，stdout 保持单一 JSON 文档；自动化调用方仍应检查退出码并处理 stderr 错误信息。
 
 ### 7.6 删除与确认
 
@@ -900,7 +900,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
       "remote": "origin",
       "remote_url": "https://github.com/owner/demo.git",
       "branch": "main",
-      "commit": "012d539e58035346fc01fda81b8bc06c1440d4f3",
+      "commit": "f5bb224a9cc8541523019a569e13f50dd86944f9",
       "upstream": "origin/main",
       "verified": "local-ref",
       "fallback_reason": null
