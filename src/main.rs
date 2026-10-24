@@ -1989,7 +1989,6 @@ mod tests {
                 fs::read_link(restored.join("src/current-dir")).unwrap(),
                 PathBuf::from("subdir")
             );
-            println!("Windows file and directory symlink round-trip verified");
         }
         #[cfg(windows)]
         {
@@ -2014,6 +2013,7 @@ mod tests {
                 fs::read_link(restored.join("src/current-dir")).unwrap(),
                 PathBuf::from("subdir")
             );
+            println!("Windows file and directory symlink round-trip verified");
         }
     }
 
