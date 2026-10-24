@@ -1573,6 +1573,7 @@ fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Resu
         let entries = ar.entries()?;
         let mut count = 0;
         let mut directories = Vec::new();
+        let mut symlinks = Vec::new();
         for item in entries {
             let mut e = item?;
             let name = e.path()?.into_owned();
@@ -1599,7 +1600,7 @@ fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Resu
                 if let Some(parent) = out.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                create_symlink(&link, &out)?;
+                symlinks.push((link.into_owned(), out));
             } else {
                 anyhow::ensure!(
                     ty.is_file(),
@@ -1621,6 +1622,12 @@ fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Resu
             root.is_dir() && !root.is_symlink(),
             "archive does not contain project directory: {project}"
         );
+        for (link_target, link_path) in symlinks {
+            let target_is_dir = link_path
+                .parent()
+                .is_some_and(|parent| parent.join(&link_target).is_dir());
+            create_symlink(&link_target, &link_path, target_is_dir)?;
+        }
         for (directory, mode) in directories.into_iter().rev() {
             set_mode(&directory, mode)?;
         }
@@ -1681,14 +1688,25 @@ fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn create_symlink(target: &Path, link: &Path) -> anyhow::Result<()> {
+fn create_symlink(target: &Path, link: &Path, _target_is_dir: bool) -> anyhow::Result<()> {
     std::os::unix::fs::symlink(target, link)?;
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn create_symlink(_target: &Path, _link: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("restoring symbolic links is currently supported on Unix only")
+#[cfg(windows)]
+fn create_symlink(target: &Path, link: &Path, target_is_dir: bool) -> anyhow::Result<()> {
+    if target_is_dir {
+        std::os::windows::fs::symlink_dir(target, link)?;
+    } else {
+        // shortcut: dangling directory links have no type in tar headers; add link-type metadata if preserving them becomes required.
+        std::os::windows::fs::symlink_file(target, link)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink(_target: &Path, _link: &Path, _target_is_dir: bool) -> anyhow::Result<()> {
+    anyhow::bail!("symbolic link restoration is unsupported on this platform")
 }
 
 #[cfg(test)]
@@ -1907,10 +1925,11 @@ mod tests {
     fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
         let temp = TestDir::new();
         let project = temp.0.join("demo");
-        fs::create_dir_all(project.join("src")).unwrap();
+        fs::create_dir_all(project.join("src/subdir")).unwrap();
         fs::create_dir_all(project.join("target/cache")).unwrap();
         fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
         fs::write(project.join("src/main.sh"), "#!/bin/sh\necho ok\n").unwrap();
+        fs::write(project.join("src/subdir/data.txt"), "directory target\n").unwrap();
         fs::write(project.join("target/cache/blob"), "regenerable").unwrap();
         #[cfg(unix)]
         {
@@ -1921,6 +1940,24 @@ mod tests {
             )
             .unwrap();
             symlink("main.sh", project.join("src/current")).unwrap();
+            symlink("subdir", project.join("src/current-dir")).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::{symlink_dir, symlink_file};
+            // shortcut: skip Windows link round-trip when the test runner lacks symlink privilege.
+            if let Err(error) = symlink_file("main.sh", project.join("src/current")) {
+                eprintln!(
+                    "Windows symlink privilege unavailable; skipping link round-trip: {error}"
+                );
+                return;
+            }
+            if let Err(error) = symlink_dir("subdir", project.join("src/current-dir")) {
+                eprintln!(
+                    "Windows symlink privilege unavailable; skipping link round-trip: {error}"
+                );
+                return;
+            }
         }
 
         let archive = temp.0.join("demo.tar.gz");
@@ -1947,6 +1984,34 @@ mod tests {
             assert_eq!(
                 fs::read_link(restored.join("src/current")).unwrap(),
                 PathBuf::from("main.sh")
+            );
+            assert_eq!(
+                fs::read_link(restored.join("src/current-dir")).unwrap(),
+                PathBuf::from("subdir")
+            );
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            assert!(
+                fs::symlink_metadata(restored.join("src/current"))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink_file()
+            );
+            assert!(
+                fs::symlink_metadata(restored.join("src/current-dir"))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink_dir()
+            );
+            assert_eq!(
+                fs::read_link(restored.join("src/current")).unwrap(),
+                PathBuf::from("main.sh")
+            );
+            assert_eq!(
+                fs::read_link(restored.join("src/current-dir")).unwrap(),
+                PathBuf::from("subdir")
             );
         }
     }

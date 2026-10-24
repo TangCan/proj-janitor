@@ -32,7 +32,7 @@ cargo install --locked proj-janitor --version 0.2.0
 
 从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
-Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档恢复支持 Unix 上的项目内符号链接，拒绝越界链接和特殊文件；Git 策略恢复仍需本机安装 Git。
+Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档恢复拒绝越界链接和特殊文件；Unix 可恢复项目内符号链接。当前源码也支持 Windows 文件/目录符号链接，但运行账户必须有创建符号链接的权限。crates.io `0.2.0` 是此 Windows 支持改动之前的版本；该改动尚未包含在已发布 crate 中。Git 策略恢复仍需本机安装 Git。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
