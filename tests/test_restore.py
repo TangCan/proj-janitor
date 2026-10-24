@@ -192,6 +192,113 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse((root / "escape").exists())
 
+    def test_restore_archive_to_original_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            plans, results = restore_from_manifest(manifest, None)
+
+            self.assertTrue(plans[0].in_place)
+            self.assertEqual(plans[0].target, original)
+            self.assertEqual(results[0].target, original)
+            self.assertEqual(
+                (original / "src" / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertFalse((original / "node_modules").exists())
+
+    def test_restore_original_dry_run_does_not_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            plans, results = restore_from_manifest(
+                manifest,
+                None,
+                dry_run=True,
+            )
+
+            self.assertEqual(results, [])
+            self.assertTrue(plans[0].in_place)
+            self.assertFalse(original.exists())
+
+    def test_restore_original_refuses_existing_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, _ = archive_backup(root)
+
+            with self.assertRaisesRegex(RestoreError, "already exists"):
+                restore_from_manifest(manifest, None)
+
+    def test_restore_original_requires_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            del payload["records"][0]["source"]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            shutil.rmtree(project)
+
+            with self.assertRaisesRegex(RestoreError, "has no source"):
+                restore_from_manifest(manifest, None)
+
+    def test_restore_original_rejects_relative_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["records"][0]["source"] = "app"
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            shutil.rmtree(project)
+
+            with self.assertRaisesRegex(RestoreError, "must be absolute"):
+                restore_from_manifest(manifest, None)
+
+    def test_restore_original_rejects_parent_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["records"][0]["source"] = str(
+                root / "nested" / ".." / "app"
+            )
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            shutil.rmtree(project)
+
+            with self.assertRaisesRegex(RestoreError, "unsafe source path"):
+                restore_from_manifest(manifest, None)
+
+    def test_restore_original_rejects_source_name_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["records"][0]["source"] = str(root / "other")
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            shutil.rmtree(project)
+
+            with self.assertRaisesRegex(
+                RestoreError,
+                "does not match project name",
+            ):
+                restore_from_manifest(manifest, None)
+
+    def test_restore_original_rejects_symlink_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            original = project.resolve()
+            shutil.rmtree(project)
+            original.symlink_to(root / "elsewhere", target_is_directory=True)
+
+            with self.assertRaisesRegex(RestoreError, "symlink"):
+                restore_from_manifest(manifest, None)
+
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRestoreTests(unittest.TestCase):
@@ -262,6 +369,50 @@ class GitRestoreTests(unittest.TestCase):
             self.assertTrue(restored.is_dir())
             self.assertEqual(list(restored.iterdir()), [])
             self.assertFalse((restored / "app").exists())
+
+    def test_restore_git_to_original_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            original = project.resolve()
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(remote),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                        "fallback_reason": None,
+                    }
+                ],
+            )
+            shutil.rmtree(project)
+
+            plans, results = restore_from_manifest(manifest, None)
+
+            self.assertTrue(plans[0].in_place)
+            self.assertEqual(results[0].target, original)
+            self.assertEqual(
+                (original / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertEqual(git(original, "rev-parse", "HEAD"), head)
+            self.assertEqual(
+                git(original, "rev-parse", "--abbrev-ref", "HEAD"),
+                "HEAD",
+            )
 
 
 if __name__ == "__main__":

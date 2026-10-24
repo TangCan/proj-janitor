@@ -23,8 +23,9 @@ from proj_janitor.models import (
 )
 from proj_janitor.restore import (
     RestoreError,
+    execute_restore,
+    plan_restore,
     redact_remote_url,
-    restore_from_manifest,
 )
 from proj_janitor.scanner import discover_projects, format_projects
 
@@ -132,9 +133,9 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("manifest", type=Path)
     restore.add_argument(
         "--dest",
-        required=True,
         type=Path,
-        help="restore parent directory",
+        default=None,
+        help="restore parent directory (default: original location in manifest)",
     )
     restore.add_argument(
         "--project",
@@ -152,6 +153,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-verify",
         action="store_true",
         help="skip archive SHA-256 verification",
+    )
+    restore.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip confirmation when restoring to original locations",
     )
     restore.add_argument("--json", action="store_true", help="emit JSON")
     return parser
@@ -256,31 +262,77 @@ def _print_manifests(manifest_paths: Sequence[Path]) -> None:
 
 def _cmd_restore(args: argparse.Namespace) -> int:
     try:
-        plans, results = restore_from_manifest(
+        plans = plan_restore(
             args.manifest,
             args.dest,
             projects=args.project,
-            dry_run=args.dry_run,
             verify=not args.no_verify,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    if args.json:
-        if args.dry_run:
-            projects = [_restore_plan_json(plan) for plan in plans]
-        else:
-            projects = [_restore_result_json(result) for result in results]
-        payload = {"dry_run": args.dry_run, "projects": projects}
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
+    in_place = args.dest is None
+    mode = "original" if in_place else "dest"
 
     if args.dry_run:
+        if args.json:
+            payload = {
+                "dry_run": True,
+                "mode": mode,
+                "projects": [_restore_plan_json(plan) for plan in plans],
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
         print(f"Restore plan: {len(plans)} project(s)")
+        if in_place:
+            print("Targets are the original backup locations:")
         for plan in plans:
             _print_restore_plan(plan)
         print("Dry run. Re-run without --dry-run to restore.")
+        return 0
+
+    if in_place and not args.yes:
+        if args.json:
+            print(
+                "error: --yes is required for original-location restore "
+                "with --json",
+                file=sys.stderr,
+            )
+            return 2
+        if not sys.stdin.isatty():
+            print(
+                "error: refusing to restore to original locations without "
+                "--yes in a non-interactive session",
+                file=sys.stderr,
+            )
+            return 2
+        print("About to restore to original locations:")
+        for plan in plans:
+            print(f"  {plan.target}")
+        try:
+            answer = input(
+                f"Restore {len(plans)} project(s)? [y/N] "
+            ).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Aborted.")
+            return 2
+
+    try:
+        results = execute_restore(plans)
+    except RestoreError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        payload = {
+            "dry_run": False,
+            "mode": mode,
+            "projects": [_restore_result_json(result) for result in results],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
     print(f"Restored {len(results)} project(s).")
@@ -317,6 +369,7 @@ def _restore_plan_json(plan: RestorePlan) -> dict:
         "commit": plan.commit,
         "sha256": plan.sha256,
         "sha256_verified": plan.hash_verified,
+        "in_place": plan.in_place,
     }
 
 

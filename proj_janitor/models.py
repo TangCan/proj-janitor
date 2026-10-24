@@ -93,6 +93,7 @@ class RestorePlan:
     commit: str | None = None
     sha256: str | None = None
     hash_verified: bool = False
+    in_place: bool = False
 
 
 @dataclass(frozen=True)

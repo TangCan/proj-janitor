@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from proj_janitor.cli import main
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
@@ -31,6 +32,11 @@ def run_cli(*argv: str) -> tuple[int, str, str]:
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(list(argv))
     return code, stdout.getvalue(), stderr.getvalue()
+
+
+class Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 class CliTests(unittest.TestCase):
@@ -118,6 +124,140 @@ class CliTests(unittest.TestCase):
             self.assertTrue(payload["dry_run"])
             self.assertEqual(payload["projects"][0]["strategy"], "archive")
             self.assertFalse(restored.exists())
+
+    def test_restore_original_requires_yes_when_not_tty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            code, _, err = run_cli("restore", str(manifest))
+
+            self.assertEqual(code, 2)
+            self.assertIn("--yes", err)
+            self.assertFalse(original.exists())
+
+    def test_restore_original_with_yes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            code, out, _ = run_cli("restore", str(manifest), "--yes")
+
+            self.assertEqual(code, 0)
+            self.assertIn("Restored 1 project(s)", out)
+            self.assertEqual(
+                (original / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertFalse((original / "node_modules").exists())
+
+    def test_restore_original_dry_run_shows_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            code, out, _ = run_cli("restore", str(manifest), "--dry-run")
+
+            self.assertEqual(code, 0)
+            self.assertIn("original backup locations", out)
+            self.assertIn(str(original), out)
+            self.assertFalse(original.exists())
+
+    def test_restore_original_json_requires_yes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            code, out, err = run_cli("restore", str(manifest), "--json")
+
+            self.assertEqual(code, 2)
+            self.assertEqual(out, "")
+            self.assertIn("--yes", err)
+            self.assertFalse(original.exists())
+
+    def test_restore_original_json_with_yes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            code, out, _ = run_cli(
+                "restore",
+                str(manifest),
+                "--yes",
+                "--json",
+            )
+
+            self.assertEqual(code, 0)
+            payload = json.loads(out)
+            self.assertFalse(payload["dry_run"])
+            self.assertEqual(payload["mode"], "original")
+            self.assertEqual(payload["projects"][0]["target"], str(original))
+            self.assertTrue((original / "main.py").is_file())
+
+    def test_restore_original_confirmation_accepts_yes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            with mock.patch("sys.stdin", Tty()), mock.patch(
+                "builtins.input",
+                return_value="y",
+            ):
+                code, out, _ = run_cli("restore", str(manifest))
+
+            self.assertEqual(code, 0)
+            self.assertIn("About to restore to original locations", out)
+            self.assertTrue((original / "main.py").is_file())
+
+    def test_restore_original_confirmation_aborts_on_no(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+
+            with mock.patch("sys.stdin", Tty()), mock.patch(
+                "builtins.input",
+                return_value="n",
+            ):
+                code, out, _ = run_cli("restore", str(manifest))
+
+            self.assertEqual(code, 2)
+            self.assertIn("Aborted.", out)
+            self.assertFalse(original.exists())
 
     def test_restore_missing_manifest_reports_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

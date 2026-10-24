@@ -23,7 +23,7 @@ class RestoreError(RuntimeError):
 
 def restore_from_manifest(
     manifest_path: Path,
-    dest: Path,
+    dest: Path | None,
     projects: Iterable[str] = (),
     dry_run: bool = False,
     verify: bool = True,
@@ -37,22 +37,42 @@ def restore_from_manifest(
     if dry_run:
         return plans, []
 
-    for plan in plans:
-        plan.target.parent.mkdir(parents=True, exist_ok=True)
-    results = [_restore_one(plan) for plan in plans]
+    results = execute_restore(plans)
     return plans, results
+
+
+def execute_restore(plans: Iterable[RestorePlan]) -> list[RestoreResult]:
+    plan_list = list(plans)
+    try:
+        for plan in plan_list:
+            plan.target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RestoreError(
+            f"cannot create restore target directory: {exc}"
+        ) from exc
+
+    results: list[RestoreResult] = []
+    for plan in plan_list:
+        try:
+            results.append(_restore_one(plan))
+        except OSError as exc:
+            raise RestoreError(
+                f"cannot restore {plan.project}: {exc}"
+            ) from exc
+    return results
 
 
 def plan_restore(
     manifest_path: Path,
-    dest: Path,
+    dest: Path | None,
     projects: Iterable[str] = (),
     verify: bool = True,
 ) -> list[RestorePlan]:
     manifest_path, manifest = load_manifest(manifest_path)
-    dest = dest.expanduser().resolve()
-    if dest.exists() and not dest.is_dir():
-        raise RestoreError(f"destination is not a directory: {dest}")
+    if dest is not None:
+        dest = dest.expanduser().resolve()
+        if dest.exists() and not dest.is_dir():
+            raise RestoreError(f"destination is not a directory: {dest}")
 
     records = manifest["records"]
     requested = list(projects)
@@ -74,13 +94,20 @@ def plan_restore(
 
     plans: list[RestorePlan] = []
     seen: set[str] = set()
+    seen_targets: set[Path] = set()
     for record in selected:
         project = _record_project(record)
         if project in seen:
             raise RestoreError(f"duplicate project in manifest: {project}")
         seen.add(project)
 
-        target = dest / project
+        if dest is None:
+            target = _record_source(record, project)
+        else:
+            target = dest / project
+        if target in seen_targets:
+            raise RestoreError(f"duplicate restore target in manifest: {target}")
+        seen_targets.add(target)
         if target.exists() or target.is_symlink():
             raise RestoreError(f"restore target already exists: {target}")
 
@@ -100,6 +127,7 @@ def plan_restore(
                     target=target,
                     remote_url=remote_url,
                     commit=commit,
+                    in_place=dest is None,
                 )
             )
             continue
@@ -136,6 +164,7 @@ def plan_restore(
                     archive=archive,
                     sha256=sha256,
                     hash_verified=hash_verified,
+                    in_place=dest is None,
                 )
             )
             continue
@@ -197,6 +226,42 @@ def _record_string(record: dict, key: str) -> str:
     if value != value.strip():
         raise RestoreError(f"manifest record has invalid {key}")
     return value
+
+
+def _record_source(record: dict, project: str) -> Path:
+    raw = _record_string(record, "source")
+    if "\x00" in raw:
+        raise RestoreError(f"invalid source for {project}: contains NUL")
+    path = Path(raw)
+    if not path.is_absolute():
+        raise RestoreError(
+            f"manifest source for {project} must be absolute: {raw!r}"
+        )
+    if any(part == ".." for part in path.parts):
+        raise RestoreError(f"unsafe source path for {project}: {raw!r}")
+    if path.name != project:
+        raise RestoreError(
+            f"source path for {project} does not match project name: {raw!r}"
+        )
+    if path == Path(path.anchor):
+        raise RestoreError(
+            f"refusing filesystem root as restore source: {raw!r}"
+        )
+
+    try:
+        parent = path.parent.resolve()
+    except OSError as exc:
+        raise RestoreError(
+            f"cannot resolve source parent for {project}: {exc}"
+        ) from exc
+    if parent.exists() and not parent.is_dir():
+        raise RestoreError(
+            f"restore source parent is not a directory: {parent}"
+        )
+    target = parent / path.name
+    if target.is_symlink():
+        raise RestoreError(f"restore target is a symlink: {target}")
+    return target
 
 
 def _resolve_archive(record: dict, manifest_dir: Path, project: str) -> Path:
