@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         "clean",
         help="find and remove known build artifacts (dry-run by default)",
     )
-    clean.add_argument("roots", nargs="+", type=Path)
+    clean.add_argument("roots", nargs="*", type=Path)
     clean.add_argument(
         "--rules",
         type=_rule_list,
@@ -215,7 +215,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 )
         return 1 if failures else 0
 
-    manifest_paths, records = run_backup(
+    manifest_paths, records, backup_failures = run_backup(
         projects,
         dest,
         include_artifacts=args.include_artifacts,
@@ -238,8 +238,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 f"{human_size(record.archive_bytes)}"
                 f"  sha256:{digest}  {record.archive}{reason}"
             )
-    _print_manifests(manifest_paths)
-    return 1 if failures else 0
+    if manifest_paths:
+        _print_manifests(manifest_paths)
+    for project, error in backup_failures:
+        print(f"error: {project}: {error}", file=sys.stderr)
+    return 1 if failures or backup_failures else 0
 
 
 def _print_dry_run_manifests(manifest_paths: Sequence[Path]) -> None:
@@ -386,6 +389,10 @@ def _cmd_clean(args: argparse.Namespace) -> int:
         print(format_rules())
         return 0
 
+    if not args.roots:
+        print("error: at least one root is required", file=sys.stderr)
+        return 2
+
     projects, failures = _collect_projects(args.roots, include_unmarked=False)
     actions: list[CleanupAction] = []
     for project in projects:
@@ -407,11 +414,12 @@ def _cmd_clean(args: argparse.Namespace) -> int:
         print(format_cleanup_plan(actions))
 
     if not args.apply:
-        if actions:
+        if actions and not args.json:
             print("Dry run. Re-run with --apply to delete these items.")
         return 1 if failures else 0
     if not actions:
         return 1 if failures else 0
+
     if not args.yes:
         if not sys.stdin.isatty():
             print(
@@ -419,16 +427,22 @@ def _cmd_clean(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        answer = input(f"Delete {len(actions)} item(s)? [y/N] ").strip().lower()
+        prompt = f"Delete {len(actions)} item(s)? [y/N] "
+        if args.json:
+            print(prompt, end="", file=sys.stderr)
+            answer = input().strip().lower()
+        else:
+            answer = input(prompt).strip().lower()
         if answer not in {"y", "yes"}:
-            print("Aborted.")
+            print("Aborted.", file=sys.stderr if args.json else sys.stdout)
             return 2
 
     result = apply_cleanup(actions)
-    print(
+    summary = (
         f"Removed {result.removed} item(s), "
         f"freed {human_size(result.freed_bytes)}."
     )
+    print(summary, file=sys.stderr if args.json else sys.stdout)
     for error in result.errors:
         print(f"error: {error}", file=sys.stderr)
     return 1 if failures or result.errors else 0

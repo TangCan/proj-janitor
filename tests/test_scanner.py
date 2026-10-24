@@ -351,6 +351,82 @@ class GitRecoveryTests(unittest.TestCase):
         )
         return project
 
+    def _pushed_repo_with_ignored_coverage(
+        self,
+        root: Path,
+        *,
+        marker: bool,
+        nested: bool = False,
+    ) -> Path:
+        project = make_pushed_repo(root)
+        (project / ".gitignore").write_text("coverage/\n", encoding="utf-8")
+        coverage = project / "src" / "coverage" if nested else project / "coverage"
+        coverage.mkdir(parents=True)
+        if marker:
+            (coverage / "lcov.info").write_text("", encoding="utf-8")
+        (coverage / "notes.txt").write_text("", encoding="utf-8")
+        commit_all(project, "ignore coverage")
+        git(project, "remote", "set-url", "origin", str(root / "app-remote.git"))
+        git(project, "push", "-q", "origin", "main")
+        git(
+            project,
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/app.git",
+        )
+        return project
+
+    def test_root_coverage_artifact_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._pushed_repo_with_ignored_coverage(
+                Path(tmp),
+                marker=True,
+            )
+
+            state = inspect_git_recoverability(
+                scan_project(project),
+                patterns=("coverage",),
+            )
+
+            self.assertTrue(state.eligible)
+            self.assertIsNone(state.reason)
+
+    def test_nested_coverage_artifact_blocks_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._pushed_repo_with_ignored_coverage(
+                Path(tmp),
+                marker=True,
+                nested=True,
+            )
+
+            state = inspect_git_recoverability(
+                scan_project(project),
+                patterns=("coverage",),
+            )
+
+            self.assertFalse(state.eligible)
+            self.assertTrue(
+                state.reason.startswith("ignored path is not an artifact"),
+            )
+
+    def test_root_coverage_without_marker_blocks_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = self._pushed_repo_with_ignored_coverage(
+                Path(tmp),
+                marker=False,
+            )
+
+            state = inspect_git_recoverability(
+                scan_project(project),
+                patterns=("coverage",),
+            )
+
+            self.assertFalse(state.eligible)
+            self.assertTrue(
+                state.reason.startswith("ignored path is not an artifact"),
+            )
+
     def test_ignored_artifact_is_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = self._pushed_repo_with_ignored_dir(Path(tmp))

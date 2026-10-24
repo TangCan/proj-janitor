@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 PROJECT_MARKERS: tuple[str, ...] = (
     ".git",
     ".hg",
@@ -61,6 +63,29 @@ ARTIFACT_RULES: dict[str, tuple[str, ...]] = {
 }
 
 ALL_RULES: tuple[str, ...] = tuple(ARTIFACT_RULES)
+
+COVERAGE_DIR = "coverage"
+COVERAGE_MARKERS: tuple[str, ...] = (
+    "lcov.info",
+    "lcov-report",
+    "coverage-final.json",
+    "coverage-summary.json",
+    "coverage.xml",
+    "coverage.json",
+    "coverage.out",
+    "coverage.cobertura.xml",
+    "clover.xml",
+    "jacoco.xml",
+    "jacoco.csv",
+    "status.json",
+    ".coverage",
+)
+
+
+def is_coverage_artifact(path: Path) -> bool:
+    if path.is_symlink() or not path.is_dir():
+        return False
+    return any((path / marker).exists() for marker in COVERAGE_MARKERS)
 
 
 def artifact_patterns(include_artifacts: bool = False) -> tuple[str, ...]:

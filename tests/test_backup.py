@@ -5,7 +5,9 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from proj_janitor import backup as backup_module
 from proj_janitor.backup import run_backup, sha256_file
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
@@ -31,7 +33,7 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -72,7 +74,7 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
                 include_artifacts=True,
@@ -85,13 +87,49 @@ class BackupTests(unittest.TestCase):
             self.assertTrue(manifest_paths[0].is_file())
             self.assertEqual(Path(records[0].archive).parent, dest / "app")
 
+    def test_coverage_root_artifact_is_excluded_but_nested_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            root_coverage = project / "coverage"
+            root_coverage.mkdir()
+            (root_coverage / "lcov.info").write_text("", encoding="utf-8")
+            nested_coverage = project / "src" / "coverage"
+            nested_coverage.mkdir()
+            (nested_coverage / "lcov.info").write_text("", encoding="utf-8")
+            dest = root / "backups"
+
+            _, records, _ = run_backup([scan_project(project)], dest)
+
+            with tarfile.open(records[0].archive, "r:gz") as tar:
+                names = tar.getnames()
+
+            self.assertFalse(any(name.startswith("app/coverage/") for name in names))
+            self.assertIn("app/src/coverage/lcov.info", names)
+
+    def test_coverage_without_marker_is_included(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            coverage = project / "coverage"
+            coverage.mkdir()
+            (coverage / "notes.txt").write_text("", encoding="utf-8")
+            dest = root / "backups"
+
+            _, records, _ = run_backup([scan_project(project)], dest)
+
+            with tarfile.open(records[0].archive, "r:gz") as tar:
+                names = tar.getnames()
+
+            self.assertIn("app/coverage/notes.txt", names)
+
     def test_dry_run_creates_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = make_project(root)
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
                 dry_run=True,
@@ -112,7 +150,7 @@ class BackupTests(unittest.TestCase):
                 (project / "pyproject.toml").write_text("", encoding="utf-8")
 
             dest = root / "backups"
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(first), scan_project(second)],
                 dest,
             )
@@ -137,11 +175,11 @@ class BackupTests(unittest.TestCase):
             project = make_project(root)
             dest = root / "backups"
 
-            first_manifests, first_records = run_backup(
+            first_manifests, first_records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
-            second_manifests, second_records = run_backup(
+            second_manifests, second_records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -165,7 +203,7 @@ class BackupTests(unittest.TestCase):
             second = make_project(root, "second")
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(first), scan_project(second)],
                 dest,
             )
@@ -180,6 +218,51 @@ class BackupTests(unittest.TestCase):
                 manifest = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(len(manifest["records"]), 1)
 
+    def test_batch_run_isolates_project_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = make_project(root, "good")
+            bad = make_project(root, "bad")
+            dest = root / "backups"
+            real_backup_project = backup_module.backup_project
+
+            def fail_after_partial_archive(
+                project,
+                archive_dir,
+                patterns=(),
+                archive_name=None,
+                fallback_reason=None,
+            ):
+                if project.name == "bad":
+                    (archive_dir / archive_name).write_bytes(b"partial")
+                    raise OSError("disk full")
+                return real_backup_project(
+                    project,
+                    archive_dir,
+                    patterns=patterns,
+                    archive_name=archive_name,
+                    fallback_reason=fallback_reason,
+                )
+
+            with mock.patch(
+                "proj_janitor.backup.backup_project",
+                side_effect=fail_after_partial_archive,
+            ):
+                manifest_paths, records, failures = run_backup(
+                    [scan_project(good), scan_project(bad)],
+                    dest,
+                )
+
+            self.assertEqual([record.project for record in records], ["good"])
+            self.assertEqual(
+                [path.parent.name for path in manifest_paths],
+                ["good"],
+            )
+            self.assertEqual(failures, [("bad", "disk full")])
+            self.assertFalse(list((dest / "bad").glob("manifest-*.json")))
+            self.assertFalse(list((dest / "bad").glob("*.tar.gz")))
+            self.assertTrue((dest / "good").is_dir())
+
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitStrategyBackupTests(unittest.TestCase):
@@ -190,7 +273,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             dest = root / "backups"
             head = git(project, "rev-parse", "HEAD")
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -240,7 +323,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             )
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -267,7 +350,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             (project / "main.py").write_text("print('dirty')\n", encoding="utf-8")
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
             )
@@ -298,7 +381,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             project = make_pushed_repo(root)
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
                 always_archive=True,
@@ -321,7 +404,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             project = make_pushed_repo(root)
             dest = root / "backups"
 
-            manifest_paths, records = run_backup(
+            manifest_paths, records, _ = run_backup(
                 [scan_project(project)],
                 dest,
                 include_artifacts=True,

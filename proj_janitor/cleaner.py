@@ -7,7 +7,11 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable, Mapping
 
-from proj_janitor.config import ARTIFACT_RULES
+from proj_janitor.config import (
+    ARTIFACT_RULES,
+    COVERAGE_DIR,
+    is_coverage_artifact,
+)
 from proj_janitor.models import CleanupAction, human_size
 from proj_janitor.scanner import measure_tree
 
@@ -54,7 +58,12 @@ def build_cleanup_plan(
             entry = current / dirname
             if dirname == ".git" or entry.is_symlink():
                 continue
-            match = _match(dirname, pairs)
+            coverage_dir = (
+                dirname == COVERAGE_DIR
+                and current == project
+                and is_coverage_artifact(entry)
+            )
+            match = _match(dirname, pairs, coverage_dir=coverage_dir)
             if match is None:
                 kept.append(dirname)
                 continue
@@ -154,8 +163,14 @@ def format_rules() -> str:
 def _match(
     name: str,
     pairs: list[tuple[str, str]],
+    *,
+    coverage_dir: bool = False,
 ) -> str | None:
     for rule, pattern in pairs:
+        if pattern == COVERAGE_DIR:
+            if coverage_dir:
+                return rule
+            continue
         if fnmatch(name, pattern):
             return rule
     return None

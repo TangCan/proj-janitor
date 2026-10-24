@@ -82,6 +82,52 @@ class CleanerTests(unittest.TestCase):
             self.assertEqual(second.removed, 0)
             self.assertEqual(second.errors, ())
 
+    def test_coverage_rule_matches_only_root_with_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            root_coverage = project / "coverage"
+            root_coverage.mkdir()
+            (root_coverage / "lcov.info").write_text("", encoding="utf-8")
+            nested_coverage = project / "src" / "coverage"
+            nested_coverage.mkdir(parents=True)
+            (nested_coverage / "lcov.info").write_text("", encoding="utf-8")
+            empty_coverage = project / "docs" / "coverage"
+            empty_coverage.mkdir(parents=True)
+            (empty_coverage / "notes.txt").write_text("", encoding="utf-8")
+
+            plan = build_cleanup_plan(project, ["node"])
+
+            paths = {action.path for action in plan}
+            self.assertIn(root_coverage, paths)
+            self.assertNotIn(nested_coverage, paths)
+            self.assertNotIn(empty_coverage, paths)
+
+    def test_coverage_without_marker_is_not_matched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            coverage = project / "coverage"
+            coverage.mkdir()
+            (coverage / "notes.txt").write_text("", encoding="utf-8")
+
+            plan = build_cleanup_plan(project, ["node"])
+
+            self.assertEqual(plan, [])
+
+    def test_coverage_file_is_not_matched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            (project / "coverage").write_text("", encoding="utf-8")
+
+            plan = build_cleanup_plan(project, ["node"])
+
+            self.assertEqual(plan, [])
+
     def test_symlink_is_not_followed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

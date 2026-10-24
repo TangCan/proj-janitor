@@ -45,7 +45,7 @@ def write_manifest(path: Path, records: list[dict]) -> Path:
 def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
     project = make_project(root, name)
     backups = root / "backups"
-    manifest_paths, _ = run_backup([scan_project(project)], backups)
+    manifest_paths, _, _ = run_backup([scan_project(project)], backups)
     manifest_path = manifest_paths[0]
     record = json.loads(manifest_path.read_text(encoding="utf-8"))["records"][0]
     return project, manifest_path, record

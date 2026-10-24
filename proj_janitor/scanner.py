@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
-from proj_janitor.config import PROJECT_MARKERS
+from proj_janitor.config import (
+    COVERAGE_DIR,
+    PROJECT_MARKERS,
+    is_coverage_artifact,
+)
 from proj_janitor.models import GitRecovery, GitState, Project, human_size
 
 
@@ -268,11 +272,10 @@ def inspect_git_recoverability(
         ignored_path = entry.rstrip("/")
         if not ignored_path:
             continue
-        parts = Path(ignored_path).parts
-        if not any(
-            fnmatch(part, pattern)
-            for part in parts
-            for pattern in allowed_patterns
+        if not _ignored_path_is_artifact(
+            path,
+            ignored_path,
+            allowed_patterns,
         ):
             return GitRecovery(
                 False,
@@ -393,6 +396,26 @@ def _git_run(path: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def _ignored_path_is_artifact(
+    project_path: Path,
+    ignored_path: str,
+    patterns: tuple[str, ...],
+) -> bool:
+    for index, part in enumerate(Path(ignored_path).parts):
+        if part == COVERAGE_DIR:
+            return (
+                index == 0
+                and is_coverage_artifact(project_path / COVERAGE_DIR)
+            )
+        if any(
+            fnmatch(part, pattern)
+            for pattern in patterns
+            if pattern != COVERAGE_DIR
+        ):
+            return True
+    return False
 
 
 def _git_output(path: Path, *args: str) -> str | None:

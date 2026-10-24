@@ -9,6 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from proj_janitor import backup as backup_module
 from proj_janitor.cli import main
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
@@ -68,6 +69,51 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Dry run", out)
             self.assertFalse(dest.exists())
+
+    def test_backup_project_failure_reports_and_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = root / "good"
+            bad = root / "bad"
+            for project in (good, bad):
+                project.mkdir()
+                (project / "pyproject.toml").write_text("", encoding="utf-8")
+                (project / "main.py").write_text("x\n", encoding="utf-8")
+            dest = root / "backups"
+            real_backup_project = backup_module.backup_project
+
+            def fail_bad_project(
+                project,
+                archive_dir,
+                patterns=(),
+                archive_name=None,
+                fallback_reason=None,
+            ):
+                if project.name == "bad":
+                    raise OSError("disk full")
+                return real_backup_project(
+                    project,
+                    archive_dir,
+                    patterns=patterns,
+                    archive_name=archive_name,
+                    fallback_reason=fallback_reason,
+                )
+
+            with mock.patch(
+                "proj_janitor.backup.backup_project",
+                side_effect=fail_bad_project,
+            ):
+                code, out, err = run_cli(
+                    "backup", str(root), "--dest", str(dest)
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("Backed up 1 project(s).", out)
+            self.assertIn("error: bad: disk full", err)
+            self.assertNotIn("Traceback", err)
+            self.assertTrue(list((dest / "good").glob("manifest-*.json")))
+            self.assertFalse(list((dest / "bad").glob("manifest-*.json")))
+            self.assertFalse(list((dest / "bad").glob("*.tar.gz")))
 
     def test_restore_archive_from_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -310,6 +356,57 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("node:", out)
         self.assertIn("build:", out)
+
+    def test_list_rules_does_not_require_root(self) -> None:
+        code, out, err = run_cli("clean", "--list-rules")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertIn("node:", out)
+
+    def test_clean_without_root_reports_error(self) -> None:
+        code, out, err = run_cli("clean")
+
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("root", err)
+
+    def test_clean_json_is_pure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            make_project(Path(tmp))
+
+            code, out, err = run_cli("clean", tmp, "--json")
+
+            self.assertEqual(code, 0)
+            payload = json.loads(out)
+            self.assertEqual(len(payload), 1)
+            self.assertNotIn("Dry run", out)
+            self.assertEqual(err, "")
+
+    def test_clean_json_apply_is_pure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+
+            code, out, err = run_cli(
+                "clean", tmp, "--json", "--apply", "--yes"
+            )
+
+            self.assertEqual(code, 0)
+            payload = json.loads(out)
+            self.assertEqual(len(payload), 1)
+            self.assertIn("Removed 1 item", err)
+            self.assertFalse((project / "node_modules").exists())
+
+    def test_clean_json_apply_requires_yes_when_not_tty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+
+            code, out, err = run_cli("clean", tmp, "--json", "--apply")
+
+            self.assertEqual(code, 2)
+            json.loads(out)
+            self.assertIn("--yes", err)
+            self.assertTrue((project / "node_modules").exists())
 
     def test_missing_root_reports_error(self) -> None:
         code, _, err = run_cli("scan", "/path/that/does/not/exist")
