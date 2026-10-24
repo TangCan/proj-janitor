@@ -12,11 +12,10 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tar::{Archive, Builder, EntryType, Header};
 use url::Url;
-use wait_timeout::ChildExt;
 use walkdir::WalkDir;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -271,13 +270,13 @@ fn inspect(path: &Path) -> anyhow::Result<Project> {
         .into_iter()
         .filter_map(Result::ok)
     {
-        if e.file_type().is_file() {
-            if let Ok(m) = e.metadata() {
-                size += m.len();
-                let t = m.modified().ok();
-                if t > latest {
-                    latest = t;
-                }
+        if e.file_type().is_file()
+            && let Ok(m) = e.metadata()
+        {
+            size += m.len();
+            let t = m.modified().ok();
+            if t > latest {
+                latest = t;
             }
         }
     }
@@ -329,12 +328,16 @@ fn git_run(path: &Path, args: &[&str]) -> Option<std::process::Output> {
         let mut bytes = Vec::new();
         stderr.read_to_end(&mut bytes).map(|_| bytes)
     });
-    let status = match child.wait_timeout(Duration::from_secs(10)) {
-        Ok(Some(status)) => status,
-        Ok(None) | Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
         }
     };
     Some(Output {
@@ -441,12 +444,9 @@ fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     if !ancestor {
         return Err("HEAD is not contained in upstream".into());
     }
-    let ahead = git_output(
-        path,
-        &["rev-list", "--count", &format!("@{{upstream}}..HEAD")],
-    )
-    .and_then(|s| s.parse::<u64>().ok())
-    .ok_or("cannot compare HEAD with upstream")?;
+    let ahead = git_output(path, &["rev-list", "--count", "@{upstream}..HEAD"])
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or("cannot compare HEAD with upstream")?;
     if ahead != 0 {
         return Err("HEAD is ahead of upstream".into());
     }
@@ -1328,19 +1328,19 @@ fn restore_cmd(
             }
             other => anyhow::bail!("unsupported backup strategy: {other}"),
         };
-        if let Some(a) = &archive {
-            if !no_verify {
-                let expect = r
-                    .sha256
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("manifest has no sha256 for {}", r.project))?;
-                let actual = sha256(a)?;
-                anyhow::ensure!(
-                    actual.eq_ignore_ascii_case(expect),
-                    "sha256 mismatch for {}",
-                    a.display()
-                );
-            }
+        if let Some(a) = &archive
+            && !no_verify
+        {
+            let expect = r
+                .sha256
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("manifest has no sha256 for {}", r.project))?;
+            let actual = sha256(a)?;
+            anyhow::ensure!(
+                actual.eq_ignore_ascii_case(expect),
+                "sha256 mismatch for {}",
+                a.display()
+            );
         }
         plans.push((r.clone(), target, archive));
     }
@@ -1668,6 +1668,68 @@ mod tests {
         }
     }
 
+    fn local_git(path: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    fn pushed_github_fixture(path: &Path) -> bool {
+        if !Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+        {
+            return false;
+        }
+        fs::create_dir_all(path).unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "-b", "main"])
+                .arg(path)
+                .output()
+                .is_ok_and(|s| s.status.success())
+        );
+        let configured = local_git(path, &["config", "user.name", "Test User"])
+            && local_git(path, &["config", "user.email", "test@example.invalid"]);
+        assert!(configured, "could not configure local Git fixture");
+        fs::write(path.join("pyproject.toml"), "[project]\nname='demo'\n").unwrap();
+        fs::write(path.join("tracked.txt"), "clean\n").unwrap();
+        assert!(
+            local_git(path, &["add", "."]),
+            "could not stage Git fixture"
+        );
+        assert!(
+            local_git(path, &["commit", "-m", "fixture"]),
+            "could not commit Git fixture"
+        );
+        let ready = local_git(
+            path,
+            &[
+                "config",
+                "remote.origin.url",
+                "https://user:token@github.com/team/demo.git",
+            ],
+        ) && local_git(path, &["config", "branch.main.remote", "origin"])
+            && local_git(
+                path,
+                &[
+                    "config",
+                    "remote.origin.fetch",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                ],
+            )
+            && local_git(path, &["config", "branch.main.merge", "refs/heads/main"])
+            && local_git(path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        assert!(ready, "could not configure pushed Git fixture");
+        true
+    }
+
     #[test]
     fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
         assert_eq!(
@@ -1796,6 +1858,131 @@ mod tests {
                 PathBuf::from("main.sh")
             );
         }
+    }
+
+    #[test]
+    fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
+        let temp = TestDir::new();
+        let project = temp.0.join("demo");
+        if !pushed_github_fixture(&project) {
+            eprintln!("git unavailable; skipping Git recovery fixture");
+            return;
+        }
+        let project_info = inspect(&project).unwrap();
+        assert!(
+            inspect_recovery(&project_info).is_ok(),
+            "{:?}",
+            inspect_recovery(&project_info).err()
+        );
+        let backup_dir = temp.0.join("backups");
+        backup_cmd(
+            &[project.clone()],
+            Some(backup_dir.clone()),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let project_backup = backup_dir.join("demo");
+        let manifest_path = fs::read_dir(project_backup)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .unwrap();
+        let manifest: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let record = &manifest.records[0];
+        assert_eq!(record.strategy, "git");
+        assert!(record.archive.is_none());
+        assert_eq!(
+            record.remote_url.as_deref(),
+            Some("https://github.com/team/demo.git")
+        );
+        assert!(!serde_json::to_string(&manifest).unwrap().contains("token"));
+
+        fs::write(project.join("tracked.txt"), "modified\n").unwrap();
+        backup_cmd(&[project], Some(backup_dir.clone()), false, false, false).unwrap();
+        let archive_manifest_path = fs::read_dir(backup_dir.join("demo"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+                    && path != &manifest_path
+            })
+            .unwrap();
+        let archive_manifest: Manifest =
+            serde_json::from_slice(&fs::read(archive_manifest_path).unwrap()).unwrap();
+        let archive_record = &archive_manifest.records[0];
+        assert_eq!(archive_record.strategy, "archive");
+        assert_eq!(
+            archive_record.fallback_reason.as_deref(),
+            Some("working tree is not clean")
+        );
+        assert!(Path::new(archive_record.archive.as_deref().unwrap()).is_file());
+    }
+
+    #[test]
+    fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
+        let temp = TestDir::new();
+        let source = temp.0.join("demo");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(source.join("data.txt"), "restore me\n").unwrap();
+        let backup_dir = temp.0.join("backups/demo");
+        fs::create_dir_all(&backup_dir).unwrap();
+        let archive = backup_dir.join("demo.tar.gz");
+        create_archive(&source, &archive, true).unwrap();
+        let record = Record {
+            project: "demo".into(),
+            source: source.to_string_lossy().into_owned(),
+            archive: Some(archive.to_string_lossy().into_owned()),
+            archive_bytes: fs::metadata(&archive).unwrap().len(),
+            source_bytes: tree_size(&source),
+            sha256: Some(sha256(&archive).unwrap()),
+            strategy: "archive".into(),
+            remote: None,
+            remote_url: None,
+            branch: None,
+            commit: None,
+            upstream: None,
+            verified: None,
+            fallback_reason: Some("fixture".into()),
+        };
+        let manifest = Manifest {
+            schema_version: 2,
+            created_at: "2026-10-24T00:00:00+00:00".into(),
+            tool: "proj-janitor".into(),
+            version: "0.1.0".into(),
+            include_artifacts: false,
+            always_archive: false,
+            records: vec![record],
+        };
+        let manifest_path = backup_dir.join("manifest.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let restore_root = temp.0.join("restored");
+        restore_cmd(
+            &manifest_path,
+            Some(restore_root.clone()),
+            &[],
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(restore_root.join("demo/data.txt")).unwrap(),
+            "restore me\n"
+        );
     }
 }
 fn safe_archive_path(p: &Path, project: &str) -> bool {
