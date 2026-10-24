@@ -22,13 +22,13 @@
 cargo install --locked proj-janitor
 ```
 
-当前 crates.io 版本为 `0.2.1`；也可固定版本安装：
+当前 crates.io 版本将更新为 `0.2.2`；也可固定版本安装：
 
 ```bash
-cargo install --locked proj-janitor --version 0.2.1
+cargo install --locked proj-janitor --version 0.2.2
 ```
 
-发布内容与验证信息见 [Rust 版 0.2.0 发布记录](docs/发布记录/0.2.0-Rust版.md)。
+发布内容与验证信息见 [Rust 版 0.2.2 发布记录](docs/发布记录/0.2.2-Rust版.md)。
 
 从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
