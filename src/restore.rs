@@ -107,6 +107,7 @@ pub(crate) fn restore_cmd(
     };
     let mut plans = Vec::new();
     let mut names = HashSet::new();
+    let mut casefolded_targets = HashSet::new();
     let wanted: HashSet<_> = projects.iter().collect();
     for r in &manifest.records {
         if !wanted.is_empty() && !wanted.contains(&r.project) {
@@ -134,6 +135,11 @@ pub(crate) fn restore_cmd(
             anyhow::ensure!(src.parent().is_some(), "restore source has no parent");
             resolve_for_creation(&src)?
         };
+        anyhow::ensure!(
+            casefolded_targets.insert(target.to_string_lossy().to_lowercase()),
+            "restore targets collide on case-insensitive filesystems: {}",
+            target.display()
+        );
         anyhow::ensure!(
             !target.exists() && !target.is_symlink(),
             "restore target already exists: {}",

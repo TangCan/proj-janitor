@@ -95,6 +95,7 @@ def plan_restore(
     plans: list[RestorePlan] = []
     seen: set[str] = set()
     seen_targets: set[Path] = set()
+    seen_casefolded_targets: set[str] = set()
     for record in selected:
         project = _record_project(record)
         if project in seen:
@@ -108,6 +109,12 @@ def plan_restore(
         if target in seen_targets:
             raise RestoreError(f"duplicate restore target in manifest: {target}")
         seen_targets.add(target)
+        casefolded_target = str(target).casefold()
+        if casefolded_target in seen_casefolded_targets:
+            raise RestoreError(
+                f"restore targets collide on case-insensitive filesystems: {target}"
+            )
+        seen_casefolded_targets.add(casefolded_target)
         if target.exists() or target.is_symlink():
             raise RestoreError(f"restore target already exists: {target}")
 

@@ -222,6 +222,31 @@ class RestoreTests(unittest.TestCase):
             self.assertTrue((restored / "one").is_dir())
             self.assertFalse((restored / "two").exists())
 
+    def test_restore_dest_rejects_project_names_that_differ_only_by_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": name,
+                        "source": f"/original/{name}",
+                        "strategy": "git",
+                        "remote_url": "https://github.com/team/demo.git",
+                        "commit": "a" * 40,
+                    }
+                    for name in ("App", "app")
+                ],
+            )
+            dest = root / "restored"
+
+            for destination in (dest, None):
+                with self.assertRaisesRegex(
+                    RestoreError, "case-insensitive filesystems"
+                ):
+                    restore_from_manifest(manifest, destination)
+            self.assertFalse(dest.exists())
+
     def test_restore_rejects_unsafe_project_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

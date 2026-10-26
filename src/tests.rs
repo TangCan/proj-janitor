@@ -624,6 +624,46 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
 }
 
 #[test]
+fn restore_dest_rejects_project_names_that_differ_only_by_case() {
+    let temp = TestDir::new();
+    let manifest_path = temp.0.join("manifest.json");
+    let record = |project: &str| Record {
+        project: project.into(),
+        source: format!("/original/{project}"),
+        archive: None,
+        archive_bytes: 0,
+        source_bytes: 0,
+        sha256: None,
+        strategy: "git".into(),
+        remote: None,
+        remote_url: Some("https://github.com/team/demo.git".into()),
+        branch: None,
+        commit: Some("a".repeat(40)),
+        upstream: None,
+        verified: None,
+        fallback_reason: None,
+    };
+    let manifest = Manifest {
+        schema_version: 2,
+        created_at: "2026-10-26T00:00:00+00:00".into(),
+        tool: "proj-janitor".into(),
+        version: "0.2.2".into(),
+        include_artifacts: false,
+        always_archive: false,
+        records: vec![record("App"), record("app")],
+    };
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let dest = temp.0.join("restored");
+
+    for destination in [Some(dest.clone()), None] {
+        let error =
+            restore_cmd(&manifest_path, destination, &[], true, false, true, false).unwrap_err();
+        assert!(error.to_string().contains("case-insensitive filesystems"));
+    }
+    assert!(!dest.exists());
+}
+
+#[test]
 fn clean_apply_removes_only_artifacts_and_preserves_project_files() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");
