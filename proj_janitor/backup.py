@@ -261,12 +261,6 @@ def _make_filter(
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
 
     def exclude(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        if not safe_archive_member(info.name, arc_root):
-            raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
-        if info.issym() and not safe_archive_link(info.name, info.linkname):
-            raise tarfile.ExtractError(
-                f"archive symlink escapes project: {info.name} -> {info.linkname}"
-            )
         parts = Path(info.name).parts
         relative = parts[1:] if parts and parts[0] == arc_root else parts
         for index, part in enumerate(relative if patterns else ()):
@@ -280,6 +274,12 @@ def _make_filter(
                 if pattern != COVERAGE_DIR
             ):
                 return None
+        if not safe_archive_member(info.name, arc_root):
+            raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
+        if info.issym() and not safe_archive_link(info.name, info.linkname):
+            raise tarfile.ExtractError(
+                f"archive symlink escapes project: {info.name} -> {info.linkname}"
+            )
         return info
 
     return exclude

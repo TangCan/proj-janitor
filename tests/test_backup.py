@@ -87,6 +87,27 @@ class BackupTests(unittest.TestCase):
             self.assertIn("archive symlink escapes project", failures[0][1])
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_excludes_artifact_symlink_before_validating_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            outside = root / "outside.txt"
+            outside.write_text("outside\n", encoding="utf-8")
+            link = project / "src" / "outside.pyc"
+            try:
+                link.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+
+            _, records, failures = run_backup(
+                [scan_project(project)], root / "backups", always_archive=True
+            )
+
+            self.assertFalse(failures)
+            self.assertEqual(len(records), 1)
+            with tarfile.open(records[0].archive, "r:gz") as archive:
+                self.assertNotIn("app/src/outside.pyc", archive.getnames())
+
     @unittest.skipIf(os.name == "nt", "Windows cannot create backslash filenames")
     def test_backup_rejects_windows_traversal_member_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
