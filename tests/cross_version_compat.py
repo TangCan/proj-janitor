@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import io
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -19,6 +22,14 @@ def run(command: list[str]) -> str:
     if result.returncode:
         raise SystemExit(f"{command!r} failed:\n{result.stderr}")
     return result.stdout
+
+
+def run_rejected(command: list[str], reason: str) -> None:
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if result.returncode == 0 or reason not in result.stderr:
+        raise SystemExit(
+            f"{command!r} should fail with {reason!r}:\n{result.stderr}"
+        )
 
 
 def assert_restored(path: Path) -> None:
@@ -87,5 +98,44 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         "--dest", str(python_destination),
     ])
     assert_restored(python_destination / "demo")
+
+    malicious_archive = root / "windows-traversal.tar.gz"
+    with tarfile.open(malicious_archive, "w:gz") as archive:
+        member = tarfile.TarInfo(r"demo/src\..\..\escape.txt")
+        member.size = 1
+        archive.addfile(member, io.BytesIO(b"x"))
+    digest = hashlib.sha256(malicious_archive.read_bytes()).hexdigest()
+    malicious_manifest = root / "malicious.json"
+    malicious_manifest.write_text(
+        json.dumps({
+            "schema_version": 2,
+            "created_at": "2026-10-26T00:00:00+00:00",
+            "tool": "proj-janitor",
+            "version": "0.2.2",
+            "include_artifacts": False,
+            "always_archive": True,
+            "records": [{
+                "project": "demo",
+                "source": str(project),
+                "archive": str(malicious_archive),
+                "archive_bytes": malicious_archive.stat().st_size,
+                "source_bytes": 0,
+                "sha256": digest,
+                "strategy": "archive",
+            }],
+        }),
+        encoding="utf-8",
+    )
+    for tool, command in (
+        ("Python", [sys.executable, "-m", "proj_janitor"]),
+        ("Rust", [str(RUST_CLI)]),
+    ):
+        destination = root / f"{tool.lower()}-malicious-restore"
+        run_rejected(
+            [*command, "restore", str(malicious_manifest), "--dest", str(destination)],
+            "path",
+        )
+        assert not (destination / "demo").exists()
+    assert not (root / "escape.txt").exists()
 
 print("Python and Rust schema v2 archive/restore compatibility passed.")
