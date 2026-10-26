@@ -1158,7 +1158,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- |
 | Python | `>=3.10`；开发和自测使用 Python 3.12.3。 |
 | 依赖 | 仅 Python 标准库；无第三方运行时依赖。 |
-| 构建 | `setuptools>=68`；`pyproject.toml` 声明项目元数据。 |
+| 构建 | `setuptools>=77`；`pyproject.toml` 声明项目元数据。 |
 | 外部命令 | Git 状态和可恢复性检查需要本机 `git`；清理不需要 Git。 |
 | 操作系统 | 正式自测环境为 Linux；Windows/macOS 未做正式验证。 |
 | 终端 | 交互确认依赖 `sys.stdin.isatty()`；非交互环境必须 `--yes`。 |
