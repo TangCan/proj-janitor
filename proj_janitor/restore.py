@@ -433,11 +433,11 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                     )
                 if member.issym():
                     _validate_archive_link(member)
-            try:
+            if hasattr(tarfile, "data_filter"):
                 tar.extractall(dest, filter="data")
-            except TypeError:
+            else:
                 tar.extractall(dest)
-    except (OSError, tarfile.TarError) as exc:
+    except (OSError, tarfile.TarError, TypeError) as exc:
         raise RestoreError(f"cannot extract archive {archive}: {exc}") from exc
 
 

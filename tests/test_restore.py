@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from proj_janitor.backup import run_backup, sha256_file
 from proj_janitor.restore import RestoreError, restore_from_manifest
@@ -213,6 +214,22 @@ class RestoreTests(unittest.TestCase):
             ):
                 restore_from_manifest(manifest, restored)
 
+            self.assertFalse((restored / "app").exists())
+
+    def test_restore_does_not_retry_extract_without_filter_after_type_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, _ = archive_backup(root)
+            restored = root / "restored"
+
+            with mock.patch(
+                "tarfile.TarFile.extractall",
+                side_effect=TypeError("extract filter failed"),
+            ) as extractall:
+                with self.assertRaisesRegex(RestoreError, "cannot extract archive"):
+                    restore_from_manifest(manifest, restored)
+
+            self.assertEqual(extractall.call_count, 1)
             self.assertFalse((restored / "app").exists())
 
     def test_restore_archive_from_moved_manifest(self) -> None:
