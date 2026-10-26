@@ -278,32 +278,32 @@ fn resolve_for_creation(path: &Path) -> anyhow::Result<PathBuf> {
     } else {
         env::current_dir()?.join(path)
     };
-    let mut normalized = PathBuf::new();
+    let mut resolved = PathBuf::new();
     for component in absolute.components() {
         match component {
-            Component::Prefix(_) | Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Prefix(_) | Component::RootDir => resolved.push(component.as_os_str()),
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                match fs::metadata(&resolved) {
+                    Ok(metadata) => anyhow::ensure!(
+                        metadata.is_dir(),
+                        "path component is not a directory: {}",
+                        resolved.display()
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+                resolved.pop();
             }
-            Component::Normal(name) => normalized.push(name),
+            Component::Normal(name) => {
+                resolved.push(name);
+                match fs::symlink_metadata(&resolved) {
+                    Ok(_) => resolved = fs::canonicalize(&resolved)?,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
         }
-    }
-    let absolute = normalized;
-    let mut ancestor = absolute.as_path();
-    let mut missing = Vec::new();
-    while !ancestor.exists() {
-        let name = ancestor
-            .file_name()
-            .ok_or_else(|| anyhow::anyhow!("cannot resolve path: {}", path.display()))?;
-        missing.push(name.to_owned());
-        ancestor = ancestor
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("cannot resolve path: {}", path.display()))?;
-    }
-    let mut resolved = fs::canonicalize(ancestor)?;
-    for component in missing.into_iter().rev() {
-        resolved.push(component);
     }
     Ok(resolved)
 }

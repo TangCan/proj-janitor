@@ -58,7 +58,7 @@
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
 | 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
 | 配置 | 无配置文件；`BACKUP_DEST` 环境变量可提供默认备份目录。项目标记和清理规则由 `config.py` 静态定义。 |
-| 并发 | 无线程、异步任务、文件锁或事务；不承诺多个实例并发操作同一目录时的行为；`restore` 不覆盖已有目标。 |
+| 并发 | 无线程、异步任务、文件锁或事务；备份的归档和 manifest 用排他创建避免覆盖，并发撞名时该项目失败、重跑可使用新后缀；不保证源项目在备份期间保持不变；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
 
@@ -968,16 +968,16 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | 备份根目录参数为 `backup_dest`；dry-run 不写文件。 |
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | `archive_dir` 为项目备份目录；写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
-| `_make_filter` | 私有 | tarfile 过滤器或 `None` | 按路径段匹配排除模式；无模式时返回 `None`。 |
-| `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名项目追加 8 位路径哈希。 |
-| `_unique_file` / `_unique_archive_name` | 私有 | 不冲突的文件路径/归档名 | 同一秒重复运行时追加 `-2`、`-3`。 |
+| `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
+| `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名或只大小写不同的项目追加 8 位路径哈希。 |
+| `_unique_file` / `_unique_archive_name` | 私有 | 候选文件路径/归档名 | 已存在时追加 `-2`、`-3`；实际写入采用排他创建，竞态冲突记为该项目失败，不覆盖原文件。 |
 
 ### 12.3 清理模块 `proj_janitor.cleaner`
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
 | `resolve_rules` | `(rule_names=None) -> Mapping[str, tuple[str, ...]]` | 规则映射；未知规则抛 `ValueError` | `None` 返回全部规则；否则按请求顺序构造子集。 |
-| `build_cleanup_plan` | `(project: Path, rule_names=None) -> list[CleanupAction]` | 计划列表 | 解析项目路径，递归遍历并排序；未知规则抛 `ValueError`。 |
+| `build_cleanup_plan` | `(project: Path, rule_names=None) -> list[CleanupAction]` | 计划列表；遍历或 stat 错误抛 `OSError`，未知规则抛 `ValueError` | 解析项目路径，递归遍历并排序；不返回不完整计划。 |
 | `apply_cleanup` | `(actions: Iterable[CleanupAction]) -> CleanupResult` | `CleanupResult` | 删除计划项；逐项捕获 `OSError`/`ValueError` 到 `errors`，不抛给调用方。 |
 | `format_cleanup_plan` | `(actions) -> str` | 文本 | 空输入返回 `Nothing to clean.`。 |
 | `format_rules` | `() -> str` | 文本 | 按配置顺序输出规则及模式。 |
@@ -1036,13 +1036,13 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- | --- | --- | --- | --- |
 | `scan`/`discover_projects`/`scan_project` | 项目目录、`.git`、Git 命令 | 无 | 无 | 无 | Git 命令只读。 |
 | `prepare_backup` | 项目、Git 状态 | 无 | 无 | 无 | 仅计算路径和计划；存在本地 tag 时只读查询远程。 |
-| `run_backup` | 项目、Git 状态 | 项目目录、归档、manifest | 无 | 无 | 中途异常可能留下部分归档；单项目 `OSError` 仍可能中止整批。 |
+| `run_backup` | 项目、Git 状态 | 项目目录、归档、manifest | 失败时清理本次部分输出 | 无 | 单项目 `OSError`/`tarfile.TarError` 记入失败列表并继续处理后续项目。 |
 | `restore_from_manifest` | manifest、归档、远程仓库 | 恢复目标目录（`--dest` 或原始 `source`） | 无 | Git 克隆 | 目标已存在时拒绝；多项目中途失败不回滚；原始位置模式由 CLI 负责确认，Python API 不做确认。 |
 | `build_cleanup_plan` | 项目目录、文件元数据 | 无 | 无 | 无 | `os.walk` 不跟随链接。 |
 | `apply_cleanup` | 目标存在性、类型 | 无 | 目录/文件 | 无 | 不进行确认，调用方负责授权。 |
 
 - 模块不使用线程、异步任务、锁或数据库。
-- 不保证多个进程同时操作同一项目、同一备份目标或同一清理目标时的结果。
+- 备份归档和 manifest 使用排他创建，避免并发覆盖；竞争同一名字时该项目报告失败，不自动重试。多个进程仍可能同时读取正在变化的源项目，清理计划与删除之间也没有锁。
 - 外部 Git 命令超时为 10 秒；超时被视为该 Git 检查失败。
 - `KeyboardInterrupt` 没有被统一捕获，可能中断备份、恢复或清理。
 - Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”；`restore` 的常规失败统一抛 `RestoreError`。
@@ -1084,11 +1084,11 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- | --- |
 | `FileNotFoundError` | `discover_projects` 根不存在 | CLI 捕获并计入失败；API 调用方自行处理。 |
 | `NotADirectoryError` | 根不是目录 | 同上。 |
-| `OSError` | 目录遍历、归档、manifest 写入、删除、恢复读取/写入 | CLI 在发现/删除阶段部分捕获；备份归档和 manifest 写入可能直接终止；`restore` 会将归档读取错误转为 `RestoreError`。 |
+| `OSError` | 目录遍历、归档、manifest 写入、删除、恢复读取/写入 | 扫描/清理计划由 CLI 报错并返回失败；备份按项目记录失败并清理部分输出；`restore` 将归档读取错误转为 `RestoreError`。 |
 | `ValueError` | 未知规则、目标越界、符号链接拒绝 | 计划阶段由 CLI 捕获；删除阶段由 `apply_cleanup` 收集。 |
 | `RuntimeError` | 内部计划不变量被破坏（缺少 recovery 或 archive name） | 属于程序缺陷/异常状态，不应在正常输入下出现。 |
 | `RestoreError` | manifest/归档无效、`source` 非法、SHA-256 不匹配、目标已存在/重复、Git 恢复失败 | CLI 捕获后输出 `error:` 并返回 `1`。 |
-| `tarfile.TarError` | 归档读写失败 | `restore` 捕获并转为 `RestoreError`；备份阶段可能 traceback。 |
+| `tarfile.TarError` | 归档读写失败 | `run_backup` 按项目记录失败并清理部分输出；直接调用 `backup_project` 时异常向上传播；`restore` 捕获并转为 `RestoreError`。 |
 | `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因；`restore` 的 Git 失败转为 `RestoreError`。 |
 | `KeyboardInterrupt` | 用户中断 | 未捕获；可能留下部分备份或部分删除结果。 |
 
@@ -1144,8 +1144,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 参数解析 | 交给 `argparse`，退出 `2`。 |
 | 根路径发现 | 单项失败输出到标准错误，继续其他根，最终退出 `1`。 |
 | 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`；`--apply` 有计划失败时不执行任何删除。 |
-| 备份归档 | 当前不在项目级捕获 `OSError`/`tarfile.TarError`；可能中止整个备份。 |
-| manifest 写入 | 未捕获 `OSError`；可能以 traceback 结束。 |
+| 备份归档 | 单项目捕获 `OSError`/`tarfile.TarError`，清理部分输出并继续其他项目；最终退出 `1`。 |
+| manifest 写入 | 单项目捕获 `OSError`，清理本次 manifest/归档并继续其他项目；最终退出 `1`。 |
 | 恢复 | 将 manifest、归档、SHA-256、目标和 Git 失败转为 `RestoreError`，CLI 输出 `error:` 并返回 `1`；多项目中途失败不回滚已完成项目。 |
 | 清理删除 | 逐项捕获并汇总，已成功项不回滚。 |
 | Git 常规失败 | 转为 `GitRecovery.reason` 或空字段，不抛给用户。 |
@@ -1188,7 +1188,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- | --- |
 | `clean --json` JSON 解析失败 | stdout 被外层脚本或命令包装污染 | 检查原始 stdout、stderr 和退出码；当前 CLI 有纯 JSON 回归测试。 |
 | `--list-rules` 可不带 `ROOT` | 独立输出规则列表 | 使用 `projjan clean --list-rules`。 |
-| 备份归档异常未项目级隔离 | 单个项目失败可能中止整批 | 分批备份；失败后检查目录并重新运行。 |
+| 并发备份撞名不自动重试 | 冲突项目会失败但不会覆盖已有归档/manifest | 重新运行备份，文件名会追加后缀；如同一项目仍在变化，应先停止写入再备份。 |
 | manifest 最后写入 | 中途失败可能只有归档没有清单 | 检查退出码、项目备份目录和 manifest 是否存在。 |
 | `restore` 不覆盖已有目录 | 目标存在时整批规划失败 | 指定 `--dest`，或先自行移走旧目录；没有 `--force`。 |
 | 原始位置依赖 manifest 的 `source` | 伪造/损坏的 manifest 可把写入导向任意可写路径；换机器后路径通常不存在 | 仅对可信 manifest 使用；跨机器/跨用户时使用 `--dest`；实际恢复前用 `--dry-run` 核对目标。 |
@@ -1201,7 +1201,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 归档包含 `.git` | 体积较大，可能包含敏感历史或内嵌 PAT | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份；PAT 归档按敏感数据处理。 |
 | Git URL-only 仅本地证据 | 不保证远端实际可克隆 | 恢复前联网验证；重要项目使用 `--always-archive`。 |
 | 规则按名称匹配 | 可能误匹配同名目录 | 先 dry-run 审查计划；必要时缩小根范围。 |
-| 无并发控制 | 并发运行可能竞争目录/删除目标 | 串行执行；不要同时清理同一项目。 |
+| 并发清理无锁 | 同时清理同一项目时计划和删除可能竞争 | 串行执行清理；备份文件使用排他创建，冲突后重跑；备份时避免修改源项目。 |
 
 ### 14.5 恢复说明
 

@@ -485,6 +485,23 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
     assert!(!backup_dest.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn path_resolution_follows_symlinks_before_parent_components() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TestDir::new();
+    let real_directory = temp.0.join("project/nested");
+    fs::create_dir_all(&real_directory).unwrap();
+    symlink(&real_directory, temp.0.join("alias")).unwrap();
+    let path = temp.0.join("alias/../backups/demo");
+
+    assert_eq!(
+        resolve_for_creation(&path).unwrap(),
+        temp.0.join("project/backups/demo")
+    );
+}
+
 #[test]
 fn backup_disambiguates_project_names_that_differ_only_by_case() {
     let temp = TestDir::new();
