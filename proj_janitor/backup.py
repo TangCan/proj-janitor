@@ -369,14 +369,16 @@ def register_archive_path(
 ) -> bool:
     for length in range(1, len(parts) + 1):
         original = parts[:length]
-        folded = tuple(
-            unicodedata.normalize("NFC", part.lower()) for part in original
-        )
+        folded = tuple(_portable_path_key(part) for part in original)
         previous = seen.get(folded)
         if previous is not None and previous != original:
             return False
         seen[folded] = original
     return True
+
+
+def _portable_path_key(value: str) -> str:
+    return unicodedata.normalize("NFC", value.lower())
 
 
 def _safe_windows_component(part: str) -> bool:
@@ -409,11 +411,13 @@ def _unique_file(
 
 def _project_directory_names(projects: Iterable[Project]) -> dict[Path, str]:
     project_list = list(projects)
-    counts = Counter((project.name or "project").lower() for project in project_list)
+    counts = Counter(
+        _portable_path_key(project.name or "project") for project in project_list
+    )
     names: dict[Path, str] = {}
     for project in project_list:
         base = project.name or "project"
-        if counts[base.lower()] > 1:
+        if counts[_portable_path_key(base)] > 1:
             digest = hashlib.sha256(
                 str(project.path).encode("utf-8"),
             ).hexdigest()[:8]

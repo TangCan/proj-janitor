@@ -390,7 +390,7 @@ Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 ### 6.5 目录与归档命名
 
 - 每个项目使用稳定目录：`DEST/<项目名>/`，不创建按运行时间命名的运行目录。
-- 不同根目录下存在同名项目时，项目目录名追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
+- 不同根目录下项目名相同、大小写不同或 Unicode 规范化等价时，项目目录名追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
 - 归档默认名为 `<项目名>-YYYYmmdd-HHMMSS.tar.gz`，与清单放在同一项目目录。
 - 同一秒内重复备份同一项目时，清单和归档文件名追加 `-2`、`-3` 等后缀，不覆盖已有文件。
 - 归档使用 `tar.add(project.path, arcname=project.name)`，因此归档内顶层目录是项目名。
@@ -601,7 +601,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 ### 8.2 行为
 
 1. 读取 UTF-8 JSON manifest，要求 `schema_version` 为 `2`，`records` 为非空对象数组。
-2. 校验项目名不含绝对路径、`/`、`\`、`..` 或 NUL；同名项目拒绝恢复。
+2. 校验项目名不含绝对路径、`/`、`\`、`..` 或 NUL；还原目标在大小写或 Unicode 规范化后重合时拒绝恢复。
 3. 未指定 `--dest` 时，逐条读取记录的 `source` 作为目标：
    - `source` 必须是非空、绝对路径，不能包含 NUL 或 `..`；
    - `source` 的文件名必须等于项目名，不能是文件系统根；
@@ -971,7 +971,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | `archive_dir` 为项目备份目录；写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
-| `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名或只大小写不同的项目追加 8 位路径哈希。 |
+| `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名、大小写不同或 Unicode 规范化等价的项目追加 8 位路径哈希。 |
 | `_unique_file` / `_unique_archive_name` | 私有 | 候选文件路径/归档名 | 已存在时追加 `-2`、`-3`；实际写入采用排他创建，竞态冲突记为该项目失败，不覆盖原文件。 |
 
 ### 12.3 清理模块 `proj_janitor.cleaner`

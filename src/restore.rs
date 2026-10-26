@@ -22,7 +22,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 use crate::{
     Manifest, Record,
-    archive::{create_restore_temp_dir, extract_archive, sha256},
+    archive::{create_restore_temp_dir, extract_archive, portable_path_key, sha256},
     expand, resolve_for_creation,
 };
 
@@ -120,7 +120,7 @@ pub(crate) fn restore_cmd(
     };
     let mut plans = Vec::new();
     let mut names = HashSet::new();
-    let mut casefolded_targets = HashSet::new();
+    let mut portable_targets = HashSet::new();
     let wanted: HashSet<_> = projects.iter().collect();
     for r in &manifest.records {
         if !wanted.is_empty() && !wanted.contains(&r.project) {
@@ -149,8 +149,8 @@ pub(crate) fn restore_cmd(
             resolve_for_creation(&src)?
         };
         anyhow::ensure!(
-            casefolded_targets.insert(target.to_string_lossy().to_lowercase()),
-            "restore targets collide on case-insensitive filesystems: {}",
+            portable_targets.insert(portable_path_key(&target.to_string_lossy())),
+            "restore targets collide on case-insensitive filesystems (including Unicode normalization): {}",
             target.display()
         );
         anyhow::ensure!(

@@ -14,6 +14,7 @@ from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from proj_janitor.backup import (
+    _portable_path_key,
     register_archive_path,
     safe_archive_link,
     safe_archive_member,
@@ -103,7 +104,7 @@ def plan_restore(
     plans: list[RestorePlan] = []
     seen: set[str] = set()
     seen_targets: set[Path] = set()
-    seen_casefolded_targets: set[str] = set()
+    seen_portable_targets: set[str] = set()
     for record in selected:
         project = _record_project(record)
         if project in seen:
@@ -117,12 +118,13 @@ def plan_restore(
         if target in seen_targets:
             raise RestoreError(f"duplicate restore target in manifest: {target}")
         seen_targets.add(target)
-        casefolded_target = str(target).casefold()
-        if casefolded_target in seen_casefolded_targets:
+        portable_target = _portable_path_key(str(target))
+        if portable_target in seen_portable_targets:
             raise RestoreError(
-                f"restore targets collide on case-insensitive filesystems: {target}"
+                "restore targets collide on case-insensitive filesystems "
+                f"(including Unicode normalization): {target}"
             )
-        seen_casefolded_targets.add(casefolded_target)
+        seen_portable_targets.add(portable_target)
         if target.exists() or target.is_symlink():
             raise RestoreError(f"restore target already exists: {target}")
 

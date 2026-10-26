@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     Manifest, Record,
-    archive::{create_archive, sha256, write_new_file},
+    archive::{create_archive, portable_path_key, sha256, write_new_file},
     expand, human,
     project::{discover, inspect_recovery},
     resolve_for_creation,
@@ -53,12 +53,14 @@ pub(crate) fn backup_cmd(
     }
     let mut name_counts = HashMap::new();
     for project in &projects {
-        *name_counts.entry(project.name.to_lowercase()).or_insert(0) += 1;
+        *name_counts
+            .entry(portable_path_key(&project.name))
+            .or_insert(0) += 1;
     }
     let project_dirs: Vec<_> = projects
         .iter()
         .map(|project| {
-            if name_counts[&project.name.to_lowercase()] > 1 {
+            if name_counts[&portable_path_key(&project.name)] > 1 {
                 let path_hash = format!(
                     "{:x}",
                     Sha256::digest(project.path.to_string_lossy().as_bytes())

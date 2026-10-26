@@ -15,6 +15,10 @@ use crate::is_artifact;
 
 static RESTORE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+pub(crate) fn portable_path_key(value: &str) -> String {
+    value.to_lowercase().nfc().collect()
+}
+
 pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
     loop {
         let path = parent.join(format!(
@@ -235,7 +239,7 @@ fn register_archive_case_path(
         let original = parts[..length].to_vec();
         let folded: Vec<_> = original
             .iter()
-            .map(|part| part.to_lowercase().nfc().collect::<String>())
+            .map(|part| portable_path_key(part))
             .collect();
         if let Some(previous) = seen.get(&folded) {
             anyhow::ensure!(
