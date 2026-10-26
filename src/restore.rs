@@ -280,7 +280,12 @@ pub(crate) fn restore_cmd(
                 .ok_or_else(|| anyhow::anyhow!("target has no parent"))?,
         )?;
         match r.strategy.as_str() {
-            "archive" => extract_archive(archive.as_ref().unwrap(), target, &r.project)?,
+            "archive" => {
+                let archive = archive
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("missing archive for {}", r.project))?;
+                extract_archive(archive, target, &r.project)?;
+            }
             "git" => {
                 let url = r
                     .remote_url
