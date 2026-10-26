@@ -288,6 +288,13 @@ def _make_filter(
                 if pattern != COVERAGE_DIR
             ):
                 return None
+        if info.ischr() or info.isblk() or info.isfifo():
+            return None
+        if info.islnk():
+            # Preserve file contents without requiring restore to create hard links.
+            info.type = tarfile.REGTYPE
+            info.linkname = ""
+            info.size = project_path.joinpath(*parts[1:]).stat().st_size
         if not safe_archive_member(info.name, arc_root):
             raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
         if not register_archive_path(parts, seen_archive_paths):
