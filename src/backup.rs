@@ -1,6 +1,10 @@
 use chrono::{Local, Utc};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+};
 
 use crate::{
     Manifest, Record,
@@ -45,39 +49,35 @@ pub(crate) fn backup_cmd(
     if projects.is_empty() {
         anyhow::bail!("No projects found")
     }
-    for p in &projects {
-        let dir_name = if projects
-            .iter()
-            .filter(|other| other.name.to_lowercase() == p.name.to_lowercase())
-            .count()
-            > 1
-        {
-            let path_hash = format!("{:x}", Sha256::digest(p.path.to_string_lossy().as_bytes()));
-            format!("{}-{}", p.name, &path_hash[..8])
-        } else {
-            p.name.clone()
-        };
+    let mut name_counts = HashMap::new();
+    for project in &projects {
+        *name_counts.entry(project.name.to_lowercase()).or_insert(0) += 1;
+    }
+    let project_dirs: Vec<_> = projects
+        .iter()
+        .map(|project| {
+            if name_counts[&project.name.to_lowercase()] > 1 {
+                let path_hash = format!(
+                    "{:x}",
+                    Sha256::digest(project.path.to_string_lossy().as_bytes())
+                );
+                format!("{}-{}", project.name, &path_hash[..8])
+            } else {
+                project.name.clone()
+            }
+        })
+        .collect();
+    for (project, dir_name) in projects.iter().zip(&project_dirs) {
         let output_dir = resolve_for_creation(&dest.join(dir_name))?;
         anyhow::ensure!(
-            !output_dir.starts_with(&p.path),
+            !output_dir.starts_with(&project.path),
             "backup destination is inside project: {} -> {}",
             output_dir.display(),
-            p.path.display()
+            project.path.display()
         );
     }
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    for p in &projects {
-        let dir_name = if projects
-            .iter()
-            .filter(|other| other.name.to_lowercase() == p.name.to_lowercase())
-            .count()
-            > 1
-        {
-            let path_hash = format!("{:x}", Sha256::digest(p.path.to_string_lossy().as_bytes()));
-            format!("{}-{}", p.name, &path_hash[..8])
-        } else {
-            p.name.clone()
-        };
+    for (p, dir_name) in projects.iter().zip(&project_dirs) {
         let dir = dest.join(dir_name);
         let mut run_stamp = timestamp.clone();
         let mut suffix = 2;
