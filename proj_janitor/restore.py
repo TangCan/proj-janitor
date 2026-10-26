@@ -15,6 +15,7 @@ from proj_janitor.backup import safe_archive_link, safe_archive_member, sha256_f
 from proj_janitor.models import RestorePlan, RestoreResult
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
+_GIT_TIMEOUT_SECONDS = 600
 
 
 class RestoreError(RuntimeError):
@@ -486,6 +487,7 @@ def _validate_archive_link(
 def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    command = " ".join(args[:2])
     try:
         result = subprocess.run(
             ["git", *args],
@@ -493,13 +495,17 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
             capture_output=True,
             text=True,
             env=environment,
+            timeout=_GIT_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise RestoreError(
+            f"git {command} timed out after {_GIT_TIMEOUT_SECONDS} seconds"
+        ) from exc
     except OSError as exc:
         raise RestoreError(f"cannot run git: {exc}") from exc
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         if not detail:
             detail = f"exit code {result.returncode}"
-        command = " ".join(args[:2])
         raise RestoreError(f"git {command} failed: {detail}")
     return result

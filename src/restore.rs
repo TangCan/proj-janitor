@@ -3,9 +3,13 @@ use std::{
     fs,
     io::{self, IsTerminal, Write},
     path::{Component, Path, PathBuf},
-    process::Command,
+    process::{Child, Command, ExitStatus, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 use url::Url;
+
+const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 use crate::{
     Manifest, Record,
@@ -314,19 +318,22 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
     fs::create_dir(&temporary)?;
     let repo = temporary.join("repo");
     let result = (|| -> anyhow::Result<()> {
-        let clone = Command::new("git")
+        let mut clone = Command::new("git");
+        clone
             .env("GIT_TERMINAL_PROMPT", "0")
             .args(["clone", "--no-checkout", "--", url])
-            .arg(&repo)
-            .output()?;
-        anyhow::ensure!(clone.status.success(), "git clone failed for {project}");
-        let checkout = Command::new("git")
+            .arg(&repo);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut clone, project, "clone")?.success(),
+            "git clone failed for {project}"
+        );
+        let mut checkout = Command::new("git");
+        checkout
             .arg("-C")
             .arg(&repo)
-            .args(["checkout", "--detach", commit])
-            .output()?;
+            .args(["checkout", "--detach", commit]);
         anyhow::ensure!(
-            checkout.status.success(),
+            run_git_with_timeout(&mut checkout, project, "checkout")?.success(),
             "git checkout failed for {project}"
         );
         let head = Command::new("git")
@@ -355,6 +362,46 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
     })();
     let _ = fs::remove_dir_all(&temporary);
     result
+}
+
+fn run_git_with_timeout(
+    command: &mut Command,
+    project: &str,
+    operation: &str,
+) -> anyhow::Result<ExitStatus> {
+    let mut child = command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let deadline = Instant::now() + GIT_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(error) => {
+                let _ = stop_child(&mut child);
+                return Err(error.into());
+            }
+        }
+        if Instant::now() >= deadline {
+            stop_child(&mut child)?;
+            anyhow::bail!(
+                "git {operation} timed out after {} seconds for {project}",
+                GIT_TIMEOUT.as_secs()
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn stop_child(child: &mut Child) -> anyhow::Result<()> {
+    if let Err(error) = child.kill()
+        && error.kind() != std::io::ErrorKind::InvalidInput
+    {
+        return Err(error.into());
+    }
+    child.wait()?;
+    Ok(())
 }
 
 fn safe_name(s: &str) -> bool {
