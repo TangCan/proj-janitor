@@ -23,6 +23,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m unittest discover -s tests -v
+      - if: matrix.python-version == '3.12'
+        run: python -m pip wheel --no-deps --wheel-dir "${RUNNER_TEMP}/proj-janitor-wheel" .
 
   rust:
     name: Rust stable (${{ matrix.os }})
