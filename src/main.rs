@@ -262,17 +262,26 @@ pub(crate) fn human(n: u64) -> String {
 }
 pub(crate) fn expand(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
+    let home = || {
+        #[cfg(windows)]
+        {
+            env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"))
+        }
+        #[cfg(not(windows))]
+        {
+            env::var_os("HOME")
+        }
+    };
     if s == "~" {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| p.to_owned())
-    } else if let Some(rest) = s.strip_prefix("~/") {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join(rest)
+        home().map(PathBuf::from).unwrap_or_else(|| p.to_owned())
     } else {
-        p.to_owned()
+        let rest = if cfg!(windows) {
+            s.strip_prefix("~/").or_else(|| s.strip_prefix("~\\"))
+        } else {
+            s.strip_prefix("~/")
+        };
+        rest.map(|rest| home().map(PathBuf::from).unwrap_or_default().join(rest))
+            .unwrap_or_else(|| p.to_owned())
     }
 }
 fn resolve_for_creation(path: &Path) -> anyhow::Result<PathBuf> {
