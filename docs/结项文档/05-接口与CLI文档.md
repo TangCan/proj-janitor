@@ -1045,7 +1045,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 模块不使用线程、异步任务、锁或数据库。
 - 备份归档和 manifest 使用排他创建，避免并发覆盖；竞争同一名字时该项目报告失败，不自动重试。多个进程仍可能同时读取正在变化的源项目，清理计划与删除之间也没有锁。
 - 外部 Git 命令超时为 10 秒；超时被视为该 Git 检查失败。
-- `KeyboardInterrupt` 没有被统一捕获，可能中断备份、恢复或清理。
+- `KeyboardInterrupt` 不转换为 CLI 错误码；备份清理当前项目正在生成的输出后重新抛出，已完成项目不回滚；恢复和清理可能留下部分结果。
 - Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”；`restore` 的常规失败统一抛 `RestoreError`。
 
 ## 13. 错误清单
@@ -1091,7 +1091,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `RestoreError` | manifest/归档无效、`source` 非法、SHA-256 不匹配、目标已存在/重复、Git 恢复失败 | CLI 捕获后输出 `error:` 并返回 `1`。 |
 | `tarfile.TarError` | 归档读写失败 | `run_backup` 按项目记录失败并清理部分输出；直接调用 `backup_project` 时异常向上传播；`restore` 捕获并转为 `RestoreError`。 |
 | `subprocess.SubprocessError` | Git 子进程超时等 | `_git_run` 捕获并返回 `None`，映射为具体 Git 失败原因；`restore` 的 Git 失败转为 `RestoreError`。 |
-| `KeyboardInterrupt` | 用户中断 | 未捕获；可能留下部分备份或部分删除结果。 |
+| `KeyboardInterrupt` | 用户中断 | 不转换为 CLI 错误码；备份会清理正在生成的项目输出后重新抛出，但已完成项目不回滚；恢复和清理可能留下部分结果。 |
 
 ### 13.3 Git 可恢复性失败原因
 

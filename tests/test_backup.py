@@ -142,6 +142,29 @@ class BackupTests(unittest.TestCase):
 
             self.assertEqual(archive.read_bytes(), b"keep existing backup")
 
+    def test_backup_interrupt_cleans_partial_outputs(self) -> None:
+        for failure in ("archive-hash", "manifest-write"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                project = scan_project(make_project(root))
+                backup_dest = root / "backups"
+                if failure == "archive-hash":
+                    patch_target = mock.patch(
+                        "proj_janitor.backup.sha256_file",
+                        side_effect=KeyboardInterrupt,
+                    )
+                else:
+                    patch_target = mock.patch.object(
+                        Path, "write_text", side_effect=KeyboardInterrupt
+                    )
+
+                with patch_target:
+                    with self.assertRaises(KeyboardInterrupt):
+                        run_backup([project], backup_dest, always_archive=True)
+
+                self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+                self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
     def test_backup_writes_archive_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -129,6 +129,9 @@ def run_backup(
             _discard_partial_outputs(manifest_path)
             failures.append((plan.project.name, str(exc)))
             continue
+        except BaseException:
+            _discard_partial_outputs(manifest_path)
+            raise
         records.append(record)
         completed_paths.append(manifest_path)
     return completed_paths, records, failures
@@ -190,7 +193,7 @@ def _backup_one(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-    except OSError:
+    except BaseException:
         if archive_path is not None:
             archive_path.unlink(missing_ok=True)
         raise
@@ -230,7 +233,7 @@ def backup_project(
                 )
         archive_bytes = archive.stat().st_size
         digest = sha256_file(archive)
-    except (OSError, tarfile.TarError):
+    except BaseException:
         archive.unlink(missing_ok=True)
         raise
 
