@@ -4,12 +4,30 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 use tar::{Archive, Builder, EntryType, Header};
 use walkdir::WalkDir;
 
 use crate::is_artifact;
+
+static RESTORE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
+    loop {
+        let path = parent.join(format!(
+            ".projjan-restore-{}-{}",
+            std::process::id(),
+            RESTORE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
@@ -86,13 +104,7 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(".{project}-restore-{}", std::process::id()));
-    anyhow::ensure!(
-        !tmp.exists(),
-        "temporary path already exists: {}",
-        tmp.display()
-    );
-    fs::create_dir(&tmp)?;
+    let tmp = create_restore_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<()> {
         let f = File::open(archive)?;
         let dec = GzDecoder::new(f);

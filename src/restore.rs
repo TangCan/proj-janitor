@@ -13,7 +13,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 use crate::{
     Manifest, Record,
-    archive::{extract_archive, sha256},
+    archive::{create_restore_temp_dir, extract_archive, sha256},
     expand, resolve_for_creation,
 };
 
@@ -313,9 +313,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(".{project}-restore-{}", std::process::id()));
-    anyhow::ensure!(!temporary.exists(), "temporary restore path already exists");
-    fs::create_dir(&temporary)?;
+    let temporary = create_restore_temp_dir(parent)?;
     let repo = temporary.join("repo");
     let result = (|| -> anyhow::Result<()> {
         let mut clone = Command::new("git");
