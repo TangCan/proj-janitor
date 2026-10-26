@@ -334,7 +334,8 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         clone
             .env("GIT_TERMINAL_PROMPT", "0")
             .args(["clone", "--no-checkout", "--", url])
-            .arg(&repo);
+            .arg(&repo)
+            .stdout(Stdio::null());
         anyhow::ensure!(
             run_git_with_timeout(&mut clone, project, "clone")?.success(),
             "git clone failed for {project}"
@@ -343,21 +344,24 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         checkout
             .arg("-C")
             .arg(&repo)
-            .args(["checkout", "--detach", commit]);
+            .args(["checkout", "--detach", commit])
+            .stdout(Stdio::null());
         anyhow::ensure!(
             run_git_with_timeout(&mut checkout, project, "checkout")?.success(),
             "git checkout failed for {project}"
         );
-        let head = Command::new("git")
-            .arg("-C")
+        let head_output = temporary.join("head");
+        let mut head = Command::new("git");
+        head.arg("-C")
             .arg(&repo)
             .args(["rev-parse", "HEAD"])
-            .output()?;
+            .stdout(fs::File::create(&head_output)?);
         anyhow::ensure!(
-            head.status.success(),
+            run_git_with_timeout(&mut head, project, "rev-parse")?.success(),
             "cannot verify restored commit for {project}"
         );
-        let actual = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+        drop(head);
+        let actual = fs::read_to_string(head_output)?.trim().to_owned();
         anyhow::ensure!(
             actual
                 .to_ascii_lowercase()
@@ -385,10 +389,7 @@ fn run_git_with_timeout(
     let interrupt = InterruptGuard::new()?;
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = command
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let mut child = command.stderr(Stdio::null()).spawn()?;
     let deadline = Instant::now() + GIT_TIMEOUT;
     loop {
         match child.try_wait() {
