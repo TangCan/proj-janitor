@@ -111,6 +111,17 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse((restored / "app").exists())
 
+    def test_restore_rejects_non_integer_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = write_manifest(root / "manifest.json", [{"project": "app"}])
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["schema_version"] = 2.0
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(RestoreError, "schema_version"):
+                restore_from_manifest(manifest, root / "restored")
+
     def test_restore_archive_refuses_existing_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -197,10 +197,11 @@ def load_manifest(path: Path) -> tuple[Path, dict]:
         ) from exc
     if not isinstance(manifest, dict):
         raise RestoreError("manifest root must be a JSON object")
-    if manifest.get("schema_version") != 2:
+    schema_version = manifest.get("schema_version")
+    if type(schema_version) is not int or schema_version != 2:
         raise RestoreError(
             "unsupported manifest schema_version: "
-            f"{manifest.get('schema_version')!r}"
+            f"{schema_version!r}"
         )
     records = manifest.get("records")
     if not isinstance(records, list) or not records:
