@@ -160,6 +160,23 @@ fn raw_hardlink_archive(temp: &TestDir) -> PathBuf {
     archive_path
 }
 
+fn raw_case_collision_archive(temp: &TestDir) -> PathBuf {
+    let archive_path = temp.0.join("case-collision.tar.gz");
+    let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+    let mut tar = Builder::new(encoder);
+    for name in ["demo/Dir/one.txt", "demo/dir/two.txt"] {
+        let mut file = Header::new_gnu();
+        file.set_entry_type(EntryType::Regular);
+        file.set_mode(0o644);
+        file.set_size(1);
+        file.set_path(name).unwrap();
+        file.set_cksum();
+        tar.append(&file, &b"x"[..]).unwrap();
+    }
+    tar.into_inner().unwrap().finish().unwrap();
+    archive_path
+}
+
 #[test]
 fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
     assert_eq!(
@@ -621,6 +638,12 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
         "unexpected hard-link error: {error}"
     );
     assert!(!hardlink_target.exists());
+
+    let case_collision = raw_case_collision_archive(&temp);
+    let case_target = temp.0.join("restored-case/demo");
+    let error = extract_archive(&case_collision, &case_target, "demo").unwrap_err();
+    assert!(error.to_string().contains("case-insensitive filesystems"));
+    assert!(!case_target.exists());
 }
 
 #[test]

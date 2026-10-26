@@ -410,6 +410,9 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
             members = tar.getmembers()
             if not members:
                 raise RestoreError(f"archive is empty: {archive}")
+            seen_casefolded_paths: dict[
+                tuple[str, ...], tuple[str, ...]
+            ] = {}
             for member in members:
                 parts = _archive_parts(member.name)
                 if parts[0] != project:
@@ -417,6 +420,9 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                         f"archive entry is outside project {project}: "
                         f"{member.name}"
                     )
+                _validate_archive_case_path(
+                    parts, seen_casefolded_paths, member.name
+                )
                 if member.ischr() or member.isblk() or member.isfifo():
                     raise RestoreError(
                         f"archive contains special file: {member.name}"
@@ -445,6 +451,23 @@ def _archive_parts(name: str) -> tuple[str, ...]:
     if not parts or any(part == ".." for part in parts):
         raise RestoreError(f"archive contains an unsafe path: {name}")
     return parts
+
+
+def _validate_archive_case_path(
+    parts: tuple[str, ...],
+    seen: dict[tuple[str, ...], tuple[str, ...]],
+    member_name: str,
+) -> None:
+    for length in range(1, len(parts) + 1):
+        original = parts[:length]
+        folded = tuple(part.lower() for part in original)
+        previous = seen.get(folded)
+        if previous is not None and previous != original:
+            raise RestoreError(
+                f"archive paths collide on case-insensitive filesystems: "
+                f"{member_name}"
+            )
+        seen[folded] = original
 
 
 def _validate_archive_link(

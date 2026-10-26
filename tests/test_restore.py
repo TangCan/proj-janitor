@@ -186,6 +186,35 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse((restored / "app").exists())
 
+    def test_restore_archive_rejects_case_colliding_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "case-collision.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                for name in ("app/Dir/one.txt", "app/dir/two.txt"):
+                    info = tarfile.TarInfo(name)
+                    info.size = 1
+                    tar.addfile(info, io.BytesIO(b"x"))
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                        "sha256": sha256_file(archive),
+                    }
+                ],
+            )
+            restored = root / "restored"
+
+            with self.assertRaisesRegex(
+                RestoreError, "case-insensitive filesystems"
+            ):
+                restore_from_manifest(manifest, restored)
+
+            self.assertFalse((restored / "app").exists())
+
     def test_restore_archive_from_moved_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

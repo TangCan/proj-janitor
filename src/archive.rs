@@ -1,6 +1,7 @@
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Component, Path},
@@ -95,6 +96,7 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
         let mut count = 0;
         let mut directories = Vec::new();
         let mut symlinks = Vec::new();
+        let mut casefolded_paths = HashMap::new();
         for item in entries {
             let mut e = item?;
             let name = e.path()?.into_owned();
@@ -103,6 +105,7 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
                 "unsafe archive path: {}",
                 name.display()
             );
+            register_archive_case_path(&name, &mut casefolded_paths)?;
             let ty = e.header().entry_type();
             let mode = e.header().mode()? & 0o777;
             let out = tmp.join(&name);
@@ -179,6 +182,30 @@ pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
         && p.components()
             .next()
             .is_some_and(|c| c.as_os_str() == project)
+}
+
+fn register_archive_case_path(
+    name: &Path,
+    seen: &mut HashMap<Vec<String>, Vec<String>>,
+) -> anyhow::Result<()> {
+    let parts: Vec<_> = name
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    for length in 1..=parts.len() {
+        let original = parts[..length].to_vec();
+        let folded: Vec<_> = original.iter().map(|part| part.to_lowercase()).collect();
+        if let Some(previous) = seen.get(&folded) {
+            anyhow::ensure!(
+                previous == &original,
+                "archive paths collide on case-insensitive filesystems: {}",
+                name.display()
+            );
+        } else {
+            seen.insert(folded, original);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool {
