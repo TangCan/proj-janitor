@@ -177,6 +177,15 @@ fn raw_case_collision_archive(temp: &TestDir) -> PathBuf {
     archive_path
 }
 
+fn raw_windows_traversal_archive(temp: &TestDir) -> PathBuf {
+    raw_test_archive(
+        temp,
+        "windows-traversal.tar.gz",
+        r"demo/src\..\..\escape.txt",
+        None,
+    )
+}
+
 #[test]
 fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
     assert_eq!(
@@ -215,6 +224,10 @@ fn archive_paths_and_links_cannot_escape_project_root() {
     ));
     assert!(!safe_archive_path(
         Path::new("project/../../outside"),
+        "project"
+    ));
+    assert!(!safe_archive_path(
+        Path::new(r"project/src\..\..\outside"),
         "project"
     ));
     assert!(!safe_archive_path(Path::new("/project/file"), "project"));
@@ -370,6 +383,22 @@ fn backup_rejects_symlink_targets_outside_project() {
             .to_string()
             .contains("archive symlink escapes project")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_rejects_windows_traversal_member_names() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join(r"src\..\..\escape.txt"), "bad\n").unwrap();
+    let archive = temp.0.join("demo.tar.gz");
+
+    let error = create_archive(&project, &archive, false).unwrap_err();
+
+    assert!(error.to_string().contains("unsafe archive path"));
+    assert!(!archive.exists());
 }
 
 #[test]
@@ -661,6 +690,11 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
     let error = extract_archive(&case_collision, &case_target, "demo").unwrap_err();
     assert!(error.to_string().contains("case-insensitive filesystems"));
     assert!(!case_target.exists());
+
+    let windows_traversal = raw_windows_traversal_archive(&temp);
+    let windows_target = temp.0.join("restored-windows-traversal/demo");
+    assert!(extract_archive(&windows_traversal, &windows_target, "demo").is_err());
+    assert!(!windows_target.exists());
 }
 
 #[test]

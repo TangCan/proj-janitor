@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
-from proj_janitor.backup import safe_archive_link, sha256_file
+from proj_janitor.backup import safe_archive_link, safe_archive_member, sha256_file
 from proj_janitor.models import RestorePlan, RestoreResult
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
@@ -420,6 +420,8 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                         f"archive entry is outside project {project}: "
                         f"{member.name}"
                     )
+                if not safe_archive_member(member.name, project):
+                    raise RestoreError(f"archive contains an unsafe path: {member.name}")
                 _validate_archive_case_path(
                     parts, seen_casefolded_paths, member.name
                 )

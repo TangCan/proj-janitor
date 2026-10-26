@@ -86,6 +86,23 @@ class BackupTests(unittest.TestCase):
             self.assertIn("archive symlink escapes project", failures[0][1])
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_rejects_windows_traversal_member_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / r"src\..\..\escape.txt").write_text("bad\n", encoding="utf-8")
+
+            backup_dest = root / "backups"
+            manifests, records, failures = run_backup(
+                [scan_project(project)], backup_dest, always_archive=True
+            )
+
+            self.assertFalse(manifests)
+            self.assertFalse(records)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("unsafe path", failures[0][1])
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
     def test_backup_does_not_overwrite_an_existing_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

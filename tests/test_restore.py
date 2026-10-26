@@ -156,6 +156,34 @@ class RestoreTests(unittest.TestCase):
             self.assertFalse((root / "escape.txt").exists())
             self.assertFalse((restored / "app").exists())
 
+    def test_restore_archive_rejects_windows_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "windows-traversal.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                payload = b"bad"
+                info = tarfile.TarInfo(r"app/src\..\..\escape.txt")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                        "sha256": sha256_file(archive),
+                    }
+                ],
+            )
+            restored = root / "restored"
+
+            with self.assertRaisesRegex(RestoreError, "unsafe path"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertFalse((root / "escape.txt").exists())
+            self.assertFalse((restored / "app").exists())
+
     def test_restore_archive_rejects_hard_links(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

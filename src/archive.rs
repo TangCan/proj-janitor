@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    path::{Component, Path},
+    path::Path,
 };
 use tar::{Archive, Builder, EntryType, Header};
 use walkdir::WalkDir;
@@ -42,6 +42,11 @@ pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> a
                 continue;
             }
             let name = Path::new(root).join(rel);
+            anyhow::ensure!(
+                safe_archive_path(&name, &root.to_string_lossy()),
+                "unsafe archive path: {}",
+                name.display()
+            );
             if e.file_type().is_symlink() {
                 let target = fs::read_link(e.path())?;
                 anyhow::ensure!(
@@ -177,11 +182,17 @@ fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
 }
 
 pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
-    !p.is_absolute()
-        && p.components().all(|c| matches!(c, Component::Normal(_)))
-        && p.components()
-            .next()
-            .is_some_and(|c| c.as_os_str() == project)
+    let path = p.to_string_lossy();
+    if p.is_absolute()
+        || path.starts_with(['/', '\\'])
+        || (path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic())
+    {
+        return false;
+    }
+    let mut parts = path
+        .split(['/', '\\'])
+        .filter(|part| !part.is_empty() && *part != ".");
+    parts.next() == Some(project) && parts.all(|part| part != "..")
 }
 
 fn register_archive_case_path(

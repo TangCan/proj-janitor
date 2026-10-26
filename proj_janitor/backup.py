@@ -261,6 +261,8 @@ def _make_filter(
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
 
     def exclude(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if not safe_archive_member(info.name, arc_root):
+            raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
         if info.issym() and not safe_archive_link(info.name, info.linkname):
             raise tarfile.ExtractError(
                 f"archive symlink escapes project: {info.name} -> {info.linkname}"
@@ -281,6 +283,25 @@ def _make_filter(
         return info
 
     return exclude
+
+
+def safe_archive_member(name: str, project: str) -> bool:
+    if "\x00" in name:
+        return False
+    posix = PurePosixPath(name)
+    windows = PureWindowsPath(name)
+    if posix.is_absolute() or windows.is_absolute() or windows.drive:
+        return False
+    posix_parts = posix.parts
+    windows_parts = windows.parts
+    return (
+        bool(posix_parts)
+        and bool(windows_parts)
+        and posix_parts[0] == project
+        and windows_parts[0] == project
+        and ".." not in posix_parts
+        and ".." not in windows_parts
+    )
 
 
 def safe_archive_link(member_name: str, link_name: str) -> bool:
