@@ -75,6 +75,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - run: cargo test --locked
+      - run: cargo package --locked
 
   cross-version-compat:
     name: Python and Rust archive compatibility

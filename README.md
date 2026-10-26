@@ -232,7 +232,9 @@ Rust 版开发检查：
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
-cargo test
+cargo test --locked
+cargo package --locked
+actionlint
 ```
 
 Python 版回归检查：
