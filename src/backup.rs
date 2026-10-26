@@ -23,7 +23,9 @@ pub(crate) fn backup_cmd(
     include_artifacts: bool,
     always: bool,
 ) -> anyhow::Result<()> {
-    let dest = dest.ok_or_else(|| anyhow::anyhow!("set BACKUP_DEST or pass --backup-dest"))?;
+    let dest = dest
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("set BACKUP_DEST or pass --backup-dest"))?;
     let dest = resolve_for_creation(&expand(&dest))?;
     if dest.exists() && !dest.is_dir() {
         anyhow::bail!("destination is not a directory: {}", dest.display())
