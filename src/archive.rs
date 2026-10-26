@@ -8,6 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use tar::{Archive, Builder, EntryType, Header};
+use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
 use crate::is_artifact;
@@ -48,6 +49,8 @@ pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> a
         let enc = GzEncoder::new(f, Compression::default());
         let mut tar = Builder::new(enc);
         let root = project.file_name().unwrap_or_default();
+        let mut archive_paths = HashMap::new();
+        register_archive_case_path(Path::new(root), &mut archive_paths)?;
         tar.append_dir(root, project)?;
         for e in WalkDir::new(project)
             .follow_links(false)
@@ -65,6 +68,7 @@ pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> a
                 "unsafe archive path: {}",
                 name.display()
             );
+            register_archive_case_path(&name, &mut archive_paths)?;
             if e.file_type().is_symlink() {
                 let target = fs::read_link(e.path())?;
                 anyhow::ensure!(
@@ -219,11 +223,14 @@ fn register_archive_case_path(
         .collect();
     for length in 1..=parts.len() {
         let original = parts[..length].to_vec();
-        let folded: Vec<_> = original.iter().map(|part| part.to_lowercase()).collect();
+        let folded: Vec<_> = original
+            .iter()
+            .map(|part| part.to_lowercase().nfc().collect::<String>())
+            .collect();
         if let Some(previous) = seen.get(&folded) {
             anyhow::ensure!(
                 previous == &original,
-                "archive paths collide on case-insensitive filesystems: {}",
+                "archive paths collide on case-insensitive filesystems (including Unicode normalization): {}",
                 name.display()
             );
         } else {

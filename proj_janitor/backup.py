@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import tarfile
+import unicodedata
 from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -271,9 +272,10 @@ def _make_filter(
     project_path: Path,
 ):
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
+    seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
 
     def exclude(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        parts = Path(info.name).parts
+        parts = PurePosixPath(info.name).parts
         relative = parts[1:] if parts and parts[0] == arc_root else parts
         for index, part in enumerate(relative if patterns else ()):
             if part == COVERAGE_DIR:
@@ -288,6 +290,11 @@ def _make_filter(
                 return None
         if not safe_archive_member(info.name, arc_root):
             raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
+        if not register_archive_path(parts, seen_archive_paths):
+            raise tarfile.ExtractError(
+                "archive paths collide on case-insensitive filesystems "
+                f"(including Unicode normalization): {info.name}"
+            )
         if info.issym() and not safe_archive_link(info.name, info.linkname):
             raise tarfile.ExtractError(
                 f"archive symlink escapes project: {info.name} -> {info.linkname}"
@@ -346,6 +353,22 @@ def safe_archive_link(member_name: str, link_name: str) -> bool:
                 resolved.append(part)
         if not resolved or resolved[0] != member.parts[0]:
             return False
+    return True
+
+
+def register_archive_path(
+    parts: tuple[str, ...],
+    seen: dict[tuple[str, ...], tuple[str, ...]],
+) -> bool:
+    for length in range(1, len(parts) + 1):
+        original = parts[:length]
+        folded = tuple(
+            unicodedata.normalize("NFC", part.lower()) for part in original
+        )
+        previous = seen.get(folded)
+        if previous is not None and previous != original:
+            return False
+        seen[folded] = original
     return True
 
 
