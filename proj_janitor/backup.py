@@ -294,7 +294,7 @@ def _make_filter(
 
 
 def safe_archive_member(name: str, project: str) -> bool:
-    if "\x00" in name or "\\" in name:
+    if "\x00" in name or "\\" in name or ":" in name:
         return False
     posix = PurePosixPath(name)
     windows = PureWindowsPath(name)
@@ -313,6 +313,8 @@ def safe_archive_member(name: str, project: str) -> bool:
 
 
 def safe_archive_link(member_name: str, link_name: str) -> bool:
+    if "\x00" in link_name or ":" in link_name:
+        return False
     member = PurePosixPath(member_name)
     link_posix = PurePosixPath(link_name)
     link_windows = PureWindowsPath(link_name)
