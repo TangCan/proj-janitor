@@ -136,6 +136,30 @@ fn raw_test_archive(
     archive_path
 }
 
+fn raw_hardlink_archive(temp: &TestDir) -> PathBuf {
+    let archive_path = temp.0.join("hardlink.tar.gz");
+    let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+    let mut tar = Builder::new(encoder);
+    let mut file = Header::new_gnu();
+    file.set_entry_type(EntryType::Regular);
+    file.set_mode(0o644);
+    file.set_size(4);
+    file.set_path("demo/file.txt").unwrap();
+    file.set_cksum();
+    tar.append(&file, &b"data"[..]).unwrap();
+
+    let mut hardlink = Header::new_gnu();
+    hardlink.set_entry_type(EntryType::Link);
+    hardlink.set_mode(0o644);
+    hardlink.set_size(0);
+    hardlink.set_link_name("demo/file.txt").unwrap();
+    hardlink.set_cksum();
+    tar.append_link(&mut hardlink, "demo/hardlink.txt", "demo/file.txt")
+        .unwrap();
+    tar.into_inner().unwrap().finish().unwrap();
+    archive_path
+}
+
 #[test]
 fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
     assert_eq!(
@@ -555,6 +579,15 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
     assert!(extract_archive(&escaping_link, &link_target, "demo").is_err());
     assert!(!link_target.exists());
     assert!(!temp.0.join("restored-link/escape").exists());
+
+    let hardlink = raw_hardlink_archive(&temp);
+    let hardlink_target = temp.0.join("restored-hardlink/demo");
+    let error = extract_archive(&hardlink, &hardlink_target, "demo").unwrap_err();
+    assert!(
+        error.to_string().contains("unsupported hard link"),
+        "unexpected hard-link error: {error}"
+    );
+    assert!(!hardlink_target.exists());
 }
 
 #[test]

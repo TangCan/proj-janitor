@@ -414,8 +414,12 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                     raise RestoreError(
                         f"archive contains special file: {member.name}"
                     )
-                if member.issym() or member.islnk():
-                    _validate_archive_link(member, parts)
+                if member.islnk():
+                    raise RestoreError(
+                        f"archive contains unsupported hard link: {member.name}"
+                    )
+                if member.issym():
+                    _validate_archive_link(member)
             try:
                 tar.extractall(dest, filter="data")
             except TypeError:
@@ -438,22 +442,12 @@ def _archive_parts(name: str) -> tuple[str, ...]:
 
 def _validate_archive_link(
     member: tarfile.TarInfo,
-    parts: tuple[str, ...],
 ) -> None:
     link = member.linkname
     if "\x00" in link:
         raise RestoreError("archive contains an invalid link target")
-    if member.issym():
-        if not safe_archive_link(member.name, link):
-            raise RestoreError(
-                f"archive symlink escapes project: {member.name}"
-            )
-    else:
-        link_parts = _archive_parts(link)
-        if link_parts[0] != parts[0]:
-            raise RestoreError(
-                f"archive hardlink escapes project: {member.name}"
-            )
+    if not safe_archive_link(member.name, link):
+        raise RestoreError(f"archive symlink escapes project: {member.name}")
 
 
 def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:

@@ -20,6 +20,9 @@ def assert_restored(path: Path) -> None:
     assert (path / "src/main.py").read_text(encoding="utf-8") == "print('interop')\n"
     assert (path / "src/current.py").is_symlink()
     assert (path / "src/current.py").read_text(encoding="utf-8") == "print('interop')\n"
+    config_link = path / "src/project-config"
+    assert config_link.is_symlink()
+    assert config_link.readlink() == Path("../pyproject.toml")
 
 
 with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
@@ -29,6 +32,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     (project / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     (project / "src/main.py").write_text("print('interop')\n", encoding="utf-8")
     (project / "src/current.py").symlink_to("main.py")
+    (project / "src/project-config").symlink_to("../pyproject.toml")
 
     python_backups = root / "python-backups"
     run([

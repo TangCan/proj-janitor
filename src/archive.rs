@@ -122,6 +122,8 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
                     fs::create_dir_all(parent)?;
                 }
                 symlinks.push((link.into_owned(), out));
+            } else if ty.is_hard_link() {
+                anyhow::bail!("archive contains unsupported hard link: {}", name.display());
             } else {
                 anyhow::ensure!(
                     ty.is_file(),
