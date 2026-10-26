@@ -1,6 +1,15 @@
 use super::*;
+use crate::archive::{
+    create_archive, extract_archive, safe_archive_link, safe_archive_path, sha256, write_new_file,
+};
+use crate::backup::backup_cmd;
+use crate::clean::tree_size;
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
+use crate::restore::{redact_remote, validate_git_restore};
+use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::{fs::File, process::Command};
+use tar::{Builder, EntryType, Header};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 

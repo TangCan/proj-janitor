@@ -196,15 +196,26 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 ## 项目结构
 
 ```text
-proj_janitor/
-├── config.py    # 项目标记与清理规则
-├── models.py    # 数据模型与大小格式化
-├── scanner.py   # 项目发现、大小与 Git 状态
-├── backup.py    # URL-only 记录、tar.gz 归档与清单
-├── restore.py   # 清单校验、Git/归档恢复与安全解压
-├── cleaner.py   # 清理计划与执行
-└── cli.py       # argparse 命令行入口
-tests/           # unittest 测试
+.
+├── proj_janitor/       # Python 实现
+│   ├── config.py       # 项目标记与清理规则
+│   ├── models.py       # 数据模型与大小格式化
+│   ├── scanner.py      # 项目发现、大小与 Git 状态
+│   ├── backup.py       # URL-only 记录、tar.gz 归档与清单
+│   ├── restore.py      # 清单校验、Git/归档恢复与安全解压
+│   ├── cleaner.py      # 清理计划与执行
+│   └── cli.py          # argparse 命令行入口
+├── src/                # Rust CLI
+│   ├── main.rs         # CLI 入口与命令分发
+│   ├── project.rs      # 项目发现与 Git 可恢复性
+│   ├── backup.rs       # 备份计划执行与 manifest
+│   ├── archive.rs      # 归档、校验与安全解压
+│   ├── restore.rs      # manifest 预检与恢复
+│   ├── clean.rs        # 清理计划与执行
+│   └── tests.rs        # Rust 单元测试
+└── tests/
+    ├── test_*.py      # Python unittest 测试
+    └── rust_cli.rs    # Rust CLI 集成测试
 ```
 
 ## 开发
@@ -213,8 +224,8 @@ tests/           # unittest 测试
 python3 -m unittest discover -s tests -v
 ```
 
-当前 98 项测试全部通过（2026-10-24，Python 3.12.3）。无第三方运行时依赖，要求 Python 3.10+。
-Rust 版目前有 12 项单元与 CLI 集成测试；`cargo clippy --all-targets --locked -- -D warnings`、crates.io 包构建与安装验证通过（2026-10-24）。
+最近一次本地回归（2026-10-26）：Python 103 项测试通过（Python 3.12.3）；Rust 16 项单元测试和 3 项 CLI 集成测试通过（rustc 1.98.1）。Python 版无第三方运行时依赖，要求 Python 3.10+。
+Rust 版的 `cargo fmt --check`、`cargo clippy --all-targets --locked -- -D warnings` 也通过；crates.io 包构建和 `cargo install --locked` 验证记录于 2026-10-24。
 
 Rust 版开发检查：
 
