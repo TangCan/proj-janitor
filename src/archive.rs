@@ -202,10 +202,7 @@ fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
 pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
     !p.is_absolute()
         && p.components().all(|component| {
-            matches!(component, Component::Normal(name) if {
-                let name = name.to_string_lossy();
-                !name.contains(['\\', ':'])
-            })
+            matches!(component, Component::Normal(name) if safe_windows_component(&name.to_string_lossy()))
         })
         && p.components()
             .next()
@@ -245,6 +242,12 @@ pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool
     {
         return false;
     }
+    if target
+        .split(['/', '\\'])
+        .any(|part| !matches!(part, "" | "." | "..") && !safe_windows_component(part))
+    {
+        return false;
+    }
     let mut parts: Vec<String> = name
         .parent()
         .unwrap_or(Path::new(""))
@@ -267,6 +270,33 @@ pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool
         }
     }
     !parts.is_empty() && parts[0] == project
+}
+
+fn safe_windows_component(name: &str) -> bool {
+    if name.is_empty()
+        || name.ends_with([' ', '.'])
+        || name
+            .chars()
+            .any(|character| character.is_ascii_control() || "<>:\"|?*".contains(character))
+    {
+        return false;
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|number| {
+                matches!(
+                    number,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        });
+    !reserved
 }
 
 #[cfg(unix)]

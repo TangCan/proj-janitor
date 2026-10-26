@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tarfile
 from collections import Counter
 from dataclasses import asdict
@@ -18,6 +19,9 @@ from proj_janitor.config import (
 )
 from proj_janitor.models import BackupPlan, BackupRecord, Project
 from proj_janitor.scanner import inspect_git_recoverability
+
+_WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"}
+_WINDOWS_INVALID_CHARS = '<>:"|?*'
 
 
 def prepare_backup(
@@ -309,6 +313,7 @@ def safe_archive_member(name: str, project: str) -> bool:
         and windows_parts[0] == project
         and ".." not in posix_parts
         and ".." not in windows_parts
+        and all(_safe_windows_component(part) for part in windows_parts)
     )
 
 
@@ -319,6 +324,11 @@ def safe_archive_link(member_name: str, link_name: str) -> bool:
     link_posix = PurePosixPath(link_name)
     link_windows = PureWindowsPath(link_name)
     if link_posix.is_absolute() or link_windows.is_absolute() or link_windows.drive:
+        return False
+    if not all(
+        part in {".", ".."} or _safe_windows_component(part)
+        for part in link_windows.parts
+    ):
         return False
 
     for parts in (link_posix.parts, link_windows.parts):
@@ -337,6 +347,19 @@ def safe_archive_link(member_name: str, link_name: str) -> bool:
         if not resolved or resolved[0] != member.parts[0]:
             return False
     return True
+
+
+def _safe_windows_component(part: str) -> bool:
+    if (
+        not part
+        or part.endswith((" ", "."))
+        or any(ord(char) < 32 or char in _WINDOWS_INVALID_CHARS for char in part)
+    ):
+        return False
+    stem = part.split(".", 1)[0].rstrip(" .").upper()
+    return stem not in _WINDOWS_RESERVED_NAMES and not re.fullmatch(
+        r"(?:COM|LPT)[1-9¹²³]", stem
+    )
 
 
 def _unique_file(
