@@ -469,6 +469,39 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
 }
 
 #[test]
+fn backup_disambiguates_project_names_that_differ_only_by_case() {
+    let temp = TestDir::new();
+    let first = temp.0.join("one/App");
+    let second = temp.0.join("two/app");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    fs::write(first.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(second.join("pyproject.toml"), "[project]\n").unwrap();
+    let backup_dest = temp.0.join("backups");
+
+    backup_cmd(
+        &[first, second],
+        Some(backup_dest.clone()),
+        false,
+        true,
+        false,
+    )
+    .unwrap();
+
+    let names: Vec<_> = fs::read_dir(backup_dest)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2);
+    assert!(names.iter().any(|name| name.starts_with("App-")));
+    assert!(names.iter().any(|name| name.starts_with("app-")));
+    assert!(names.iter().all(|name| {
+        name.rsplit_once('-')
+            .is_some_and(|(_, hash)| hash.len() == 8 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+    }));
+}
+
+#[test]
 fn backup_continues_after_one_project_directory_creation_fails() {
     let temp = TestDir::new();
     let first = temp.0.join("first");

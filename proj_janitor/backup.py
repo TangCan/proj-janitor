@@ -325,11 +325,11 @@ def _unique_file(
 
 def _project_directory_names(projects: Iterable[Project]) -> dict[Path, str]:
     project_list = list(projects)
-    counts = Counter(project.name or "project" for project in project_list)
+    counts = Counter((project.name or "project").lower() for project in project_list)
     names: dict[Path, str] = {}
     for project in project_list:
         base = project.name or "project"
-        if counts[base] > 1:
+        if counts[base.lower()] > 1:
             digest = hashlib.sha256(
                 str(project.path).encode("utf-8"),
             ).hexdigest()[:8]

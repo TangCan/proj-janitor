@@ -293,6 +293,31 @@ class BackupTests(unittest.TestCase):
                 manifest = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(len(manifest["records"]), 1)
 
+    def test_case_variant_names_are_disambiguated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            projects = [
+                scan_project(make_project(root / "first", "App")),
+                scan_project(make_project(root / "second", "app")),
+            ]
+
+            manifest_paths, records, failures = run_backup(
+                projects, root / "backups", always_archive=True
+            )
+
+            self.assertFalse(failures)
+            self.assertEqual(len(records), 2)
+            names = {path.parent.name for path in manifest_paths}
+            self.assertEqual(len(names), 2)
+            self.assertEqual({name.split("-", 1)[0] for name in names}, {"App", "app"})
+            self.assertTrue(
+                all(
+                    len(name.rsplit("-", 1)[1]) == 8
+                    and all(char in "0123456789abcdef" for char in name.rsplit("-", 1)[1])
+                    for name in names
+                )
+            )
+
     def test_batch_run_isolates_project_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -46,7 +46,12 @@ pub(crate) fn backup_cmd(
         anyhow::bail!("No projects found")
     }
     for p in &projects {
-        let dir_name = if projects.iter().filter(|other| other.name == p.name).count() > 1 {
+        let dir_name = if projects
+            .iter()
+            .filter(|other| other.name.to_lowercase() == p.name.to_lowercase())
+            .count()
+            > 1
+        {
             let path_hash = format!("{:x}", Sha256::digest(p.path.to_string_lossy().as_bytes()));
             format!("{}-{}", p.name, &path_hash[..8])
         } else {
@@ -62,7 +67,12 @@ pub(crate) fn backup_cmd(
     }
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
     for p in &projects {
-        let dir_name = if projects.iter().filter(|other| other.name == p.name).count() > 1 {
+        let dir_name = if projects
+            .iter()
+            .filter(|other| other.name.to_lowercase() == p.name.to_lowercase())
+            .count()
+            > 1
+        {
             let path_hash = format!("{:x}", Sha256::digest(p.path.to_string_lossy().as_bytes()));
             format!("{}-{}", p.name, &path_hash[..8])
         } else {
