@@ -198,6 +198,24 @@ class BackupTests(unittest.TestCase):
             self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_cleanup_error_does_not_mask_interruption(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+
+            with (
+                mock.patch(
+                    "proj_janitor.backup.sha256_file",
+                    side_effect=KeyboardInterrupt,
+                ),
+                mock.patch.object(
+                    Path, "unlink", side_effect=PermissionError("unlink denied")
+                ),
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_backup([project], backup_dest, always_archive=True)
+
     def test_backup_writes_archive_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

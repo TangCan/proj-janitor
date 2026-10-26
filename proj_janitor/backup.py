@@ -116,12 +116,12 @@ def run_backup(
                 manifest_reserved = True
         except OSError as exc:
             if manifest_reserved:
-                _discard_partial_outputs(manifest_path)
+                _discard_partial_file(manifest_path)
             failures.append((plan.project.name, str(exc)))
             continue
         except BaseException:
             if manifest_reserved:
-                _discard_partial_outputs(manifest_path)
+                _discard_partial_file(manifest_path)
             raise
         try:
             record = _backup_one(
@@ -133,11 +133,11 @@ def run_backup(
                 always_archive,
             )
         except (OSError, tarfile.TarError) as exc:
-            _discard_partial_outputs(manifest_path)
+            _discard_partial_file(manifest_path)
             failures.append((plan.project.name, str(exc)))
             continue
         except BaseException:
-            _discard_partial_outputs(manifest_path)
+            _discard_partial_file(manifest_path)
             raise
         records.append(record)
         completed_paths.append(manifest_path)
@@ -202,16 +202,14 @@ def _backup_one(
         )
     except BaseException:
         if archive_path is not None:
-            archive_path.unlink(missing_ok=True)
+            _discard_partial_file(archive_path)
         raise
     return record
 
 
-def _discard_partial_outputs(
-    manifest_path: Path,
-) -> None:
+def _discard_partial_file(path: Path) -> None:
     try:
-        manifest_path.unlink()
+        path.unlink()
     except FileNotFoundError:
         pass
     except OSError:
@@ -241,7 +239,7 @@ def backup_project(
         archive_bytes = archive.stat().st_size
         digest = sha256_file(archive)
     except BaseException:
-        archive.unlink(missing_ok=True)
+        _discard_partial_file(archive)
         raise
 
     return BackupRecord(
