@@ -193,7 +193,7 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
   git -C ~/restored/xtask_todo switch -c main
   ```
 
-`git` 恢复依赖远程仓库和本机凭据配置；私有仓库可使用 `gh auth setup-git`、SSH 或 credential helper。工具只验证 manifest 中的 URL 形式和提交格式，不会预检远程是否仍存在该提交。
+`git` 恢复依赖远程仓库和本机凭据配置；私有仓库可使用 `gh auth setup-git`、SSH 或 credential helper。恢复后，仓库的 `origin` 会移除 URL 中的认证信息、查询和 fragment，保留 SSH 登录名；使用查询参数定位仓库的特殊远程需在恢复后手动重设 `origin`。后续访问私有仓库需使用本机凭据配置。工具只验证 manifest 中的 URL 形式和提交格式，不会预检远程是否仍存在该提交。
 
 ## 项目结构
 

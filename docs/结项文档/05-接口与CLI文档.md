@@ -1005,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
-内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`，每步超时为 600 秒；`_run_git` 遇到含凭据/查询参数的克隆 URL 时不回显 Git 原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
+内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout`、从 origin URL 中移除认证信息/查询/fragment 并 `checkout --detach`，Git 子进程每步超时为 600 秒；`_run_git` 遇到敏感克隆 URL 时不回显 Git 原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
 
 ### 12.5 模型与配置
 

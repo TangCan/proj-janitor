@@ -45,6 +45,14 @@ pub(crate) fn validate_git_restore(remote: &str, commit: &str) -> anyhow::Result
             matches!(parsed.scheme(), "file") || parsed.host_str().is_some(),
             "remote URL has no host"
         );
+        anyhow::ensure!(
+            parsed.scheme() != "file"
+                || (parsed.username().is_empty()
+                    && parsed.password().is_none()
+                    && parsed.query().is_none()
+                    && parsed.fragment().is_none()),
+            "file remote URL must not contain credentials or query data"
+        );
         return Ok(());
     }
     if Path::new(remote).is_absolute() {
@@ -76,12 +84,23 @@ pub(crate) fn redact_remote(remote: &str) -> String {
         let Ok(mut parsed) = Url::parse(remote) else {
             return "<invalid>".into();
         };
-        if parsed.username().is_empty() && parsed.password().is_none() {
+        if parsed.username().is_empty()
+            && parsed.password().is_none()
+            && parsed.query().is_none()
+            && parsed.fragment().is_none()
+        {
             return remote.to_owned();
         }
-        if parsed.set_username("").is_err() || parsed.set_password(None).is_err() {
+        let username = if parsed.scheme() == "ssh" {
+            parsed.username().to_owned()
+        } else {
+            String::new()
+        };
+        if parsed.set_username(&username).is_err() || parsed.set_password(None).is_err() {
             return "<invalid>".into();
         }
+        parsed.set_query(None);
+        parsed.set_fragment(None);
         return parsed.to_string();
     }
     remote.to_owned()
@@ -340,6 +359,19 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             run_git_with_timeout(&mut clone, project, "clone")?.success(),
             "git clone failed for {project}"
         );
+        let safe_url = redact_remote(url);
+        if safe_url != url {
+            let mut set_url = Command::new("git");
+            set_url
+                .arg("-C")
+                .arg(&repo)
+                .args(["remote", "set-url", "origin", &safe_url])
+                .stdout(Stdio::null());
+            anyhow::ensure!(
+                run_git_with_timeout(&mut set_url, project, "remote set-url")?.success(),
+                "cannot remove credentials from restored remote for {project}"
+            );
+        }
         let mut checkout = Command::new("git");
         checkout
             .arg("-C")

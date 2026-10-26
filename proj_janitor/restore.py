@@ -315,6 +315,10 @@ def _validate_remote_url(remote: str) -> None:
             raise RestoreError("invalid remote URL") from exc
         if parsed.scheme in {"https", "ssh"} and not parsed.hostname:
             raise RestoreError("remote URL has no host")
+        if parsed.scheme == "file" and (
+            parsed.username or parsed.password or parsed.query or parsed.fragment
+        ):
+            raise RestoreError("file URL must not contain credentials or query data")
         return
     if re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:.+", remote):
         return
@@ -327,17 +331,22 @@ def redact_remote_url(remote: str) -> str:
     if remote.startswith(("http://", "https://", "ssh://")):
         try:
             parsed = urlsplit(remote)
-            if parsed.username is not None or parsed.password is not None:
-                host = parsed.hostname or ""
-                if parsed.port is not None:
-                    host = f"{host}:{parsed.port}"
+            if (
+                parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+            ):
+                host = parsed.netloc.rsplit("@", 1)[-1]
+                if parsed.scheme == "ssh" and parsed.username is not None:
+                    host = f"{parsed.username}@{host}"
                 return urlunsplit(
                     (
                         parsed.scheme,
                         host,
                         parsed.path,
-                        parsed.query,
-                        parsed.fragment,
+                        "",
+                        "",
                     )
                 )
         except ValueError:
@@ -376,6 +385,11 @@ def _restore_git(plan: RestorePlan) -> None:
         _run_git(
             ["clone", "--no-checkout", "--", plan.remote_url, str(repo)]
         )
+        safe_remote = redact_remote_url(plan.remote_url)
+        if safe_remote != plan.remote_url:
+            _run_git(
+                ["-C", str(repo), "remote", "set-url", "origin", safe_remote]
+            )
         _run_git(["-C", str(repo), "checkout", "--detach", plan.commit])
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
         if not head.lower().startswith(plan.commit.lower()):

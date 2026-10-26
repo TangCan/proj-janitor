@@ -26,7 +26,19 @@ pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
             std::process::id(),
             RESTORE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
-        match fs::create_dir(&path) {
+        let result = {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                let mut builder = fs::DirBuilder::new();
+                builder.mode(0o700).create(&path)
+            }
+            #[cfg(not(unix))]
+            {
+                fs::create_dir(&path)
+            }
+        };
+        match result {
             Ok(()) => return Ok(path),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
