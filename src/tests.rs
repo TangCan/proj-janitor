@@ -531,6 +531,28 @@ fn path_resolution_follows_symlinks_before_parent_components() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn path_resolution_follows_windows_symlinks_before_parent_components() {
+    use std::os::windows::fs::symlink_dir;
+
+    let temp = TestDir::new();
+    let real_directory = temp.0.join("project/nested");
+    fs::create_dir_all(&real_directory).unwrap();
+    let alias = temp.0.join("alias");
+    // shortcut: skip this assertion when the runner lacks Windows symlink privilege.
+    if let Err(error) = symlink_dir(&real_directory, &alias) {
+        eprintln!("Windows symlink privilege unavailable; skipping path-resolution check: {error}");
+        return;
+    }
+    let path = alias.join("../backups/demo");
+
+    assert_eq!(
+        resolve_for_creation(&path).unwrap(),
+        temp.0.join("project/backups/demo")
+    );
+}
+
 #[test]
 fn backup_disambiguates_project_names_that_differ_only_by_case() {
     let temp = TestDir::new();
