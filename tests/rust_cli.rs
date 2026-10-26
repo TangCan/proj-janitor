@@ -87,3 +87,29 @@ fn command_line_backup_dest_overrides_environment() {
     );
     assert!(!output.contains(&destination_marker(&env_dest)));
 }
+
+#[test]
+fn backup_rejects_destination_inside_project() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = project.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg("--dry-run")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("backup destination is inside project")
+    );
+    assert!(!backup_dest.exists());
+}

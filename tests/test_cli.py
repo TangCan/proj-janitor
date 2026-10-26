@@ -70,6 +70,21 @@ class CliTests(unittest.TestCase):
             self.assertIn("Dry run", out)
             self.assertFalse(dest.exists())
 
+    def test_backup_rejects_destination_inside_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            backup_dest = project / "backups"
+
+            code, out, err = run_cli(
+                "backup", str(project), "--backup-dest", str(backup_dest)
+            )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(out, "")
+            self.assertIn("backup destination is inside project", err)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(backup_dest.exists())
+
     def test_backup_uses_backup_dest_environment_variable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

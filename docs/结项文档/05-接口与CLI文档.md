@@ -350,6 +350,9 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 ### 6.3 dry-run 行为与输出
 
 `--dry-run` 调用 `prepare_backup()`，只计算每个项目的备份目录、清单路径和计划，不创建任何文件。备份目录由 `--backup-dest` 指定，或在省略该选项时从 `BACKUP_DEST` 读取。
+备份目录不能位于待备份项目内部；CLI 和 Python API 会在写入前拒绝这种配置，避免将归档再次收入自身。
+归档会保留项目内符号链接；绝对目标或规范化后越出项目根目录的链接会使该项目备份失败。项目内的父相对链接（例如 `../config.toml`）仍可正常备份和恢复。
+归档和 manifest 使用排他创建，不会覆盖已有文件；并发备份若争用相同文件名，冲突项目会报错，可重试以生成带新后缀的文件名。
 
 输出格式：
 
@@ -473,6 +476,7 @@ editor: .cache, .DS_Store, Thumbs.db
 - 文件名匹配某规则时，记录文件；
 - 同一路径只按规则顺序匹配一次，规则按配置顺序排列；
 - 目录体积使用 `measure_tree()` 递归统计；文件体积使用 `stat(follow_symlinks=False).st_size`；
+- Rust CLI 在扫描或体积统计遇到遍历错误时返回失败，且不执行部分清理计划；
 - 最终按 `(project 字符串, path 字符串)` 排序。
 
 `--rules` 只做非空逗号拆分，未知规则在计划阶段由 `resolve_rules()` 校验。未知规则错误格式为：

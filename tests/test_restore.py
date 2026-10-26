@@ -52,6 +52,28 @@ def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
 
 
 class RestoreTests(unittest.TestCase):
+    def test_backup_and_restore_keep_parent_relative_internal_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            link = project / "src" / "project-config"
+            try:
+                link.symlink_to("../pyproject.toml")
+            except OSError as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+            backups = root / "backups"
+
+            manifests, _, failures = run_backup(
+                [scan_project(project)], backups, always_archive=True
+            )
+            self.assertFalse(failures)
+            restored = root / "restored"
+            restore_from_manifest(manifests[0], restored)
+
+            restored_link = restored / "app" / "src" / "project-config"
+            self.assertTrue(restored_link.is_symlink())
+            self.assertEqual(restored_link.readlink(), Path("../pyproject.toml"))
+
     def test_restore_archive_into_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

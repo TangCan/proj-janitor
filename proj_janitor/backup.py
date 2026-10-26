@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable
 
 from proj_janitor import __version__
@@ -38,8 +38,13 @@ def prepare_backup(
 
     for project in project_list:
         project_dir = project_dirs[project.path]
+        output_dir = backup_dest / project_dir
+        if output_dir.resolve().is_relative_to(project.path):
+            raise ValueError(
+                f"backup destination is inside project: {output_dir} -> {project.path}"
+            )
         manifest_path = _unique_file(
-            backup_dest / project_dir,
+            output_dir,
             f"manifest-{timestamp}.json",
             used_manifests,
         )
@@ -105,6 +110,13 @@ def run_backup(
     created_at = datetime.now(timezone.utc).isoformat()
     for manifest_path, plan in zip(manifest_paths, plans, strict=True):
         try:
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            with manifest_path.open("x", encoding="utf-8"):
+                pass
+        except OSError as exc:
+            failures.append((plan.project.name, str(exc)))
+            continue
+        try:
             record = _backup_one(
                 plan,
                 manifest_path,
@@ -114,7 +126,7 @@ def run_backup(
                 always_archive,
             )
         except (OSError, tarfile.TarError) as exc:
-            _discard_partial_outputs(manifest_path, plan)
+            _discard_partial_outputs(manifest_path)
             failures.append((plan.project.name, str(exc)))
             continue
         records.append(record)
@@ -130,6 +142,7 @@ def _backup_one(
     include_artifacts: bool,
     always_archive: bool,
 ) -> BackupRecord:
+    archive_path: Path | None = None
     if plan.strategy == "git":
         recovery = plan.recovery
         if recovery is None:
@@ -154,6 +167,7 @@ def _backup_one(
             raise RuntimeError("archive backup plan is missing an archive name")
         archive_dir = manifest_path.parent
         archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / plan.archive_name
         record = backup_project(
             plan.project,
             archive_dir,
@@ -162,7 +176,6 @@ def _backup_one(
             fallback_reason=plan.reason,
         )
 
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
         "schema_version": 2,
         "created_at": created_at,
@@ -172,27 +185,27 @@ def _backup_one(
         "always_archive": always_archive,
         "records": [asdict(record)],
     }
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    try:
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+        raise
     return record
 
 
 def _discard_partial_outputs(
     manifest_path: Path,
-    plan: BackupPlan,
 ) -> None:
-    paths = [manifest_path]
-    if plan.archive_name is not None:
-        paths.append(manifest_path.parent / plan.archive_name)
-    for path in paths:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            pass
+    try:
+        manifest_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
 
 
 def backup_project(
@@ -206,20 +219,28 @@ def backup_project(
     archive = archive_dir / name
     patterns = tuple(patterns)
 
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.add(
-            project.path,
-            arcname=project.name,
-            filter=_make_filter(project.name, patterns, project.path),
-        )
+    archive_file = archive.open("xb")
+    try:
+        with archive_file:
+            with tarfile.open(fileobj=archive_file, mode="w:gz") as tar:
+                tar.add(
+                    project.path,
+                    arcname=project.name,
+                    filter=_make_filter(project.name, patterns, project.path),
+                )
+        archive_bytes = archive.stat().st_size
+        digest = sha256_file(archive)
+    except (OSError, tarfile.TarError):
+        archive.unlink(missing_ok=True)
+        raise
 
     return BackupRecord(
         project=project.name,
         source=str(project.path),
         archive=str(archive),
-        archive_bytes=archive.stat().st_size,
+        archive_bytes=archive_bytes,
         source_bytes=project.size_bytes,
-        sha256=sha256_file(archive),
+        sha256=digest,
         fallback_reason=fallback_reason,
     )
 
@@ -237,15 +258,16 @@ def _make_filter(
     patterns: tuple[str, ...],
     project_path: Path,
 ):
-    if not patterns:
-        return None
-
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
 
     def exclude(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if info.issym() and not safe_archive_link(info.name, info.linkname):
+            raise tarfile.ExtractError(
+                f"archive symlink escapes project: {info.name} -> {info.linkname}"
+            )
         parts = Path(info.name).parts
         relative = parts[1:] if parts and parts[0] == arc_root else parts
-        for index, part in enumerate(relative):
+        for index, part in enumerate(relative if patterns else ()):
             if part == COVERAGE_DIR:
                 if index == 0 and coverage_artifact:
                     return None
@@ -259,6 +281,31 @@ def _make_filter(
         return info
 
     return exclude
+
+
+def safe_archive_link(member_name: str, link_name: str) -> bool:
+    member = PurePosixPath(member_name)
+    link_posix = PurePosixPath(link_name)
+    link_windows = PureWindowsPath(link_name)
+    if link_posix.is_absolute() or link_windows.is_absolute() or link_windows.drive:
+        return False
+
+    for parts in (link_posix.parts, link_windows.parts):
+        resolved = list(member.parent.parts)
+        if not resolved:
+            return False
+        for part in parts:
+            if part in ("", "."):
+                continue
+            if part == "..":
+                if len(resolved) <= 1:
+                    return False
+                resolved.pop()
+            else:
+                resolved.append(part)
+        if not resolved or resolved[0] != member.parts[0]:
+            return False
+    return True
 
 
 def _unique_file(

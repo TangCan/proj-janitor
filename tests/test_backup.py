@@ -52,6 +52,56 @@ class BackupTests(unittest.TestCase):
             with self.assertRaisesRegex(TypeError, "unexpected keyword argument"):
                 run_backup([project], dest=Path(tmp) / "backups")
 
+    def test_backup_rejects_destination_inside_source_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = scan_project(make_project(Path(tmp)))
+            backup_dest = project.path / "backups"
+
+            with self.assertRaisesRegex(ValueError, "backup destination is inside project"):
+                backup_module.prepare_backup([project], backup_dest)
+            with self.assertRaisesRegex(ValueError, "backup destination is inside project"):
+                run_backup([project], backup_dest)
+            self.assertFalse(backup_dest.exists())
+
+    def test_backup_rejects_absolute_symlink_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            outside = root / "outside.txt"
+            outside.write_text("outside\n", encoding="utf-8")
+            link = project / "src" / "outside-link"
+            try:
+                link.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+
+            backup_dest = root / "backups"
+            manifests, records, failures = run_backup(
+                [scan_project(project)], backup_dest, always_archive=True
+            )
+
+            self.assertFalse(manifests)
+            self.assertFalse(records)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("archive symlink escapes project", failures[0][1])
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
+    def test_backup_does_not_overwrite_an_existing_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            archive_dir = root / "backups"
+            archive_dir.mkdir()
+            archive = archive_dir / "reserved.tar.gz"
+            archive.write_bytes(b"keep existing backup")
+
+            with self.assertRaises(FileExistsError):
+                backup_module.backup_project(
+                    project, archive_dir, archive_name=archive.name
+                )
+
+            self.assertEqual(archive.read_bytes(), b"keep existing backup")
+
     def test_backup_writes_archive_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -249,29 +299,16 @@ class BackupTests(unittest.TestCase):
             good = make_project(root, "good")
             bad = make_project(root, "bad")
             dest = root / "backups"
-            real_backup_project = backup_module.backup_project
+            real_sha256_file = backup_module.sha256_file
 
-            def fail_after_partial_archive(
-                project,
-                archive_dir,
-                patterns=(),
-                archive_name=None,
-                fallback_reason=None,
-            ):
-                if project.name == "bad":
-                    (archive_dir / archive_name).write_bytes(b"partial")
+            def fail_hash_for_bad_project(path):
+                if path.parent.name == "bad":
                     raise OSError("disk full")
-                return real_backup_project(
-                    project,
-                    archive_dir,
-                    patterns=patterns,
-                    archive_name=archive_name,
-                    fallback_reason=fallback_reason,
-                )
+                return real_sha256_file(path)
 
             with mock.patch(
-                "proj_janitor.backup.backup_project",
-                side_effect=fail_after_partial_archive,
+                "proj_janitor.backup.sha256_file",
+                side_effect=fail_hash_for_bad_project,
             ):
                 manifest_paths, records, failures = run_backup(
                     [scan_project(good), scan_project(bad)],

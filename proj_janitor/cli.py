@@ -197,12 +197,16 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         return 1
 
     if args.dry_run:
-        manifest_paths, plans = prepare_backup(
-            projects,
-            backup_dest,
-            include_artifacts=args.include_artifacts,
-            always_archive=args.always_archive,
-        )
+        try:
+            manifest_paths, plans = prepare_backup(
+                projects,
+                backup_dest,
+                include_artifacts=args.include_artifacts,
+                always_archive=args.always_archive,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         _print_dry_run_manifests(manifest_paths)
         for manifest_path, plan in zip(manifest_paths, plans, strict=True):
             if plan.strategy == "git":
@@ -220,12 +224,16 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 )
         return 1 if failures else 0
 
-    manifest_paths, records, backup_failures = run_backup(
-        projects,
-        backup_dest,
-        include_artifacts=args.include_artifacts,
-        always_archive=args.always_archive,
-    )
+    try:
+        manifest_paths, records, backup_failures = run_backup(
+            projects,
+            backup_dest,
+            include_artifacts=args.include_artifacts,
+            always_archive=args.always_archive,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(f"Backed up {len(records)} project(s).")
     for record in records:
         if record.strategy == "git":

@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
-from proj_janitor.backup import sha256_file
+from proj_janitor.backup import safe_archive_link, sha256_file
 from proj_janitor.models import RestorePlan, RestoreResult
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
@@ -441,21 +441,19 @@ def _validate_archive_link(
     parts: tuple[str, ...],
 ) -> None:
     link = member.linkname
-    link_parts = _archive_parts(link)
+    if "\x00" in link:
+        raise RestoreError("archive contains an invalid link target")
     if member.issym():
-        combined = tuple(parts[:-1]) + link_parts
-        if any(part == ".." for part in combined):
+        if not safe_archive_link(member.name, link):
             raise RestoreError(
                 f"archive symlink escapes project: {member.name}"
             )
-        if not combined or combined[0] != parts[0]:
+    else:
+        link_parts = _archive_parts(link)
+        if link_parts[0] != parts[0]:
             raise RestoreError(
-                f"archive symlink escapes project: {member.name}"
+                f"archive hardlink escapes project: {member.name}"
             )
-    elif link_parts[0] != parts[0]:
-        raise RestoreError(
-            f"archive hardlink escapes project: {member.name}"
-        )
 
 
 def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
