@@ -165,6 +165,39 @@ class BackupTests(unittest.TestCase):
                 self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
                 self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_interrupt_while_reserving_manifest_cleans_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+            real_open = Path.open
+
+            class InterruptOnClose:
+                def __init__(self, handle):
+                    self.handle = handle
+
+                def __enter__(self):
+                    return self.handle.__enter__()
+
+                def __exit__(self, *args):
+                    self.handle.__exit__(*args)
+                    raise KeyboardInterrupt
+
+            def interrupt_manifest_close(path, mode="r", *args, **kwargs):
+                handle = real_open(path, mode, *args, **kwargs)
+                if mode == "x" and path.name.startswith("manifest-"):
+                    return InterruptOnClose(handle)
+                return handle
+
+            with mock.patch(
+                "pathlib.Path.open", autospec=True, side_effect=interrupt_manifest_close
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_backup([project], backup_dest, always_archive=True)
+
+            self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
     def test_backup_writes_archive_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

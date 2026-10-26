@@ -109,13 +109,20 @@ def run_backup(
     failures: list[tuple[str, str]] = []
     created_at = datetime.now(timezone.utc).isoformat()
     for manifest_path, plan in zip(manifest_paths, plans, strict=True):
+        manifest_reserved = False
         try:
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
             with manifest_path.open("x", encoding="utf-8"):
-                pass
+                manifest_reserved = True
         except OSError as exc:
+            if manifest_reserved:
+                _discard_partial_outputs(manifest_path)
             failures.append((plan.project.name, str(exc)))
             continue
+        except BaseException:
+            if manifest_reserved:
+                _discard_partial_outputs(manifest_path)
+            raise
         try:
             record = _backup_one(
                 plan,
