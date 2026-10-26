@@ -305,15 +305,15 @@ def _validate_remote_url(remote: str) -> None:
         try:
             parsed = urlsplit(remote)
         except ValueError as exc:
-            raise RestoreError(f"invalid remote URL: {remote}") from exc
+            raise RestoreError("invalid remote URL") from exc
         if parsed.scheme in {"https", "ssh"} and not parsed.hostname:
-            raise RestoreError(f"remote URL has no host: {remote}")
+            raise RestoreError("remote URL has no host")
         return
     if re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:.+", remote):
         return
     if Path(remote).is_absolute():
         return
-    raise RestoreError(f"unsupported remote URL: {remote}")
+    raise RestoreError("unsupported remote URL")
 
 
 def redact_remote_url(remote: str) -> str:
