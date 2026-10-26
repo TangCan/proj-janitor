@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -86,6 +87,7 @@ class BackupTests(unittest.TestCase):
             self.assertIn("archive symlink escapes project", failures[0][1])
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    @unittest.skipIf(os.name == "nt", "Windows cannot create backslash filenames")
     def test_backup_rejects_windows_traversal_member_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

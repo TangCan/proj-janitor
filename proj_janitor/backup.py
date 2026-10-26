@@ -286,7 +286,7 @@ def _make_filter(
 
 
 def safe_archive_member(name: str, project: str) -> bool:
-    if "\x00" in name:
+    if "\x00" in name or "\\" in name:
         return False
     posix = PurePosixPath(name)
     windows = PureWindowsPath(name)

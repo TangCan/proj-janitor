@@ -717,6 +717,12 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
     let windows_target = temp.0.join("restored-windows-traversal/demo");
     assert!(extract_archive(&windows_traversal, &windows_target, "demo").is_err());
     assert!(!windows_target.exists());
+
+    let backslash_member =
+        raw_test_archive(&temp, "backslash-member.tar.gz", r"demo/src\file.txt", None);
+    let backslash_target = temp.0.join("restored-backslash/demo");
+    assert!(extract_archive(&backslash_member, &backslash_target, "demo").is_err());
+    assert!(!backslash_target.exists());
 }
 
 #[test]

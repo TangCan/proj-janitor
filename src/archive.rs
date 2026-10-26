@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
-    path::Path,
+    path::{Component, Path},
 };
 use tar::{Archive, Builder, EntryType, Header};
 use walkdir::WalkDir;
@@ -104,6 +104,12 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
         let mut casefolded_paths = HashMap::new();
         for item in entries {
             let mut e = item?;
+            let raw_name = e.path_bytes();
+            anyhow::ensure!(
+                !raw_name.contains(&b'\\'),
+                "archive member path contains a backslash: {}",
+                String::from_utf8_lossy(&raw_name)
+            );
             let name = e.path()?.into_owned();
             anyhow::ensure!(
                 safe_archive_path(&name, project),
@@ -182,17 +188,13 @@ fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
 }
 
 pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
-    let path = p.to_string_lossy();
-    if p.is_absolute()
-        || path.starts_with(['/', '\\'])
-        || (path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic())
-    {
-        return false;
-    }
-    let mut parts = path
-        .split(['/', '\\'])
-        .filter(|part| !part.is_empty() && *part != ".");
-    parts.next() == Some(project) && parts.all(|part| part != "..")
+    !p.is_absolute()
+        && p.components().all(|component| {
+            matches!(component, Component::Normal(name) if !name.to_string_lossy().contains('\\'))
+        })
+        && p.components()
+            .next()
+            .is_some_and(|component| component.as_os_str() == project)
 }
 
 fn register_archive_case_path(
