@@ -179,7 +179,8 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 - 省略 `--dest` 时，目标取自每条记录的 `source`；`source` 必须是绝对路径、文件名等于项目名，且不能包含 `..` 或 NUL。伪造或损坏的 manifest 可能指向任意可写路径，因此实际恢复到原始位置前必须确认 manifest 来源可信。
 - 原始位置模式默认要求交互确认；标准输入不是 TTY 时必须显式加 `--yes`，`--json` 的实际恢复也必须加 `--yes`。`--dest` 模式不需要该确认。
 - `git` 策略：先 `git clone --no-checkout`，再 `git checkout --detach <commit>`。恢复后是 detached HEAD，不会自动创建或切换原分支；远程必须仍包含该提交。
-- Git 恢复的 clone 和 checkout 单步最长等待 10 分钟；超时会终止该步骤并报告失败，目标项目不会发布到最终路径。
+- Git 恢复的 clone 和 checkout 单步最长等待 10 分钟；超时会尝试终止 Git 进程树并报告失败，目标项目不会发布到最终路径。
+- 远程 URL 带凭据或查询参数时，克隆失败会隐藏 Git 原始错误文本，避免错误输出回显敏感 URL。
 - `archive` 策略：默认校验 manifest 中的 SHA-256，校验通过后才解压；`--no-verify` 可显式跳过校验。
 - 归档会先解压到临时目录，确认顶层目录为项目名后再移动到目标位置；拒绝绝对路径、`..` 路径和越界链接。
 - 目标目录已存在或是符号链接时拒绝覆盖；需要恢复副本时请指定 `--dest`，或先自行移走旧目录。

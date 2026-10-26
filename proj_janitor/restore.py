@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
@@ -489,23 +491,89 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
     environment["GIT_TERMINAL_PROMPT"] = "0"
     command = " ".join(args[:2])
     try:
-        result = subprocess.run(
+        options = {"start_new_session": True} if os.name == "posix" else {}
+        process = subprocess.Popen(
             ["git", *args],
-            check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             env=environment,
-            timeout=_GIT_TIMEOUT_SECONDS,
+            **options,
         )
+    except OSError as exc:
+        raise RestoreError(f"cannot run git: {exc}") from exc
+    previous_sigterm = None
+    if os.name == "posix" and threading.current_thread() is threading.main_thread():
+        previous_sigterm = signal.signal(signal.SIGTERM, _interrupt_git)
+    try:
+        stdout, stderr = process.communicate(timeout=_GIT_TIMEOUT_SECONDS)
+    except (KeyboardInterrupt, SystemExit):
+        _stop_git_process(process)
+        raise
     except subprocess.TimeoutExpired as exc:
+        _stop_git_process(process)
         raise RestoreError(
             f"git {command} timed out after {_GIT_TIMEOUT_SECONDS} seconds"
         ) from exc
-    except OSError as exc:
-        raise RestoreError(f"cannot run git: {exc}") from exc
+    finally:
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+    result = subprocess.CompletedProcess(
+        ["git", *args], process.returncode, stdout, stderr
+    )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
+        if args[:3] == ["clone", "--no-checkout", "--"]:
+            remote = urlsplit(args[3])
+            if "@" in args[3] or remote.query or remote.fragment:
+                detail = "remote credentials redacted"
         if not detail:
             detail = f"exit code {result.returncode}"
         raise RestoreError(f"git {command} failed: {detail}")
     return result
+
+
+def _stop_git_process(process: subprocess.Popen[str]) -> None:
+    # shortcut: detached descendants can escape; use stronger OS supervision for strict containment.
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            _kill_git_process(process)
+    elif os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            _kill_git_process(process)
+    else:
+        _kill_git_process(process)
+    try:
+        process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        _kill_git_process(process)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+        process.wait()
+
+
+def _kill_git_process(process: subprocess.Popen[str]) -> None:
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
+def _interrupt_git(_signum: int, _frame: object) -> None:
+    if _signum == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise SystemExit(128 + _signum)

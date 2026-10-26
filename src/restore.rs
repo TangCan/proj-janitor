@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    fs,
+    fmt, fs,
     io::{self, IsTerminal, Write},
     path::{Component, Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -8,6 +8,15 @@ use std::{
     time::{Duration, Instant},
 };
 use url::Url;
+
+#[cfg(unix)]
+use std::{
+    os::unix::process::CommandExt,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -367,6 +376,10 @@ fn run_git_with_timeout(
     project: &str,
     operation: &str,
 ) -> anyhow::Result<ExitStatus> {
+    #[cfg(unix)]
+    let interrupt = InterruptGuard::new()?;
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -381,6 +394,11 @@ fn run_git_with_timeout(
                 return Err(error.into());
             }
         }
+        #[cfg(unix)]
+        if let Some(signal) = interrupt.requested() {
+            stop_child(&mut child)?;
+            return Err(RestoreInterrupted(signal).into());
+        }
         if Instant::now() >= deadline {
             stop_child(&mut child)?;
             anyhow::bail!(
@@ -392,12 +410,86 @@ fn run_git_with_timeout(
     }
 }
 
-fn stop_child(child: &mut Child) -> anyhow::Result<()> {
-    if let Err(error) = child.kill()
-        && error.kind() != std::io::ErrorKind::InvalidInput
-    {
-        return Err(error.into());
+#[cfg(unix)]
+struct InterruptGuard {
+    interrupted: Arc<AtomicUsize>,
+    signals: Vec<signal_hook::SigId>,
+}
+
+#[cfg(unix)]
+impl InterruptGuard {
+    fn new() -> anyhow::Result<Self> {
+        let interrupted = Arc::new(AtomicUsize::new(0));
+        let mut guard = Self {
+            interrupted: Arc::clone(&interrupted),
+            signals: Vec::new(),
+        };
+        guard.signals.push(signal_hook::flag::register_usize(
+            signal_hook::consts::SIGINT,
+            Arc::clone(&interrupted),
+            signal_hook::consts::SIGINT as usize,
+        )?);
+        guard.signals.push(signal_hook::flag::register_usize(
+            signal_hook::consts::SIGTERM,
+            interrupted,
+            signal_hook::consts::SIGTERM as usize,
+        )?);
+        Ok(guard)
     }
+
+    fn requested(&self) -> Option<i32> {
+        match self.interrupted.load(Ordering::Relaxed) {
+            0 => None,
+            signal => Some(signal as i32),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        for signal in &self.signals {
+            signal_hook::low_level::unregister(*signal);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RestoreInterrupted(pub(crate) i32);
+
+impl fmt::Display for RestoreInterrupted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "interrupted by signal {}", self.0)
+    }
+}
+
+impl std::error::Error for RestoreInterrupted {}
+
+fn stop_child(child: &mut Child) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let pid = libc::pid_t::try_from(child.id())?;
+        // shortcut: descendants that detach can escape; use stronger OS supervision for strict containment.
+        // SAFETY: the child was started in its own process group immediately before this call.
+        if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
+            let _ = child.kill();
+        }
+    }
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let killed = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !killed {
+            let _ = child.kill();
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    let _ = child.kill();
     child.wait()?;
     Ok(())
 }

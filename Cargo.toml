@@ -28,3 +28,7 @@ sha2 = "0.10"
 tar = "0.4"
 walkdir = "2.5"
 url = "2.5"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+signal-hook = "0.3"

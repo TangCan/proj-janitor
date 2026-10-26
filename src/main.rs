@@ -145,6 +145,9 @@ pub(crate) struct Record {
 
 fn main() {
     if let Err(e) = run() {
+        if let Some(interrupted) = e.downcast_ref::<restore::RestoreInterrupted>() {
+            std::process::exit(128 + interrupted.0);
+        }
         eprintln!("error: {e}");
         std::process::exit(1);
     }

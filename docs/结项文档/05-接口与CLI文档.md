@@ -51,7 +51,7 @@
 | --- | --- |
 | 标准输出 | 正常结果、表格、JSON、dry-run 提示和成功摘要写入标准输出。 |
 | 标准错误 | 参数错误、根路径错误、无项目提示、拒绝删除和逐项删除错误写入标准错误。 |
-| 退出码 | `0` 表示成功；`1` 表示根路径/项目处理/删除失败、无项目可备份或恢复失败；`2` 表示用法错误、拒绝删除或用户取消。详见第 9 节。 |
+| 退出码 | `0` 表示成功；`1` 表示根路径/项目处理/删除失败、无项目可备份或恢复失败；`2` 表示用法错误、拒绝删除或用户取消；POSIX 信号中断返回 `128 + 信号编号`。详见第 9 节。 |
 | 路径 | 项目路径在扫描后解析为绝对路径；`~` 在根路径和备份目标上展开；输出中的路径按当前平台字符串表示。 |
 | 体积 | 统一以字节整数传递；文本输出使用 `B`、`KiB`、`MiB`、`GiB`、`TiB`，非字节单位保留一位小数。 |
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
@@ -716,6 +716,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `0` | 成功 | 扫描完成；备份及 manifest 写入完成；恢复完成或 dry-run 成功；清理计划为空或删除完成；`--version`/`--help`/`--list-rules`。 |
 | `1` | 部分失败或无可处理对象 | 根路径错误；`backup` 无项目；`DEST` 不是目录；manifest/归档无效；SHA-256 不匹配；恢复目标已存在；Git 恢复失败；清理计划/删除出现错误。 |
 | `2` | 用法错误或拒绝执行 | `argparse` 参数错误；缺少子命令；非交互删除未给 `--yes`；用户取消确认。 |
+| `130` / `143` | POSIX 信号中断 | 分别收到 SIGINT / SIGTERM；Git 恢复会先尝试终止 Git 进程树并清理临时目录。 |
 
 补充：
 
@@ -1004,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
-内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`，每步超时为 600 秒；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
+内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout` 和 `checkout --detach`，每步超时为 600 秒；`_run_git` 遇到含凭据/查询参数的克隆 URL 时不回显 Git 原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts`、`_validate_archive_link` 负责路径/链接校验；`redact_remote_url` 用于输出脱敏。
 
 ### 12.5 模型与配置
 
@@ -1044,7 +1045,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 - 模块不使用线程、异步任务、锁或数据库。
 - 备份归档和 manifest 使用排他创建，避免并发覆盖；竞争同一名字时该项目报告失败，不自动重试。多个进程仍可能同时读取正在变化的源项目，清理计划与删除之间也没有锁。
-- 项目扫描/备份使用的 Git 检查命令超时为 10 秒；Git 恢复的 clone 和 checkout 单步超时为 600 秒，超时视为恢复失败并尝试清理临时目录。
+- 项目扫描/备份使用的 Git 检查命令超时为 10 秒；Git 恢复的 clone 和 checkout 单步超时为 600 秒，超时会尝试终止 Git 进程树、清理临时目录并报告恢复失败。
 - `KeyboardInterrupt` 不转换为 CLI 错误码；备份清理当前项目正在生成的输出后重新抛出，已完成项目不回滚；恢复和清理可能留下部分结果。
 - Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”；`restore` 的常规失败统一抛 `RestoreError`。
 
@@ -1136,7 +1137,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 检查 20 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
 - 检查 21/22 使用 `for-each-ref`；检查 23 要求至少存在一个 `refs/remotes/{remote}/` 引用。
 - 检查 26 使用 `git for-each-ref refs/tags` 读取本地 tag；检查 27/28/29 通过 `git ls-remote --tags --refs` 比较远程 tag 的原始对象 ID。没有本地 tag 时不发起远程查询。
-- 扫描/备份中的 Git 检查调用超时为 10 秒；恢复的 clone 和 checkout 单步超时为 600 秒。超时或无法启动 Git 会映射为对应失败原因或 `None` 字段。
+- 扫描/备份中的 Git 检查调用超时为 10 秒；恢复的 clone 和 checkout 单步超时为 600 秒。超时会尝试终止 Git 进程树；超时或无法启动 Git 会映射为对应失败原因或 `None` 字段。
 
 ### 13.4 处理策略
 
