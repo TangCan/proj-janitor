@@ -24,7 +24,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m unittest discover -s tests -v
       - if: matrix.python-version == '3.12'
-        run: python -m pip wheel --no-deps --wheel-dir "${RUNNER_TEMP}/proj-janitor-wheel" .
+        name: Build and install Python wheel
+        run: |
+          wheel_dir="${RUNNER_TEMP}/proj-janitor-wheel"
+          install_dir="${RUNNER_TEMP}/proj-janitor-install"
+          python -m pip wheel --no-deps --wheel-dir "$wheel_dir" .
+          python -m pip install --no-deps --target "$install_dir" "$wheel_dir"/*.whl
+          cd "$RUNNER_TEMP"
+          PYTHONPATH="$install_dir" "$install_dir/bin/projjan" --version
 
   workflow-lint:
     name: GitHub Actions workflows
