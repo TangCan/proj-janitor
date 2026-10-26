@@ -1,7 +1,7 @@
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
@@ -118,6 +118,7 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
         let mut directories = Vec::new();
         let mut symlinks = Vec::new();
         let mut casefolded_paths = HashMap::new();
+        let mut archive_members = HashSet::new();
         for item in entries {
             let mut e = item?;
             let raw_name = e.path_bytes();
@@ -130,6 +131,15 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
             anyhow::ensure!(
                 safe_archive_path(&name, project),
                 "unsafe archive path: {}",
+                name.display()
+            );
+            let member_path: Vec<_> = name
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            anyhow::ensure!(
+                archive_members.insert(member_path),
+                "archive contains a duplicate path: {}",
                 name.display()
             );
             register_archive_case_path(&name, &mut casefolded_paths)?;

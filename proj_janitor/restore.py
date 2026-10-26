@@ -420,6 +420,7 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
             if not members:
                 raise RestoreError(f"archive is empty: {archive}")
             seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
+            seen_members: set[tuple[str, ...]] = set()
             for member in members:
                 parts = _archive_parts(member.name)
                 if parts[0] != project:
@@ -429,6 +430,9 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                     )
                 if not safe_archive_member(member.name, project):
                     raise RestoreError(f"archive contains an unsafe path: {member.name}")
+                if parts in seen_members:
+                    raise RestoreError(f"archive contains a duplicate path: {member.name}")
+                seen_members.add(parts)
                 if not register_archive_path(parts, seen_archive_paths):
                     raise RestoreError(
                         "archive paths collide on case-insensitive filesystems "
