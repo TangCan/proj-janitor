@@ -438,16 +438,20 @@ def _safe_extract(archive: Path, dest: Path, project: str) -> None:
                         "archive paths collide on case-insensitive filesystems "
                         f"(including Unicode normalization): {member.name}"
                     )
-                if member.ischr() or member.isblk() or member.isfifo():
-                    raise RestoreError(
-                        f"archive contains special file: {member.name}"
-                    )
                 if member.islnk():
                     raise RestoreError(
                         f"archive contains unsupported hard link: {member.name}"
                     )
                 if member.issym():
                     _validate_archive_link(member)
+                elif member.type not in (
+                    tarfile.REGTYPE,
+                    tarfile.AREGTYPE,
+                    tarfile.DIRTYPE,
+                ):
+                    raise RestoreError(
+                        f"archive contains unsupported entry type: {member.name}"
+                    )
             if hasattr(tarfile, "data_filter"):
                 tar.extractall(dest, filter="data")
             else:
