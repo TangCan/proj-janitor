@@ -220,6 +220,7 @@ pom.xml
 - 只把普通文件计入 `size_bytes`，不跟随符号链接；
 - 取遍历到的最新 `st_mtime`，转换为带时区信息的本地 `datetime`；
 - 没有任何可遍历文件时，`last_modified` 为 `null`；
+- 遍历或读取文件元数据遇到 `OSError` 时抛出错误，不返回不完整的体积结果；
 - `size_bytes` 是文件字节数之和，不是磁盘占用，也不包含目录元数据。
 
 **Git 状态**（`read_git_state()`）：
@@ -476,7 +477,7 @@ editor: .cache, .DS_Store, Thumbs.db
 - 文件名匹配某规则时，记录文件；
 - 同一路径只按规则顺序匹配一次，规则按配置顺序排列；
 - 目录体积使用 `measure_tree()` 递归统计；文件体积使用 `stat(follow_symlinks=False).st_size`；
-- Rust CLI 在扫描或体积统计遇到遍历错误时返回失败，且不执行部分清理计划；
+- Python 和 Rust 在遍历或体积统计遇到错误时报告失败；`clean --apply` 有任何根目录或计划失败时不会删除部分计划；
 - 最终按 `(project 字符串, path 字符串)` 排序。
 
 `--rules` 只做非空逗号拆分，未知规则在计划阶段由 `resolve_rules()` 校验。未知规则错误格式为：
@@ -949,7 +950,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- | --- | --- |
 | `discover_projects` | `(root: Path, include_unmarked: bool = False) -> list[Project]` | `list[Project]`；根不存在时 `FileNotFoundError`，不是目录时 `NotADirectoryError`，遍历错误可能为 `OSError` | 展开 `~`，按第 5.3 节规则发现并扫描项目。 |
 | `scan_project` | `(path: Path) -> Project` | `Project` | 解析路径，收集标记、体积、修改时间和 Git 状态。 |
-| `measure_tree` | `(path: Path) -> tuple[int, datetime \| None]` | 字节数、带时区本地时间或 `None` | 不跟随符号链接，只统计普通文件。 |
+| `measure_tree` | `(path: Path) -> tuple[int, datetime \| None]` | 字节数、带时区本地时间或 `None`；遍历/元数据错误抛 `OSError` | 不跟随符号链接，只统计普通文件。 |
 | `read_git_state` | `(path: Path) -> GitState \| None` | `GitState` 或 `None` | 无 `.git` 返回 `None`；Git 命令失败可能产生空字段。 |
 | `is_github_remote_url` | `(remote: str) -> bool` | `bool` | 纯语法校验；HTTPS 允许内嵌 PAT；不联网、不验证仓库存在。 |
 | `sanitize_remote_url` | `(remote: str) -> str` | 可持久化 URL | 去除 HTTPS userinfo、查询字符串和片段；非 HTTPS 原样返回。 |
@@ -1142,7 +1143,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- |
 | 参数解析 | 交给 `argparse`，退出 `2`。 |
 | 根路径发现 | 单项失败输出到标准错误，继续其他根，最终退出 `1`。 |
-| 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`。 |
+| 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`；`--apply` 有计划失败时不执行任何删除。 |
 | 备份归档 | 当前不在项目级捕获 `OSError`/`tarfile.TarError`；可能中止整个备份。 |
 | manifest 写入 | 未捕获 `OSError`；可能以 traceback 结束。 |
 | 恢复 | 将 manifest、归档、SHA-256、目标和 Git 失败转为 `RestoreError`，CLI 输出 `error:` 并返回 `1`；多项目中途失败不回滚已完成项目。 |

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from proj_janitor import backup as backup_module
+from proj_janitor.cleaner import build_cleanup_plan
 from proj_janitor.cli import build_parser, main
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
@@ -405,6 +406,45 @@ class CliTests(unittest.TestCase):
             self.assertIn("Removed 1 item", out)
             self.assertFalse((project / "node_modules").exists())
             self.assertTrue((project / "main.py").exists())
+
+    def test_clean_does_not_apply_partial_plan_when_root_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            missing = root / "missing"
+
+            code, _, err = run_cli(
+                "clean", str(project), str(missing), "--apply", "--yes"
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("root does not exist", err)
+            self.assertTrue((project / "node_modules").exists())
+
+    def test_clean_does_not_apply_partial_plan_when_project_walk_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = root / "a-good"
+            bad = root / "z-bad"
+            for project in (good, bad):
+                (project / "node_modules" / "pkg").mkdir(parents=True)
+                (project / "pyproject.toml").write_text("", encoding="utf-8")
+            real_plan = build_cleanup_plan
+
+            def fail_for_bad_project(project, rule_names=None):
+                if project.name == "z-bad":
+                    raise PermissionError("walk denied")
+                return real_plan(project, rule_names)
+
+            with mock.patch(
+                "proj_janitor.cli.build_cleanup_plan",
+                side_effect=fail_for_bad_project,
+            ):
+                code, _, err = run_cli("clean", str(root), "--apply", "--yes")
+
+            self.assertEqual(code, 1)
+            self.assertIn("z-bad: walk denied", err)
+            self.assertTrue((good / "node_modules").exists())
 
     def test_clean_defaults_to_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

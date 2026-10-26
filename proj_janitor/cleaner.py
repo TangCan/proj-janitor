@@ -51,7 +51,14 @@ def build_cleanup_plan(
     ]
 
     actions: list[CleanupAction] = []
-    for dirpath, dirnames, filenames in os.walk(project, followlinks=False):
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for dirpath, dirnames, filenames in os.walk(
+        project,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
         current = Path(dirpath)
         kept: list[str] = []
         for dirname in dirnames:
@@ -185,10 +192,7 @@ def _action(
     if kind == "dir":
         size_bytes, _ = measure_tree(path)
     else:
-        try:
-            size_bytes = path.stat(follow_symlinks=False).st_size
-        except OSError:
-            size_bytes = 0
+        size_bytes = path.stat(follow_symlinks=False).st_size
     return CleanupAction(
         project=project,
         path=path,

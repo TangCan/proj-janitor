@@ -12,6 +12,7 @@ from proj_janitor.scanner import (
     discover_projects,
     inspect_git_recoverability,
     is_github_remote_url,
+    measure_tree,
     sanitize_remote_url,
     scan_project,
 )
@@ -25,6 +26,11 @@ from tests.support import (
 
 
 class ScannerTests(unittest.TestCase):
+    def test_measure_tree_propagates_walk_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                measure_tree(Path(tmp) / "missing")
+
     def test_discovers_marked_projects_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

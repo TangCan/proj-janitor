@@ -224,7 +224,7 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地回归（2026-10-26）：Python 107 项测试通过（Python 3.12.3）；Rust 18 项单元测试和 3 项 CLI 集成测试通过（rustc 1.98.1）。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地回归（2026-10-26）：Python 112 项测试通过（Python 3.12.3）；Rust 18 项单元测试和 3 项 CLI 集成测试通过（rustc 1.98.1）。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust 版的 `cargo fmt --check`、`cargo clippy --all-targets --locked -- -D warnings` 也通过；crates.io 包构建和 `cargo install --locked` 验证记录于 2026-10-24。
 
 Rust 版开发检查：

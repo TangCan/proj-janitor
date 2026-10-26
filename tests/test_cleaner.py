@@ -3,8 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from proj_janitor.cleaner import (
+    _action,
     apply_cleanup,
     build_cleanup_plan,
     resolve_rules,
@@ -30,6 +32,24 @@ def make_project(root: Path) -> Path:
 
 
 class CleanerTests(unittest.TestCase):
+    def test_file_action_propagates_stat_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            path = project / "node_modules" / "pkg" / "index.js"
+            with mock.patch.object(Path, "stat", side_effect=PermissionError("stat denied")):
+                with self.assertRaisesRegex(PermissionError, "stat denied"):
+                    _action(project, path, "node", "file")
+
+    def test_plan_propagates_walk_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            with mock.patch(
+                "proj_janitor.cleaner.os.walk",
+                side_effect=PermissionError("walk denied"),
+            ):
+                with self.assertRaisesRegex(PermissionError, "walk denied"):
+                    build_cleanup_plan(project)
+
     def test_plan_finds_artifacts_and_protects_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))

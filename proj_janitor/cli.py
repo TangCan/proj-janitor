@@ -411,7 +411,7 @@ def _cmd_clean(args: argparse.Namespace) -> int:
     for project in projects:
         try:
             actions.extend(build_cleanup_plan(project.path, args.rules))
-        except ValueError as exc:
+        except (OSError, ValueError) as exc:
             print(f"error: {project.name}: {exc}", file=sys.stderr)
             failures += 1
 
@@ -425,6 +425,9 @@ def _cmd_clean(args: argparse.Namespace) -> int:
         )
     else:
         print(format_cleanup_plan(actions))
+
+    if args.apply and failures:
+        return 1
 
     if not args.apply:
         if actions and not args.json:

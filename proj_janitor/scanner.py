@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import subprocess
 from datetime import datetime, timezone
 from fnmatch import fnmatch
@@ -66,7 +67,14 @@ def scan_project(path: Path) -> Project:
 def measure_tree(path: Path) -> tuple[int, datetime | None]:
     total = 0
     latest: float | None = None
-    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for dirpath, dirnames, filenames in os.walk(
+        path,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
         dirnames[:] = [
             name
             for name in dirnames
@@ -74,14 +82,11 @@ def measure_tree(path: Path) -> tuple[int, datetime | None]:
         ]
         for filename in filenames:
             entry = Path(dirpath) / filename
-            try:
-                stat = entry.stat(follow_symlinks=False)
-            except OSError:
-                continue
-            if not entry.is_symlink() and entry.is_file():
-                total += stat.st_size
-            if latest is None or stat.st_mtime > latest:
-                latest = stat.st_mtime
+            metadata = entry.stat(follow_symlinks=False)
+            if stat.S_ISREG(metadata.st_mode):
+                total += metadata.st_size
+            if latest is None or metadata.st_mtime > latest:
+                latest = metadata.st_mtime
     modified = (
         datetime.fromtimestamp(latest, tz=timezone.utc).astimezone()
         if latest is not None
