@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--backup-dest",
         default=os.environ.get("BACKUP_DEST") or None,
         required=not bool(os.environ.get("BACKUP_DEST")),
-        type=Path,
+        type=_non_empty_path,
         help="backup root directory (default: BACKUP_DEST)",
     )
     backup.add_argument(
@@ -509,6 +509,12 @@ def _action_json(action: CleanupAction) -> dict:
         "kind": action.kind,
         "size_bytes": action.size_bytes,
     }
+
+
+def _non_empty_path(value: str) -> Path:
+    if not value:
+        raise argparse.ArgumentTypeError("path must not be empty")
+    return Path(value)
 
 
 def _rule_list(value: str) -> list[str]:
