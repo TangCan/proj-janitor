@@ -3,6 +3,7 @@ name = "proj-janitor"
 version = "0.2.2"
 edition = "2024"
 rust-version = "1.88"
+authors = ["Tang Can <tang_can@qq.com>"]
 description = "Scan, back up, restore, and clean old projects safely"
 readme = "README.md"
 license = "MIT"
