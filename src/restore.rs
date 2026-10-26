@@ -349,29 +349,39 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
     let temporary = create_restore_temp_dir(parent)?;
     let repo = temporary.join("repo");
     let result = (|| -> anyhow::Result<()> {
-        let mut clone = Command::new("git");
-        clone
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .args(["clone", "--no-checkout", "--", url])
+        let safe_url = redact_remote(url);
+        let mut init = Command::new("git");
+        init.arg("init").arg(&repo).stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut init, project, "init")?.success(),
+            "git init failed for {project}"
+        );
+        let mut add_remote = Command::new("git");
+        add_remote
+            .arg("-C")
             .arg(&repo)
+            .args(["remote", "add", "origin", &safe_url])
             .stdout(Stdio::null());
         anyhow::ensure!(
-            run_git_with_timeout(&mut clone, project, "clone")?.success(),
-            "git clone failed for {project}"
+            run_git_with_timeout(&mut add_remote, project, "remote add")?.success(),
+            "cannot configure restored remote for {project}"
         );
-        let safe_url = redact_remote(url);
-        if safe_url != url {
-            let mut set_url = Command::new("git");
-            set_url
-                .arg("-C")
-                .arg(&repo)
-                .args(["remote", "set-url", "origin", &safe_url])
-                .stdout(Stdio::null());
-            anyhow::ensure!(
-                run_git_with_timeout(&mut set_url, project, "remote set-url")?.success(),
-                "cannot remove credentials from restored remote for {project}"
-            );
-        }
+        let mut fetch = Command::new("git");
+        fetch
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .arg("-C")
+            .arg(&repo)
+            .args(["fetch", "--no-write-fetch-head", "--no-tags", "--"])
+            .arg(url)
+            .args([
+                "+refs/heads/*:refs/remotes/origin/*",
+                "+refs/tags/*:refs/tags/*",
+            ])
+            .stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut fetch, project, "fetch")?.success(),
+            "git fetch failed for {project}"
+        );
         let mut checkout = Command::new("git");
         checkout
             .arg("-C")

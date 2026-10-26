@@ -382,14 +382,22 @@ def _restore_git(plan: RestorePlan) -> None:
     )
     repo = temporary / "repo"
     try:
-        _run_git(
-            ["clone", "--no-checkout", "--", plan.remote_url, str(repo)]
-        )
         safe_remote = redact_remote_url(plan.remote_url)
-        if safe_remote != plan.remote_url:
-            _run_git(
-                ["-C", str(repo), "remote", "set-url", "origin", safe_remote]
-            )
+        _run_git(["init", str(repo)])
+        _run_git(["-C", str(repo), "remote", "add", "origin", safe_remote])
+        _run_git(
+            [
+                "-C",
+                str(repo),
+                "fetch",
+                "--no-write-fetch-head",
+                "--no-tags",
+                "--",
+                plan.remote_url,
+                "+refs/heads/*:refs/remotes/origin/*",
+                "+refs/tags/*:refs/tags/*",
+            ]
+        )
         _run_git(["-C", str(repo), "checkout", "--detach", plan.commit])
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
         if not head.lower().startswith(plan.commit.lower()):
@@ -535,14 +543,28 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        if args[:3] == ["clone", "--no-checkout", "--"]:
-            remote = urlsplit(args[3])
-            if "@" in args[3] or remote.query or remote.fragment:
-                detail = "remote credentials redacted"
+        if _git_args_have_sensitive_remote(args):
+            detail = "remote URL details redacted"
         if not detail:
             detail = f"exit code {result.returncode}"
         raise RestoreError(f"git {command} failed: {detail}")
     return result
+
+
+def _git_args_have_sensitive_remote(args: list[str]) -> bool:
+    for value in args:
+        if value.startswith(("http://", "https://", "ssh://", "file://")):
+            try:
+                remote = urlsplit(value)
+            except ValueError:
+                return True
+            if remote.username is not None or remote.password is not None:
+                return True
+            if remote.query or remote.fragment:
+                return True
+        elif re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:.+", value):
+            return True
+    return False
 
 
 def _stop_git_process(process: subprocess.Popen[str]) -> None:

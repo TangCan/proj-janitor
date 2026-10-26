@@ -610,7 +610,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 4. 指定 `--dest` 时，目标固定为 `--dest/<项目名>/`；`--dest` 已存在但不是目录时拒绝。
 5. 同一批恢复中目标路径重复或大小写折叠后冲突时拒绝，避免在大小写不敏感文件系统上覆盖或中途失败。
 6. 预检所有目标路径后才会开始恢复；任一目标已存在或是符号链接时整批不开始。
-7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号，执行 `git clone --no-checkout -- <remote_url> <temp>`，再执行 `git checkout --detach <commit>`，确认 HEAD 后移动到目标目录。
+7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。
 8. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
 9. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
@@ -687,7 +687,7 @@ Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> 
 | 项目名不安全、`source` 非法或目标重复 | `1` | 不开始恢复。 |
 | 目标已存在或为符号链接 | `1` | 拒绝覆盖，不开始恢复。 |
 | 归档缺失、SHA-256 不匹配、解压失败 | `1` | 不创建目标目录。 |
-| Git URL/提交非法、clone/checkout 失败 | `1` | 清理临时目录，不创建目标目录。 |
+| Git URL/提交非法、init/fetch/checkout/HEAD 校验失败 | `1` | 清理临时目录，不创建目标目录。 |
 | 原始位置恢复未给 `--yes` 且非交互 | `2` | 标准错误输出拒绝原因。 |
 | 原始位置恢复使用 `--json` 但未给 `--yes` | `2` | 标准输出为空，不写文件。 |
 | 用户在确认时输入 `n` 或 EOF | `2` | 输出 `Aborted.`，不写文件。 |
@@ -1005,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
-内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` 执行 `git clone --no-checkout`、从 origin URL 中移除认证信息/查询/fragment 并 `checkout --detach`，Git 子进程每步超时为 600 秒；`_run_git` 遇到敏感克隆 URL 时不回显 Git 原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
+内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` init 临时仓库、写入脱敏 origin、直接 fetch 后 `checkout --detach` 并验证 HEAD，Git 子进程每步超时为 600 秒；fetch 不写入包含 URL 的 `FETCH_HEAD`；`_run_git` 遇到敏感 Git URL 时不回显原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
 
 ### 12.5 模型与配置
 
@@ -1045,7 +1045,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 - 模块不使用线程、异步任务、锁或数据库。
 - 备份归档和 manifest 使用排他创建，避免并发覆盖；竞争同一名字时该项目报告失败，不自动重试。多个进程仍可能同时读取正在变化的源项目，清理计划与删除之间也没有锁。
-- 项目扫描/备份使用的 Git 检查命令超时为 10 秒；Git 恢复的 clone 和 checkout 单步超时为 600 秒，超时会尝试终止 Git 进程树、清理临时目录并报告恢复失败。
+- 项目扫描/备份使用的 Git 检查命令超时为 10 秒；Git 恢复的 init、remote add、fetch、checkout 和 HEAD 校验单步超时为 600 秒，超时会尝试终止 Git 进程树、清理临时目录并报告恢复失败。
 - `KeyboardInterrupt` 不转换为 CLI 错误码；备份清理当前项目正在生成的输出后重新抛出，已完成项目不回滚；恢复和清理可能留下部分结果。
 - Python API 的错误契约是“常规业务失败尽量用返回值/结果对象表达，文件系统和归档异常可能向上传播”；`restore` 的常规失败统一抛 `RestoreError`。
 
@@ -1137,7 +1137,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 检查 20 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
 - 检查 21/22 使用 `for-each-ref`；检查 23 要求至少存在一个 `refs/remotes/{remote}/` 引用。
 - 检查 26 使用 `git for-each-ref refs/tags` 读取本地 tag；检查 27/28/29 通过 `git ls-remote --tags --refs` 比较远程 tag 的原始对象 ID。没有本地 tag 时不发起远程查询。
-- 扫描/备份中的 Git 检查调用超时为 10 秒；恢复的 clone 和 checkout 单步超时为 600 秒。超时会尝试终止 Git 进程树；超时或无法启动 Git 会映射为对应失败原因或 `None` 字段。
+- 扫描/备份中的 Git 检查调用超时为 10 秒；恢复 Git 子进程每步超时为 600 秒。超时会尝试终止 Git 进程树；超时或无法启动 Git 会映射为对应失败原因或 `None` 字段。
 
 ### 13.4 处理策略
 
