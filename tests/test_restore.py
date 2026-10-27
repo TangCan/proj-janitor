@@ -322,7 +322,7 @@ class RestoreTests(unittest.TestCase):
                 [
                     {
                         "project": name,
-                        "source": f"/original/{name}",
+                        "source": str(root / "original" / name),
                         "strategy": "git",
                         "remote_url": "https://github.com/team/demo.git",
                         "commit": "a" * 40,
