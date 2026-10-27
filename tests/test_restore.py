@@ -362,6 +362,29 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse((root / "escape").exists())
 
+    def test_restore_git_rejects_windows_invalid_project_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index, name in enumerate(("CON", "bad:name", "trailing.")):
+                with self.subTest(name=name):
+                    manifest = write_manifest(
+                        root / f"manifest-{index}.json",
+                        [
+                            {
+                                "project": name,
+                                "source": str(root / "original" / name),
+                                "strategy": "git",
+                                "remote_url": "https://github.com/team/demo.git",
+                                "commit": "a" * 40,
+                            }
+                        ],
+                    )
+
+                    with self.assertRaisesRegex(RestoreError, "unsafe project name"):
+                        restore_from_manifest(
+                            manifest, root / "restored", dry_run=True
+                        )
+
     def test_restore_archive_to_original_location(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

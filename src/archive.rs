@@ -333,7 +333,7 @@ pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool
     !parts.is_empty() && parts[0] == project
 }
 
-fn safe_windows_component(name: &str) -> bool {
+pub(crate) fn safe_windows_component(name: &str) -> bool {
     if name.is_empty()
         || name.ends_with([' ', '.'])
         || name

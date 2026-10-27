@@ -22,7 +22,9 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 use crate::{
     Manifest, Record,
-    archive::{create_restore_temp_dir, extract_archive, portable_path_key, sha256},
+    archive::{
+        create_restore_temp_dir, extract_archive, portable_path_key, safe_windows_component, sha256,
+    },
     expand, resolve_for_creation,
 };
 
@@ -645,12 +647,10 @@ fn stop_child(child: &mut Child) -> anyhow::Result<()> {
 }
 
 fn safe_name(s: &str) -> bool {
-    !s.is_empty()
+    safe_windows_component(s)
         && s != "."
         && s != ".."
         && !s.contains('/')
-        && !s.contains('\\')
-        && !s.contains('\0')
         && Path::new(s).file_name().is_some_and(|n| n == s)
 }
 fn resolve_archive(r: &Record, dir: &Path) -> anyhow::Result<PathBuf> {

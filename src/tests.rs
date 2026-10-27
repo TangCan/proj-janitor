@@ -919,6 +919,55 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
 }
 
 #[test]
+fn restore_git_rejects_windows_invalid_project_names() {
+    let temp = TestDir::new();
+    let original = temp.0.join("original");
+    for (index, project) in ["CON", "bad:name", "trailing."].into_iter().enumerate() {
+        let manifest_path = temp.0.join(format!("manifest-{index}.json"));
+        let manifest = Manifest {
+            schema_version: 2,
+            created_at: "2026-10-26T00:00:00+00:00".into(),
+            tool: "proj-janitor".into(),
+            version: "0.2.3".into(),
+            include_artifacts: false,
+            always_archive: false,
+            records: vec![Record {
+                project: project.into(),
+                source: original.join(project).to_string_lossy().into_owned(),
+                archive: None,
+                archive_bytes: 0,
+                source_bytes: 0,
+                sha256: None,
+                strategy: "git".into(),
+                remote: None,
+                remote_url: Some("https://github.com/team/demo.git".into()),
+                branch: None,
+                commit: Some("a".repeat(40)),
+                upstream: None,
+                verified: None,
+                fallback_reason: None,
+            }],
+        };
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let dest = temp.0.join(format!("restored-{index}"));
+
+        let error = restore_cmd(
+            &manifest_path,
+            Some(dest.clone()),
+            &[],
+            true,
+            false,
+            true,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unsafe project name"));
+        assert!(!dest.exists());
+    }
+}
+
+#[test]
 fn clean_apply_removes_only_artifacts_and_preserves_project_files() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

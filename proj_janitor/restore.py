@@ -237,6 +237,7 @@ def _record_project(record: dict) -> str:
         or "\x00" in value
         or Path(value).is_absolute()
         or Path(value).name != value
+        or not safe_archive_member(value, value)
     ):
         raise RestoreError(f"unsafe project name in manifest: {value!r}")
     return value
