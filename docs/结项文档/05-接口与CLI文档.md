@@ -66,7 +66,6 @@
 
 当前版本不提供以下接口：
 
-- 独立 `verify` 子命令；归档 SHA-256 校验内置于 `restore`；
 - 恢复覆盖、回滚、断点续传、进度显示或远程提交预检；
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
@@ -1001,6 +1000,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- | --- | --- |
 | `restore_from_manifest` | `(manifest_path: Path, dest: Path \| None, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dest=None` 表示原始位置模式；`dry_run=True` 不写文件。 |
 | `plan_restore` | `(manifest_path: Path, dest: Path \| None, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、`source`/目标不存在、目标重复、归档 SHA-256 和 Git 字段；`dest=None` 时使用记录的 `source`。 |
+| `verify_manifest` | `(manifest_path: Path, projects=()) -> list[dict]` | 每项目校验结果；失败抛 `RestoreError` | 只读检查 archive SHA-256；Git 策略只校验 URL/commit 元数据，不联网。 |
 | `execute_restore` | `(plans: Iterable[RestorePlan]) -> list[RestoreResult]` | 结果列表；文件系统错误抛 `RestoreError` | 创建目标父目录并按顺序执行已校验的计划；不做交互确认。 |
 | `load_manifest` | `(path: Path) -> tuple[Path, dict]` | 规范化路径和 JSON 对象 | 要求 `schema_version == 2`、`records` 为非空对象数组。 |
 | `RestoreError` | `RuntimeError` 子类 | 异常 | CLI 捕获后输出 `error: ...` 并返回 `1`。 |
@@ -1201,7 +1201,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `restore` 多项目不回滚 | 中途失败会留下已恢复项目 | 逐个项目恢复，或失败后人工清理已完成目标。 |
 | `restore` 不预检远程提交 | 远程删除/强推后 Git 恢复可能失败 | 恢复前确认 `remote_url` 和 `commit` 仍可访问；重要项目保留归档。 |
 | Git 恢复为 detached HEAD | 不自动恢复原分支 | 恢复后按需创建分支：`git switch -c main`。 |
-| 无独立 `verify` 命令 | 不能单独验证归档 | `restore --dry-run` 会校验 SHA-256；也可手工 `sha256sum` 对比 manifest。 |
+| `verify` 对 Git 策略只检查 manifest 元数据 | 不确认远程仓库或提交仍可访问 | 需要确认远程可用时应另行运行 Git 检查；`verify` 不联网。 |
 | 归档包含 `.git` | 体积较大，可能包含敏感历史或内嵌 PAT | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份；PAT 归档按敏感数据处理。 |
 | Git URL-only 仅本地证据 | 不保证远端实际可克隆 | 恢复前联网验证；重要项目使用 `--always-archive`。 |
 | 规则按名称匹配 | 可能误匹配同名目录 | 先 dry-run 审查计划；必要时缩小根范围。 |
@@ -1277,6 +1277,7 @@ tar -xzf <archive>
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive` |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
+| `verify` | `projjan verify MANIFEST` | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
 安装已发布 crate：
@@ -1293,7 +1294,16 @@ cargo install --locked --path .
 
 当前 main 的 `Cargo.toml` 仍为 0.2.3，因此源码构建的 `--version` 不能区分发布标签和其后的 19 个未发布提交；需要确认源码身份时应检查 Git commit。
 
-### 16.2 当前安全与文件接口
+### 16.2 `verify` 子命令
+
+```bash
+projjan verify MANIFEST
+projjan verify MANIFEST --project NAME --json
+```
+
+归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不会联网检查远程。命令不写入文件，也不检查恢复目标是否存在。
+
+## 16.3 当前安全与文件接口
 
 - 新备份根目录和项目目录（Unix）为 `0700`，归档与 manifest 为 `0600`；已存在的目录权限不改。Windows ACL 继承自目标父目录。
 - Git 与归档恢复都在执行前拒绝 Windows 不可移植项目名；包括 `CONIN$` 和 `CONOUT$`。

@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -62,11 +63,11 @@ fn normalized_output(output: &str) -> String {
 }
 
 #[test]
-fn verify_checks_archive_hash_without_restoring() {
+fn backup_cli_creates_an_archive_and_manifest() {
     let temp = TestDir::new();
     let project = temp.project();
     let backup_dest = temp.0.join("backups");
-    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("backup")
         .arg(&project)
         .arg("--backup-dest")
@@ -74,22 +75,52 @@ fn verify_checks_archive_hash_without_restoring() {
         .arg("--always-archive")
         .output()
         .unwrap();
-    assert!(
-        backup.status.success(),
-        "{}",
-        String::from_utf8_lossy(&backup.stderr)
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!(
+            "backup failed ({:?}); stderr length {}; prefix: {:?}",
+            output.status.code(),
+            stderr.len(),
+            stderr.chars().take(256).collect::<String>()
+        );
+    }
+
+    let project_backup = backup_dest.join(project.file_name().unwrap());
+    assert_eq!(
+        fs::read_dir(&project_backup).unwrap().count(),
+        2,
+        "expected one archive and one manifest"
     );
-    let manifest = fs::read_dir(backup_dest.join("demo"))
-        .unwrap()
-        .map(|entry| entry.unwrap())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("manifest-")
-        })
-        .unwrap();
+}
+
+#[test]
+fn verify_checks_archive_hash_without_restoring() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dir = temp.0.join("backups/demo");
+    fs::create_dir_all(&backup_dir).unwrap();
+    let archive = backup_dir.join("demo.tar.gz");
+    let archive_bytes = b"archive fixture";
+    fs::write(&archive, archive_bytes).unwrap();
+    let manifest = backup_dir.join("manifest.json");
+    let payload = serde_json::json!({
+        "schema_version": 2,
+        "created_at": "2026-10-27T00:00:00Z",
+        "tool": "proj-janitor",
+        "version": "0.2.4",
+        "include_artifacts": false,
+        "always_archive": true,
+        "records": [{
+            "project": "demo",
+            "source": project.display().to_string(),
+            "archive": archive.display().to_string(),
+            "archive_bytes": archive_bytes.len(),
+            "source_bytes": 0,
+            "sha256": format!("{:x}", Sha256::digest(archive_bytes)),
+            "strategy": "archive"
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec(&payload).unwrap()).unwrap();
 
     let verified = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("verify")
@@ -106,9 +137,6 @@ fn verify_checks_archive_hash_without_restoring() {
     assert_eq!(result["projects"][0]["status"], "verified");
     assert!(project.exists());
 
-    let manifest_data: serde_json::Value =
-        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
-    let archive = PathBuf::from(manifest_data["records"][0]["archive"].as_str().unwrap());
     fs::write(&archive, b"corruption").unwrap();
     let rejected = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("verify")
