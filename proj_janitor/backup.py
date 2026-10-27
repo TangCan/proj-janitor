@@ -22,7 +22,7 @@ from proj_janitor.config import (
 from proj_janitor.models import BackupPlan, BackupRecord, Project
 from proj_janitor.scanner import inspect_git_recoverability
 
-_WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"}
+_WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
 _WINDOWS_INVALID_CHARS = '<>:"|?*'
 
 

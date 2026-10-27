@@ -922,7 +922,10 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
 fn restore_git_rejects_windows_invalid_project_names() {
     let temp = TestDir::new();
     let original = temp.0.join("original");
-    for (index, project) in ["CON", "bad:name", "trailing."].into_iter().enumerate() {
+    for (index, project) in ["CON", "CONIN$", "CONOUT$", "bad:name", "trailing."]
+        .into_iter()
+        .enumerate()
+    {
         let manifest_path = temp.0.join(format!("manifest-{index}.json"));
         let manifest = Manifest {
             schema_version: 2,

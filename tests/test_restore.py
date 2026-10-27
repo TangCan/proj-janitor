@@ -365,7 +365,9 @@ class RestoreTests(unittest.TestCase):
     def test_restore_git_rejects_windows_invalid_project_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for index, name in enumerate(("CON", "bad:name", "trailing.")):
+            for index, name in enumerate(
+                ("CON", "CONIN$", "CONOUT$", "bad:name", "trailing.")
+            ):
                 with self.subTest(name=name):
                     manifest = write_manifest(
                         root / f"manifest-{index}.json",
