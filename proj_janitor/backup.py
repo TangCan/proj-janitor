@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tarfile
 import unicodedata
@@ -117,7 +118,7 @@ def run_backup(
         manifest_reserved = False
         try:
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            with manifest_path.open("x", encoding="utf-8"):
+            with _open_new_file(manifest_path):
                 manifest_reserved = True
         except OSError as exc:
             if manifest_reserved:
@@ -221,6 +222,21 @@ def _discard_partial_file(path: Path) -> None:
         pass
 
 
+def _open_new_file(path: Path, binary: bool = False):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if binary:
+        flags |= getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        if binary:
+            return os.fdopen(descriptor, "wb")
+        return os.fdopen(descriptor, "w", encoding="utf-8")
+    except BaseException:
+        os.close(descriptor)
+        _discard_partial_file(path)
+        raise
+
+
 def backup_project(
     project: Project,
     archive_dir: Path,
@@ -232,7 +248,7 @@ def backup_project(
     archive = archive_dir / name
     patterns = tuple(patterns)
 
-    archive_file = archive.open("xb")
+    archive_file = _open_new_file(archive, binary=True)
     try:
         with archive_file:
             with tarfile.open(fileobj=archive_file, mode="w:gz") as tar:

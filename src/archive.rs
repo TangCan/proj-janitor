@@ -47,7 +47,7 @@ pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
 }
 
 pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let mut file = create_private_file(path)?;
     if let Err(error) = file.write_all(bytes) {
         drop(file);
         let _ = fs::remove_file(path);
@@ -57,10 +57,7 @@ pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> anyhow::Result<()> {
-    let f = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(archive)?;
+    let f = create_private_file(archive)?;
     let result = (|| -> anyhow::Result<()> {
         let enc = GzEncoder::new(f, Compression::default());
         let mut tar = Builder::new(enc);
@@ -114,6 +111,18 @@ pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> a
     }
     result
 }
+
+fn create_private_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !target.exists() && !target.is_symlink(),

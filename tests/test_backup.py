@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -170,7 +171,7 @@ class BackupTests(unittest.TestCase):
             root = Path(tmp)
             project = scan_project(make_project(root))
             backup_dest = root / "backups"
-            real_open = Path.open
+            real_fdopen = os.fdopen
 
             class InterruptOnClose:
                 def __init__(self, handle):
@@ -183,14 +184,26 @@ class BackupTests(unittest.TestCase):
                     self.handle.__exit__(*args)
                     raise KeyboardInterrupt
 
-            def interrupt_manifest_close(path, mode="r", *args, **kwargs):
-                handle = real_open(path, mode, *args, **kwargs)
-                if mode == "x" and path.name.startswith("manifest-"):
-                    return InterruptOnClose(handle)
-                return handle
+            def interrupt_manifest_close(fd, mode="r", *args, **kwargs):
+                return InterruptOnClose(real_fdopen(fd, mode, *args, **kwargs))
 
             with mock.patch(
-                "pathlib.Path.open", autospec=True, side_effect=interrupt_manifest_close
+                "proj_janitor.backup.os.fdopen", side_effect=interrupt_manifest_close
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_backup([project], backup_dest, always_archive=True)
+
+            self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
+    def test_backup_fdopen_failure_cleans_private_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+
+            with mock.patch(
+                "proj_janitor.backup.os.fdopen", side_effect=KeyboardInterrupt
             ):
                 with self.assertRaises(KeyboardInterrupt):
                     run_backup([project], backup_dest, always_archive=True)
@@ -237,6 +250,11 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(archive.parent, dest.resolve() / "app")
             self.assertTrue(archive.is_file())
             self.assertTrue(archive.name.startswith("app-"))
+            if os.name == "posix":
+                for path in (manifest_path, archive):
+                    mode = stat.S_IMODE(path.stat().st_mode)
+                    self.assertEqual(mode & 0o077, 0)
+                    self.assertEqual(mode & 0o600, 0o600)
             self.assertEqual(records[0].sha256, sha256_file(archive))
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

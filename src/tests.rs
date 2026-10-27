@@ -434,6 +434,33 @@ fn backup_output_creation_never_overwrites_existing_files() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn backup_outputs_are_private_to_the_current_user() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let backup_dir = temp.0.join("backups");
+
+    backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        true,
+    )
+    .unwrap();
+
+    for entry in fs::read_dir(backup_dir.join("demo")).unwrap() {
+        let mode = entry.unwrap().metadata().unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0);
+        assert_eq!(mode & 0o600, 0o600);
+    }
+}
+
 #[test]
 fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
     let temp = TestDir::new();
