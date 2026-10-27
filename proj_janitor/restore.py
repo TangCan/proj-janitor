@@ -5,6 +5,7 @@ import os
 import re
 import signal
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -451,7 +452,7 @@ def _restore_git(plan: RestorePlan) -> None:
             raise RestoreError(f"restore target already exists: {plan.target}")
         repo.rename(plan.target)
     finally:
-        shutil.rmtree(temporary, ignore_errors=True)
+        _cleanup_restore_temp(temporary)
 
 
 def _restore_archive(plan: RestorePlan) -> None:
@@ -477,7 +478,7 @@ def _restore_archive(plan: RestorePlan) -> None:
             raise RestoreError(f"restore target already exists: {plan.target}")
         extracted.rename(plan.target)
     finally:
-        shutil.rmtree(temporary, ignore_errors=True)
+        _cleanup_restore_temp(temporary)
 
 
 def _safe_extract(archive: Path, dest: Path, project: str) -> None:
@@ -673,6 +674,21 @@ def _kill_git_process(process: subprocess.Popen[str]) -> None:
         process.kill()
     except OSError:
         pass
+
+
+def _cleanup_restore_temp(path: Path) -> None:
+    try:
+        shutil.rmtree(path, onerror=_remove_readonly)
+    except OSError:
+        pass
+
+
+def _remove_readonly(function, path: str, error_info) -> None:
+    error = error_info[1]
+    if not isinstance(error, PermissionError):
+        raise error
+    os.chmod(path, stat.S_IWRITE)
+    function(path)
 
 
 def _interrupt_git(_signum: int, _frame: object) -> None:
