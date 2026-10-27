@@ -1301,3 +1301,11 @@ cargo install --locked --path .
 - schema v2 仍是文件接口；没有 HTTP/REST 服务。SHA-256 检查保证文件与 manifest 中摘要一致，不提供签名或来源认证。
 
 最新接口行为以 `src/main.rs`、`src/restore.rs`、Python `proj_janitor/cli.py` 和 CI 为准。内部函数、未发布 main 提交和格式化文本输出均不构成长期稳定 API 承诺。
+
+## 当前版本状态补充（2026-10-27）
+
+本节更新并优先于本文其他章节中的旧版“当前源码”“当前 Cargo 版本”描述。Rust 0.2.4 目前是发布候选：`Cargo.toml`/`Cargo.lock` 已设为 0.2.4，但尚未发布至 crates.io，尚无 `v0.2.4` 标签或 GitHub Release；最新正式发布仍为 Rust 0.2.3。Python 包仍为 0.1.0。
+
+候选程序源码提交为 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`（`v0.2.3-22-g98d43ab`）。本次本地候选验证：Python 123 项测试通过，Rust 26 项单元测试及 3 项 CLI 集成测试通过，`cargo fmt --check`、Clippy、`cargo package --locked`、`cargo publish --dry-run --locked` 及本地安装冒烟均通过。CI 尚未针对候选提交运行；推送后结果以 GitHub Actions 实际 job 结论补录。候选详情见 `docs/发布记录/0.2.4-Rust版.md`。
+
+此版本状态补充不改变正式结项边界：正式验收和签字仍由实际负责人/接收人完成；候选验证不等于正式发布或验收。
