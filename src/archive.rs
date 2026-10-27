@@ -310,7 +310,7 @@ fn safe_windows_component(name: &str) -> bool {
         || name.ends_with([' ', '.'])
         || name
             .chars()
-            .any(|character| character.is_ascii_control() || "<>:\"|?*".contains(character))
+            .any(|character| character.is_ascii_control() || "<>:\"|?*\\".contains(character))
     {
         return false;
     }
