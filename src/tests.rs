@@ -739,7 +739,9 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
 
     let restored = dest.join("demo");
     assert_eq!(
-        fs::read_to_string(restored.join("tracked.txt")).unwrap(),
+        fs::read_to_string(restored.join("tracked.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "clean\n"
     );
     assert!(!restored.join(".git/FETCH_HEAD").exists());
