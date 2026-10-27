@@ -528,6 +528,7 @@ fn run_git_with_timeout(
 
 fn git_config_env(key: &str, value: &str) -> Option<Vec<(String, String)>> {
     let count = match std::env::var("GIT_CONFIG_COUNT") {
+        Ok(value) if value.is_empty() => 0,
         Ok(value) => value.parse::<usize>().ok()?,
         Err(std::env::VarError::NotPresent) => 0,
         Err(std::env::VarError::NotUnicode(_)) => return None,

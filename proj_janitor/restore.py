@@ -617,8 +617,9 @@ def _git_args_have_sensitive_remote(
 
 
 def _git_config_env(key: str, value: str) -> dict[str, str] | None:
+    raw_count = os.environ.get("GIT_CONFIG_COUNT", "0")
     try:
-        count = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+        count = int(raw_count) if raw_count else 0
     except ValueError:
         return None
     if count < 0:
