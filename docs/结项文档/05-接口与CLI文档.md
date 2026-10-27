@@ -1283,7 +1283,7 @@ tar -xzf <archive>
 安装已发布 crate：
 
 ```bash
-cargo install --locked proj-janitor --version 0.2.3
+cargo install --locked proj-janitor --version 0.2.4
 ```
 
 从仓库 main 编译安装后续修订：
@@ -1292,7 +1292,7 @@ cargo install --locked proj-janitor --version 0.2.3
 cargo install --locked --path .
 ```
 
-当前 main 的 `Cargo.toml` 仍为 0.2.3，因此源码构建的 `--version` 不能区分发布标签和其后的 19 个未发布提交；需要确认源码身份时应检查 Git commit。
+若要使用尚未发布到 crates.io 的 main 功能（如 `verify`），可在仓库根目录运行 `cargo install --locked --path .`，或直接运行 `cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor`。main 的版本字符串仍为 0.2.4；确认具体源码时应检查 Git commit。
 
 ### 16.2 `verify` 子命令
 
