@@ -367,7 +367,10 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
     let result = (|| -> anyhow::Result<()> {
         let safe_url = redact_remote(url);
         let mut init = Command::new("git");
-        init.arg("init").arg(&repo).stdout(Stdio::null());
+        init.arg("-C")
+            .arg(&temporary)
+            .args(["init", "repo"])
+            .stdout(Stdio::null());
         anyhow::ensure!(
             run_git_with_timeout(&mut init, project, "init")?.success(),
             "git init failed for {project}"

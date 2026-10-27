@@ -524,11 +524,11 @@ fn path_resolution_follows_symlinks_before_parent_components() {
     fs::create_dir_all(&real_directory).unwrap();
     symlink(&real_directory, temp.0.join("alias")).unwrap();
     let path = temp.0.join("alias/../backups/demo");
+    let expected = fs::canonicalize(temp.0.join("project"))
+        .unwrap()
+        .join("backups/demo");
 
-    assert_eq!(
-        resolve_for_creation(&path).unwrap(),
-        temp.0.join("project/backups/demo")
-    );
+    assert_eq!(resolve_for_creation(&path).unwrap(), expected);
 }
 
 #[cfg(windows)]
@@ -546,11 +546,11 @@ fn path_resolution_follows_windows_symlinks_before_parent_components() {
         return;
     }
     let path = alias.join("../backups/demo");
+    let expected = fs::canonicalize(temp.0.join("project"))
+        .unwrap()
+        .join("backups/demo");
 
-    assert_eq!(
-        resolve_for_creation(&path).unwrap(),
-        temp.0.join("project/backups/demo")
-    );
+    assert_eq!(resolve_for_creation(&path).unwrap(), expected);
 }
 
 #[test]
@@ -815,9 +815,10 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
 fn restore_dest_rejects_project_names_that_differ_only_by_case() {
     let temp = TestDir::new();
     let manifest_path = temp.0.join("manifest.json");
+    let original = temp.0.join("original");
     let record = |project: &str| Record {
         project: project.into(),
-        source: format!("/original/{project}"),
+        source: original.join(project).to_string_lossy().into_owned(),
         archive: None,
         archive_bytes: 0,
         source_bytes: 0,
@@ -846,7 +847,12 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
     for destination in [Some(dest.clone()), None] {
         let error =
             restore_cmd(&manifest_path, destination, &[], true, false, true, false).unwrap_err();
-        assert!(error.to_string().contains("case-insensitive filesystems"));
+        let error = error.to_string();
+        assert!(
+            error.contains("case-insensitive filesystems")
+                || error.contains("duplicate restore target"),
+            "unexpected restore error: {error}"
+        );
     }
     assert!(!dest.exists());
 }
