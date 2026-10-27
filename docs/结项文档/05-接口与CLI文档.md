@@ -942,7 +942,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 归档记录不保存 Git 可恢复性检查的详细字段；只保存 `fallback_reason`。
 - 每个项目处理完成后写入自己的 manifest；如果中途异常，可能只有部分归档或部分 manifest（DEF-003）。
 - manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件，且 `.git/config` 可能保留内嵌 PAT。工具不加密、不做秘密扫描。
-- `restore` 读取 schema v2 manifest；Git 策略重新克隆并检出提交，归档策略校验 SHA-256 后安全解压。指定 `--dest` 时恢复到 `DIR/<项目名>/`；省略时使用记录中的 `source` 作为目标，因此 manifest 可影响写入位置，必须来自可信来源。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
+- `restore` 读取 schema v2 manifest；Git 策略在临时仓库 fetch heads/tags 后检出指定提交，归档策略校验 SHA-256 后安全解压。指定 `--dest` 时恢复到 `DIR/<项目名>/`；省略时使用记录中的 `source` 作为目标，因此 manifest 可影响写入位置，必须来自可信来源。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
 
 ## 12. Python 内部 API
 
