@@ -72,7 +72,6 @@ fn backup_cli_creates_an_archive_and_manifest() {
         .arg(&project)
         .arg("--backup-dest")
         .arg(&backup_dest)
-        .arg("--always-archive")
         .output()
         .unwrap();
     if !output.status.success() {
