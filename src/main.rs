@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
-use globset::Glob;
+use globset::{Glob, GlobMatcher};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     env, fs,
     path::{Component, Path, PathBuf},
+    sync::OnceLock,
 };
 mod archive;
 mod backup;
@@ -51,6 +52,8 @@ pub(crate) const RULES: &[(&str, &[&str])] = &[
     ),
     ("editor", &[".cache", ".DS_Store", "Thumbs.db"]),
 ];
+
+static ARTIFACT_GLOBS: OnceLock<Vec<GlobMatcher>> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(
@@ -321,11 +324,17 @@ fn resolve_for_creation(path: &Path) -> anyhow::Result<PathBuf> {
 }
 
 pub(crate) fn is_artifact(s: &str) -> bool {
-    RULES.iter().flat_map(|(_, p)| *p).any(|pat| {
-        Glob::new(pat)
-            .ok()
-            .is_some_and(|g| g.compile_matcher().is_match(s))
-    })
+    ARTIFACT_GLOBS
+        .get_or_init(|| {
+            RULES
+                .iter()
+                .flat_map(|(_, patterns)| *patterns)
+                .filter_map(|pattern| Glob::new(pattern).ok())
+                .map(|glob| glob.compile_matcher())
+                .collect()
+        })
+        .iter()
+        .any(|glob| glob.is_match(s))
 }
 #[cfg(test)]
 #[path = "tests.rs"]

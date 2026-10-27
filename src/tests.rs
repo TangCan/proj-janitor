@@ -13,6 +13,15 @@ use tar::{Builder, EntryType, Header};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn artifact_matching_uses_cleanup_rules() {
+    assert!(is_artifact("node_modules"));
+    assert!(is_artifact("bundle.pyc"));
+    assert!(is_artifact(".venv"));
+    assert!(!is_artifact("src"));
+    assert!(!is_artifact(".git"));
+}
+
 struct TestDir(PathBuf);
 impl TestDir {
     fn new() -> Self {
