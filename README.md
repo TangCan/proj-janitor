@@ -22,10 +22,10 @@
 cargo install --locked proj-janitor
 ```
 
-`0.2.3` 是待发布候选；当前 crates.io 版本仍为 `0.2.2`，也可固定该版本安装：
+当前 crates.io 已发布版本为 `0.2.3`。需要固定版本时运行：
 
 ```bash
-cargo install --locked proj-janitor --version 0.2.2
+cargo install --locked proj-janitor --version 0.2.3
 ```
 
 发布内容与验证信息见 [Rust 版 0.2.3 发布记录](docs/发布记录/0.2.3-Rust版.md)。
@@ -229,7 +229,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 最近一次验证（2026-10-27）：本地 Python 3.12.3 的 120 项测试通过。GitHub Actions 全部通过：Python 3.10、3.11、3.12（Ubuntu）和 3.12（Windows、macOS）；Rust stable（Linux、Windows、macOS）及 MSRV 1.88；Python/Rust schema v2 归档兼容；actionlint。Python 版无第三方运行时依赖，要求 Python 3.10+。
-同日 `cargo fmt --check`、Clippy、Windows 目标编译和 stable/MSRV `cargo package --no-verify` 通过。crates.io 发布和 `cargo install --locked` 验证记录于 2026-10-24。
+同日 `cargo fmt --check`、Clippy、stable/MSRV 包构建和 `cargo install --locked` 验证通过。crates.io 发布记录见 [Rust 版 0.2.3 发布记录](docs/发布记录/0.2.3-Rust版.md)。
 
 Rust 版开发检查：
 
