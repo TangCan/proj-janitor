@@ -93,7 +93,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        id: cargo-audit-cache
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ubuntu-24.04-cargo-audit-0.22.2
       - name: Install cargo-audit
+        if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
         run: cargo install --locked --version 0.22.2 cargo-audit
       - name: Audit locked dependencies
         run: cargo audit
