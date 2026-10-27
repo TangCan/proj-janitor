@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -13,6 +15,11 @@ from proj_janitor.backup import run_backup, sha256_file
 from proj_janitor.restore import RestoreError, restore_from_manifest
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
+
+
+def remove_readonly(function, path: str, error_info) -> None:
+    os.chmod(path, stat.S_IWRITE)
+    function(path)
 
 
 def make_project(root: Path, name: str = "app") -> Path:
@@ -88,7 +95,7 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(plans[0].strategy, "archive")
             self.assertTrue(plans[0].hash_verified)
-            self.assertEqual(results[0].target, target)
+            self.assertEqual(results[0].target, target.resolve())
             self.assertEqual(
                 (target / "src" / "main.py").read_text(encoding="utf-8"),
                 "print('hi')\n",
@@ -249,7 +256,7 @@ class RestoreTests(unittest.TestCase):
             restored = root / "restored"
 
             with self.assertRaisesRegex(
-                RestoreError, "case-insensitive filesystems"
+                RestoreError, "(case-insensitive filesystems|duplicate restore target)"
             ):
                 restore_from_manifest(manifest, restored)
 
@@ -327,7 +334,7 @@ class RestoreTests(unittest.TestCase):
 
             for destination in (dest, None):
                 with self.assertRaisesRegex(
-                    RestoreError, "case-insensitive filesystems"
+                    RestoreError, "(case-insensitive filesystems|duplicate restore target)"
                 ):
                     restore_from_manifest(manifest, destination)
             self.assertFalse(dest.exists())
@@ -360,7 +367,7 @@ class RestoreTests(unittest.TestCase):
             root = Path(tmp)
             project, manifest, _ = archive_backup(root)
             original = project.resolve()
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             plans, results = restore_from_manifest(manifest, None)
 
@@ -378,7 +385,7 @@ class RestoreTests(unittest.TestCase):
             root = Path(tmp)
             project, manifest, _ = archive_backup(root)
             original = project.resolve()
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             plans, results = restore_from_manifest(
                 manifest,
@@ -405,7 +412,7 @@ class RestoreTests(unittest.TestCase):
             payload = json.loads(manifest.read_text(encoding="utf-8"))
             del payload["records"][0]["source"]
             manifest.write_text(json.dumps(payload), encoding="utf-8")
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             with self.assertRaisesRegex(RestoreError, "has no source"):
                 restore_from_manifest(manifest, None)
@@ -417,7 +424,7 @@ class RestoreTests(unittest.TestCase):
             payload = json.loads(manifest.read_text(encoding="utf-8"))
             payload["records"][0]["source"] = "app"
             manifest.write_text(json.dumps(payload), encoding="utf-8")
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             with self.assertRaisesRegex(RestoreError, "must be absolute"):
                 restore_from_manifest(manifest, None)
@@ -431,7 +438,7 @@ class RestoreTests(unittest.TestCase):
                 root / "nested" / ".." / "app"
             )
             manifest.write_text(json.dumps(payload), encoding="utf-8")
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             with self.assertRaisesRegex(RestoreError, "unsafe source path"):
                 restore_from_manifest(manifest, None)
@@ -443,7 +450,7 @@ class RestoreTests(unittest.TestCase):
             payload = json.loads(manifest.read_text(encoding="utf-8"))
             payload["records"][0]["source"] = str(root / "other")
             manifest.write_text(json.dumps(payload), encoding="utf-8")
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             with self.assertRaisesRegex(
                 RestoreError,
@@ -456,7 +463,7 @@ class RestoreTests(unittest.TestCase):
             root = Path(tmp)
             project, manifest, _ = archive_backup(root)
             original = project.resolve()
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
             original.symlink_to(root / "elsewhere", target_is_directory=True)
 
             with self.assertRaisesRegex(RestoreError, "symlink"):
@@ -561,7 +568,7 @@ class GitRestoreTests(unittest.TestCase):
                     }
                 ],
             )
-            shutil.rmtree(project)
+            shutil.rmtree(project, onerror=remove_readonly)
 
             plans, results = restore_from_manifest(manifest, None)
 

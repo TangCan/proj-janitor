@@ -38,7 +38,7 @@ class BackupTests(unittest.TestCase):
                 [scan_project(project)], backup_dest=backup_dest
             )
 
-            self.assertEqual(manifest_paths[0].parent, backup_dest / "app")
+            self.assertEqual(manifest_paths[0].parent, backup_dest.resolve() / "app")
             self.assertEqual(plans[0].project.name, "app")
             self.assertFalse(backup_dest.exists())
 
@@ -231,10 +231,10 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(len(manifest_paths), 1)
             manifest_path = manifest_paths[0]
             self.assertTrue(manifest_path.is_file())
-            self.assertEqual(manifest_path.parent, dest / "app")
+            self.assertEqual(manifest_path.parent, dest.resolve() / "app")
             self.assertTrue(manifest_path.name.startswith("manifest-"))
             archive = Path(records[0].archive)
-            self.assertEqual(archive.parent, dest / "app")
+            self.assertEqual(archive.parent, dest.resolve() / "app")
             self.assertTrue(archive.is_file())
             self.assertTrue(archive.name.startswith("app-"))
             self.assertEqual(records[0].sha256, sha256_file(archive))
@@ -274,7 +274,7 @@ class BackupTests(unittest.TestCase):
 
             self.assertTrue(any("node_modules" in name for name in names))
             self.assertTrue(manifest_paths[0].is_file())
-            self.assertEqual(Path(records[0].archive).parent, dest / "app")
+            self.assertEqual(Path(records[0].archive).parent, dest.resolve() / "app")
 
     def test_coverage_root_artifact_is_excluded_but_nested_is_kept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -346,7 +346,7 @@ class BackupTests(unittest.TestCase):
 
             archive_dirs = [Path(record.archive).parent for record in records]
             self.assertEqual(len(set(archive_dirs)), 2)
-            self.assertTrue(all(path.parent == dest for path in archive_dirs))
+            self.assertTrue(all(path.parent == dest.resolve() for path in archive_dirs))
             self.assertTrue(all(path.name.startswith("app-") for path in archive_dirs))
             self.assertEqual(len({path.name for path in archive_dirs}), 2)
             self.assertEqual(
@@ -375,15 +375,15 @@ class BackupTests(unittest.TestCase):
 
             first_archive = Path(first_records[0].archive)
             second_archive = Path(second_records[0].archive)
-            self.assertEqual(first_archive.parent, dest / "app")
-            self.assertEqual(second_archive.parent, dest / "app")
+            self.assertEqual(first_archive.parent, dest.resolve() / "app")
+            self.assertEqual(second_archive.parent, dest.resolve() / "app")
             self.assertNotEqual(first_archive, second_archive)
             self.assertTrue(first_archive.is_file())
             self.assertTrue(second_archive.is_file())
-            self.assertEqual(first_manifests[0].parent, dest / "app")
-            self.assertEqual(second_manifests[0].parent, dest / "app")
+            self.assertEqual(first_manifests[0].parent, dest.resolve() / "app")
+            self.assertEqual(second_manifests[0].parent, dest.resolve() / "app")
             self.assertNotEqual(first_manifests[0], second_manifests[0])
-            self.assertEqual(len(list((dest / "app").glob("manifest-*.json"))), 2)
+            self.assertEqual(len(list((dest.resolve() / "app").glob("manifest-*.json"))), 2)
 
     def test_batch_run_writes_manifest_per_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -497,9 +497,9 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(record.upstream, "origin/main")
             self.assertEqual(record.verified, "local-ref")
             self.assertIsNone(record.fallback_reason)
-            self.assertEqual(manifest_path.parent, dest / "app")
-            self.assertEqual(list(dest.iterdir()), [dest / "app"])
-            self.assertEqual(list((dest / "app").iterdir()), [manifest_path])
+            self.assertEqual(manifest_path.parent, dest.resolve() / "app")
+            self.assertEqual(list(dest.resolve().iterdir()), [dest.resolve() / "app"])
+            self.assertEqual(list((dest.resolve() / "app").iterdir()), [manifest_path])
 
             manifest = json.loads(
                 manifest_path.read_text(encoding="utf-8"),
@@ -563,7 +563,7 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "working tree is not clean",
             )
             self.assertTrue(Path(record.archive).is_file())
-            self.assertEqual(Path(record.archive).parent, dest / "app")
+            self.assertEqual(Path(record.archive).parent, dest.resolve() / "app")
             self.assertIsNotNone(record.sha256)
 
             manifest = json.loads(
@@ -592,7 +592,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(record.strategy, "archive")
             self.assertEqual(record.fallback_reason, "always_archive")
             self.assertTrue(Path(record.archive).is_file())
-            self.assertEqual(Path(record.archive).parent, dest / "app")
+            self.assertEqual(Path(record.archive).parent, dest.resolve() / "app")
 
             manifest = json.loads(
                 manifest_paths[0].read_text(encoding="utf-8"),
@@ -615,7 +615,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(record.strategy, "archive")
             self.assertEqual(record.fallback_reason, "include_artifacts")
             self.assertTrue(Path(record.archive).is_file())
-            self.assertEqual(Path(record.archive).parent, dest / "app")
+            self.assertEqual(Path(record.archive).parent, dest.resolve() / "app")
 
             manifest = json.loads(
                 manifest_paths[0].read_text(encoding="utf-8"),

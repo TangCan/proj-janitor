@@ -73,7 +73,7 @@ class ScannerTests(unittest.TestCase):
 
             projects = discover_projects(root)
 
-            self.assertEqual([project.path for project in projects], [root])
+            self.assertEqual([project.path for project in projects], [root.resolve()])
 
     def test_missing_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

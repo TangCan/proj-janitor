@@ -60,7 +60,7 @@ class CleanerTests(unittest.TestCase):
             self.assertEqual(matched, {"node_modules", "__pycache__", "dist"})
             self.assertNotIn(".git", matched)
             self.assertNotIn("main.py", matched)
-            self.assertTrue(all(action.project == project for action in plan))
+            self.assertTrue(all(action.project == project.resolve() for action in plan))
 
     def test_apply_cleanup_removes_only_planned_items(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,9 +120,9 @@ class CleanerTests(unittest.TestCase):
             plan = build_cleanup_plan(project, ["node"])
 
             paths = {action.path for action in plan}
-            self.assertIn(root_coverage, paths)
-            self.assertNotIn(nested_coverage, paths)
-            self.assertNotIn(empty_coverage, paths)
+            self.assertIn(root_coverage.resolve(), paths)
+            self.assertNotIn(nested_coverage.resolve(), paths)
+            self.assertNotIn(empty_coverage.resolve(), paths)
 
     def test_coverage_without_marker_is_not_matched(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
