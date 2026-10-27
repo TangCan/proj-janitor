@@ -31,6 +31,21 @@ class ScannerTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 measure_tree(Path(tmp) / "missing")
 
+    def test_measure_tree_ignores_file_disappearing_during_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing = root / "vanishing.txt"
+            missing.write_text("will disappear", encoding="utf-8")
+            real_stat = Path.stat
+
+            def disappear(path, *args, **kwargs):
+                if path == missing:
+                    raise FileNotFoundError(path)
+                return real_stat(path, *args, **kwargs)
+
+            with patch.object(Path, "stat", disappear):
+                self.assertEqual(measure_tree(root)[0], 0)
+
     def test_discovers_marked_projects_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

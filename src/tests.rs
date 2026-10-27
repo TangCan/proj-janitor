@@ -996,6 +996,23 @@ fn tree_size_reports_traversal_errors() {
 }
 
 #[test]
+fn metadata_if_present_ignores_disappeared_files() {
+    let temp = TestDir::new();
+    assert!(
+        crate::project::metadata_if_present(&temp.0.join("missing"))
+            .unwrap()
+            .is_none()
+    );
+    let file = temp.0.join("present");
+    fs::write(&file, "present").unwrap();
+    assert!(
+        crate::project::metadata_if_present(&file)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
 fn clean_does_not_apply_partial_plan_when_a_root_fails() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

@@ -82,7 +82,10 @@ def measure_tree(path: Path) -> tuple[int, datetime | None]:
         ]
         for filename in filenames:
             entry = Path(dirpath) / filename
-            metadata = entry.stat(follow_symlinks=False)
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                continue
             if stat.S_ISREG(metadata.st_mode):
                 total += metadata.st_size
             if latest is None or metadata.st_mtime > latest:

@@ -93,7 +93,12 @@ pub(crate) fn inspect(path: &Path) -> anyhow::Result<Project> {
     for entry in WalkDir::new(&path).follow_links(false) {
         let e = entry?;
         if e.file_type().is_file() {
-            let m = e.metadata()?;
+            let Some(m) = metadata_if_present(e.path())? else {
+                continue;
+            };
+            if !m.file_type().is_file() {
+                continue;
+            }
             size += m.len();
             let t = m.modified().ok();
             if t > latest {
@@ -124,6 +129,15 @@ pub(crate) fn inspect(path: &Path) -> anyhow::Result<Project> {
         git,
     })
 }
+
+pub(crate) fn metadata_if_present(path: &Path) -> std::io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn git_output(path: &Path, args: &[&str]) -> Option<String> {
     git_run(path, args)
         .filter(|output| output.status.success())
