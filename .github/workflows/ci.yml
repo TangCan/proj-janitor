@@ -43,6 +43,28 @@ jobs:
           cd "$RUNNER_TEMP"
           PYTHONPATH="$install_dir" "$install_dir/bin/projjan" --version
 
+  python-build-audit:
+    name: Python build dependency advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Export declared build requirements
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          requirements = tomllib.loads(Path("pyproject.toml").read_text())["build-system"]["requires"]
+          Path(os.environ["RUNNER_TEMP"], "build-requirements.txt").write_text("\n".join(requirements) + "\n")
+          PY
+      - uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+        with:
+          inputs: ${{ runner.temp }}/build-requirements.txt
+
   workflow-lint:
     name: GitHub Actions workflows
     runs-on: ubuntu-24.04
