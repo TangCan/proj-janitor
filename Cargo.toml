@@ -1,6 +1,6 @@
 [package]
 name = "proj-janitor"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Tang Can <tang_can@qq.com>"]
