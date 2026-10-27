@@ -154,7 +154,19 @@ pub(crate) struct Record {
 }
 
 fn main() {
-    if let Err(e) = run() {
+    #[cfg(windows)]
+    let result = match std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)
+    {
+        Ok(worker) => worker
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("command thread panicked"))),
+        Err(error) => Err(error.into()),
+    };
+    #[cfg(not(windows))]
+    let result = run();
+    if let Err(e) = result {
         if let Some(interrupted) = e.downcast_ref::<restore::RestoreInterrupted>() {
             std::process::exit(128 + interrupted.0);
         }
