@@ -99,6 +99,24 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     ])
     assert_restored(python_destination / "demo")
 
+    directory_only_project = root / "directory-only"
+    (directory_only_project / ".git").mkdir(parents=True)
+    for producer, consumer, suffix in (
+        ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)], "python-to-rust"),
+        ([str(RUST_CLI)], [sys.executable, "-m", "proj_janitor"], "rust-to-python"),
+    ):
+        backup_dest = root / f"{suffix}-backups"
+        run([
+            *producer, "backup", str(directory_only_project),
+            "--backup-dest", str(backup_dest), "--always-archive",
+        ])
+        manifest = next((backup_dest / "directory-only").glob("manifest-*.json"))
+        destination = root / f"{suffix}-restored"
+        run([*consumer, "restore", str(manifest), "--dest", str(destination)])
+        restored_project = destination / "directory-only"
+        assert (restored_project / ".git").is_dir()
+        assert not any(path.is_file() for path in restored_project.rglob("*"))
+
     malicious_archive = root / "windows-traversal.tar.gz"
     with tarfile.open(malicious_archive, "w:gz") as archive:
         member = tarfile.TarInfo(r"demo/src\..\..\escape.txt")
