@@ -170,4 +170,39 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not (destination / "demo").exists()
     assert not (root / "escape.txt").exists()
 
+    git_manifest = root / "git-manifest.json"
+    git_manifest.write_text(
+        json.dumps({
+            "schema_version": 2,
+            "created_at": "2026-10-27T00:00:00+00:00",
+            "tool": "proj-janitor",
+            "version": "0.2.4",
+            "include_artifacts": False,
+            "always_archive": False,
+            "records": [{
+                "project": "git-demo",
+                "source": str(root / "git-demo"),
+                "archive": None,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": None,
+                "strategy": "git",
+                "remote_url": "https://github.com/team/demo.git",
+                "commit": "a" * 40,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    git_verify_results = []
+    for command in ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)]):
+        git_verify_results.append(json.loads(run([
+            *command, "verify", str(git_manifest), "--project", "git-demo", "--json",
+        ])))
+        run_rejected(
+            [*command, "verify", str(git_manifest), "--project", "missing"],
+            "project not found in manifest",
+        )
+    assert git_verify_results[0] == git_verify_results[1]
+    assert git_verify_results[0]["projects"][0]["status"] == "metadata-only"
+
 print("Python and Rust schema v2 archive/restore compatibility passed.")
