@@ -613,7 +613,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用 Git 临时配置环境从原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。旧版 Git 不支持该环境配置时，只有不含敏感信息的 URL 才回退到命令参数传递。
 8. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
 9. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
-10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
+10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
 11. Git 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。
 12. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
@@ -1148,7 +1148,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 清理规则/计划 | 单项目失败输出到标准错误，继续其他项目，最终退出 `1`；`--apply` 有计划失败时不执行任何删除。 |
 | 备份归档 | 单项目捕获 `OSError`/`tarfile.TarError`，清理部分输出并继续其他项目；最终退出 `1`。 |
 | manifest 写入 | 单项目捕获 `OSError`，清理本次 manifest/归档并继续其他项目；最终退出 `1`。 |
-| 恢复 | 将 manifest、归档、SHA-256、目标和 Git 失败转为 `RestoreError`，CLI 输出 `error:` 并返回 `1`；多项目中途失败不回滚已完成项目。 |
+| 恢复 | 将 manifest、归档、SHA-256、目标和 Git 失败转为 `RestoreError`，CLI 输出 `error:` 并返回 `1`；多项目中途失败不回滚已完成项目，错误列出已完成目标。 |
 | 清理删除 | 逐项捕获并汇总，已成功项不回滚。 |
 | Git 常规失败 | 转为 `GitRecovery.reason` 或空字段，不抛给用户。 |
 | 中断 | 不捕获 `KeyboardInterrupt`；可能留下部分备份、恢复或删除结果。 |

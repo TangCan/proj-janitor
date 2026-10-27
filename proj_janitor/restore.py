@@ -64,9 +64,13 @@ def execute_restore(plans: Iterable[RestorePlan]) -> list[RestoreResult]:
     for plan in plan_list:
         try:
             results.append(_restore_one(plan))
-        except OSError as exc:
+        except (OSError, RestoreError) as exc:
+            completed = ", ".join(
+                f"{result.project} -> {result.target}" for result in results
+            )
+            suffix = f"; already restored: {completed}" if completed else ""
             raise RestoreError(
-                f"cannot restore {plan.project}: {exc}"
+                f"cannot restore {plan.project}: {exc}{suffix}"
             ) from exc
     return results
 

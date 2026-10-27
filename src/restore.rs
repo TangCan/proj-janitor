@@ -293,31 +293,47 @@ pub(crate) fn restore_cmd(
     }
     let mut done = Vec::new();
     for (r, target, archive) in &plans {
-        fs::create_dir_all(
-            target
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("target has no parent"))?,
-        )?;
-        match r.strategy.as_str() {
-            "archive" => {
-                let archive = archive
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("missing archive for {}", r.project))?;
-                extract_archive(archive, target, &r.project)?;
+        let result = (|| -> anyhow::Result<()> {
+            fs::create_dir_all(
+                target
+                    .parent()
+                    .ok_or_else(|| anyhow::anyhow!("target has no parent"))?,
+            )?;
+            match r.strategy.as_str() {
+                "archive" => {
+                    let archive = archive
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("missing archive for {}", r.project))?;
+                    extract_archive(archive, target, &r.project)?;
+                }
+                "git" => {
+                    let url = r
+                        .remote_url
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("missing remote_url"))?;
+                    let commit = r
+                        .commit
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
+                    restore_git(url, commit, target, &r.project)?;
+                }
+                x => anyhow::bail!("unsupported backup strategy: {x}"),
+            };
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if done.is_empty() {
+                return Err(error);
             }
-            "git" => {
-                let url = r
-                    .remote_url
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("missing remote_url"))?;
-                let commit = r
-                    .commit
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
-                restore_git(url, commit, target, &r.project)?;
-            }
-            x => anyhow::bail!("unsupported backup strategy: {x}"),
-        };
+            let completed = done
+                .iter()
+                .map(|(project, _, path): &(String, String, PathBuf)| {
+                    format!("{project} -> {}", path.display())
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(anyhow::anyhow!("{error}; already restored: {completed}"));
+        }
         done.push((r.project.clone(), r.strategy.clone(), target.clone()));
     }
     if json {
