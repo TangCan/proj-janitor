@@ -7,14 +7,16 @@
 | 项目名称 | proj-janitor（proj_janitor） |
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | v0.1.0（post-v0.1.0 一致性修订） |
-| 源码提交 | `763c41f41b71ba2f88e2a5dd7c1af3b83cc65ba4`（当前代码基线） |
-| 源码标签 | `v0.1.0` 仍指向 `f5bb224a9cc8541523019a569e13f50dd86944f9`，不含 post-v0.1.0 变更 |
-| 文档日期 | 2026-10-24 |
-| 项目类型 | 内部自研、本地 CLI、单仓库小项目 |
+| 文档版本 | 2026-10-27 清单对照修订 |
+| 源码提交 | `267c85fbdefe8929851233bf5ca182030ed23ae9`（程序源码快照） |
+| 源码标签 | 发布标签 `v0.2.3`；当前 源码快照位于其后 16 个提交，未另打标签 |
+| 文档日期 | 2026-10-27 |
+| 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
+
+> **本次修订口径（2026-10-27）**：本文件主体含有以 Python `0.1.0`/提交 `763c41f` 为依据的历史结项记录；这些历史结果不作为当前版本证据。当前快照为 Rust crate `0.2.3` 已发布、Python 包 `0.1.0`，GitHub 仓库 `TangCan/proj-janitor` 的程序源码快照 `267c85f`（`v0.2.3-16-g267c85f`）。本文件末尾的“当前结项更新”补充当前范围、验证和遗留事项，并优先于主体中已过时的“当前”状态。正式验收、评审或签字只有在实际记录存在时才可认定；本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -1263,3 +1265,39 @@ tar -xzf <archive>
 3. 读取 `scan --json`、`clean --json`、`restore --json` 和 `manifest-<timestamp>.json` 进行后续处理。
 
 这些方式都不改变“本地 CLI、无网络服务”的产品边界。若未来需要 HTTP 服务，应作为独立需求重新设计，并补充认证、并发、审计和错误协议，不能把当前 CLI 输出直接视为 HTTP API 契约。
+
+## 16. Rust CLI 与当前接口补充（2026-10-27）
+
+本文前 1–15 章中的 Python 函数签名仍描述 Python 包 `0.1.0`。Rust CLI 是独立二进制 `projjan`，不提供 Python API；两者共享 schema v2 manifest。
+
+### 16.1 Rust CLI 命令
+
+| 子命令 | 用法 | 主要参数/语义 |
+| --- | --- | --- |
+| `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive` |
+| `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
+| `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
+
+安装已发布 crate：
+
+```bash
+cargo install --locked proj-janitor --version 0.2.3
+```
+
+从仓库 main 编译安装后续修订：
+
+```bash
+cargo install --locked --path .
+```
+
+当前 main 的 `Cargo.toml` 仍为 0.2.3，因此源码构建的 `--version` 不能区分发布标签和其后的 16 个未发布提交；需要确认源码身份时应检查 Git commit。
+
+### 16.2 当前安全与文件接口
+
+- 新备份根目录和项目目录（Unix）为 `0700`，归档与 manifest 为 `0600`；已存在的目录权限不改。Windows ACL 继承自目标父目录。
+- Git 与归档恢复都在执行前拒绝 Windows 不可移植项目名；包括 `CONIN$` 和 `CONOUT$`。
+- Python 与 Rust 都可恢复仅含目录成员的非空归档；Python↔Rust 双向兼容由 `tests/cross_version_compat.py` 验证。
+- schema v2 仍是文件接口；没有 HTTP/REST 服务。SHA-256 检查保证文件与 manifest 中摘要一致，不提供签名或来源认证。
+
+最新接口行为以 `src/main.rs`、`src/restore.rs`、Python `proj_janitor/cli.py` 和 CI 为准。内部函数、未发布 main 提交和格式化文本输出均不构成长期稳定 API 承诺。
