@@ -23,7 +23,7 @@
 cargo install --locked proj-janitor
 ```
 
-当前 crates.io 已发布版本为 `0.2.3`。需要固定版本时运行：
+当前 crates.io 已发布版本为 `0.2.3`。main 正在准备 `0.2.4` 候选，尚未发布；需要固定已发布版本时运行：
 
 ```bash
 cargo install --locked proj-janitor --version 0.2.3
