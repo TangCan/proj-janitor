@@ -123,6 +123,25 @@ fn create_private_file(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
+pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    #[cfg(unix)]
+    let result = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700).create(path)
+    };
+    #[cfg(not(unix))]
+    let result = fs::create_dir(path);
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !target.exists() && !target.is_symlink(),

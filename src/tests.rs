@@ -454,6 +454,11 @@ fn backup_outputs_are_private_to_the_current_user() {
     )
     .unwrap();
 
+    for path in [&backup_dir, &backup_dir.join("demo")] {
+        let mode = fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0);
+        assert_eq!(mode & 0o700, 0o700);
+    }
     for entry in fs::read_dir(backup_dir.join("demo")).unwrap() {
         let mode = entry.unwrap().metadata().unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0);

@@ -251,6 +251,10 @@ class BackupTests(unittest.TestCase):
             self.assertTrue(archive.is_file())
             self.assertTrue(archive.name.startswith("app-"))
             if os.name == "posix":
+                for path in (dest.resolve(), manifest_path.parent):
+                    mode = stat.S_IMODE(path.stat().st_mode)
+                    self.assertEqual(mode & 0o077, 0)
+                    self.assertEqual(mode & 0o700, 0o700)
                 for path in (manifest_path, archive):
                     mode = stat.S_IMODE(path.stat().st_mode)
                     self.assertEqual(mode & 0o077, 0)

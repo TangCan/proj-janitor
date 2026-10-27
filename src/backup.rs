@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     Manifest, Record,
-    archive::{create_archive, portable_path_key, sha256, write_new_file},
+    archive::{create_archive, create_private_dir, portable_path_key, sha256, write_new_file},
     expand, human,
     project::{discover, inspect_recovery},
     resolve_for_creation,
@@ -80,6 +80,9 @@ pub(crate) fn backup_cmd(
             project.path.display()
         );
     }
+    if !dry {
+        create_private_dir(&dest)?;
+    }
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
     for (p, dir_name) in projects.iter().zip(&project_dirs) {
         let dir = dest.join(dir_name);
@@ -123,7 +126,7 @@ pub(crate) fn backup_cmd(
         }
         let mut archive_created = false;
         let result = (|| -> anyhow::Result<Record> {
-            fs::create_dir_all(&dir)?;
+            create_private_dir(&dir)?;
             if let Some(git) = &recovery {
                 return Ok(Record {
                     project: p.name.clone(),

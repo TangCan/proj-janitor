@@ -9,7 +9,7 @@
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；先校验 manifest 和归档 SHA-256，且不覆盖已有目录。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
-- Unix 上新建的备份归档和 manifest 权限为 `0600`；Windows 使用备份目录继承的 ACL。
+- Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
 - 真正删除需要同时提供 `--apply` 和交互确认（或 `--yes`）。
 

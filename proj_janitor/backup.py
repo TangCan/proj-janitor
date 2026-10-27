@@ -100,6 +100,7 @@ def run_backup(
     dry_run: bool = False,
     always_archive: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
+    backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
         projects,
         backup_dest,
@@ -109,6 +110,8 @@ def run_backup(
     if dry_run:
         return manifest_paths, [], []
 
+    if manifest_paths and not backup_dest.exists():
+        backup_dest.mkdir(mode=0o700, parents=True, exist_ok=True)
     patterns = artifact_patterns(include_artifacts)
     records: list[BackupRecord] = []
     completed_paths: list[Path] = []
@@ -117,7 +120,7 @@ def run_backup(
     for manifest_path, plan in zip(manifest_paths, plans, strict=True):
         manifest_reserved = False
         try:
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with _open_new_file(manifest_path):
                 manifest_reserved = True
         except OSError as exc:
