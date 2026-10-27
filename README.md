@@ -181,7 +181,7 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 - `git` 策略：初始化仓库，将脱敏 URL 写入 `origin`，再直接从远程 fetch 分支和 tags（不写 `FETCH_HEAD`），最后 `git checkout --detach <commit>`。恢复后是 detached HEAD，不会自动创建或切换原分支；远程必须仍包含该提交。
 - Git 恢复的 init、remote add、fetch、checkout 和 HEAD 校验单步最长等待 10 分钟；超时会尝试终止 Git 进程树并报告失败，目标项目不会发布到最终路径。
 - 远程 URL 带凭据或查询参数时，Git 恢复失败会隐藏原始错误文本，避免错误输出回显敏感 URL。
-- 带认证信息的 URL 通过 Git 的临时配置环境传递；若本机 Git 不支持此方式，工具会拒绝恢复，并提示改用 credential helper/SSH 或升级 Git。
+- 带认证信息、查询或 fragment 的 URL 通过 Git 的临时配置环境传递；若本机 Git 不支持此方式，工具会拒绝恢复，并提示改用 credential helper/SSH 或升级 Git。
 - `archive` 策略：默认校验 manifest 中的 SHA-256，校验通过后才解压；`--no-verify` 可显式跳过校验。
 - 归档会先解压到临时目录，确认顶层目录为项目名后再移动到目标位置；拒绝绝对路径、`..` 路径、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标（避免 ADS）和越界链接。
 - 目标目录已存在或是符号链接时拒绝覆盖；需要恢复副本时请指定 `--dest`，或先自行移走旧目录。

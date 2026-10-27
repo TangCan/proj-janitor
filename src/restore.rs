@@ -406,7 +406,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         };
         anyhow::ensure!(
             uses_config_env || safe_url == url,
-            "Git cannot safely use this sensitive URL; upgrade Git or use a credential helper or SSH"
+            "Git cannot safely pass URL credentials or query data; upgrade Git or use a credential helper or SSH"
         );
         let mut fetch = Command::new("git");
         fetch

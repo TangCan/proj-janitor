@@ -416,8 +416,8 @@ def _restore_git(plan: RestorePlan) -> None:
             )
         if not uses_config_env and safe_remote != plan.remote_url:
             raise RestoreError(
-                "Git cannot safely use this sensitive URL; upgrade Git or "
-                "use a credential helper or SSH"
+                "Git cannot safely pass URL credentials or query data; "
+                "upgrade Git or use a credential helper or SSH"
             )
         fetch_args = ["-C", str(repo), "fetch", "--no-write-fetch-head", "--no-tags"]
         fetch_env = None
