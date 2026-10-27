@@ -9,9 +9,11 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from proj_janitor.backup import run_backup, sha256_file
+import proj_janitor.restore as restore_module
 from proj_janitor.restore import RestoreError, restore_from_manifest
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
@@ -60,6 +62,25 @@ def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
 
 
 class RestoreTests(unittest.TestCase):
+    def test_windows_git_tree_kill_failure_falls_back_to_killing_git(self) -> None:
+        process = mock.Mock(pid=123, stdout=None, stderr=None)
+        process.communicate.return_value = (None, None)
+
+        with (
+            mock.patch.object(restore_module, "os", SimpleNamespace(name="nt")),
+            mock.patch.object(
+                restore_module.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=1),
+            ) as taskkill,
+            mock.patch.object(restore_module, "_kill_git_process") as kill_git,
+        ):
+            restore_module._stop_git_process(process)
+
+        taskkill.assert_called_once()
+        kill_git.assert_called_once_with(process)
+        process.communicate.assert_called_once_with(timeout=10)
+
     def test_backup_and_restore_keep_parent_relative_internal_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

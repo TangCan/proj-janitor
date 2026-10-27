@@ -648,13 +648,15 @@ def _stop_git_process(process: subprocess.Popen[str]) -> None:
             _kill_git_process(process)
     elif os.name == "nt":
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(process.pid)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
                 timeout=10,
             )
+            if result.returncode != 0:
+                _kill_git_process(process)
         except (OSError, subprocess.TimeoutExpired):
             _kill_git_process(process)
     else:
