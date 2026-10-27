@@ -14,7 +14,7 @@ from unittest import mock
 
 from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
-from proj_janitor.restore import RestoreError, restore_from_manifest
+from proj_janitor.restore import RestoreError, restore_from_manifest, verify_manifest
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
@@ -62,6 +62,42 @@ def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
 
 
 class RestoreTests(unittest.TestCase):
+    def test_verify_manifest_checks_archive_without_restoring(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, record = archive_backup(root)
+
+            results = verify_manifest(manifest)
+
+            self.assertEqual(results[0]["status"], "verified")
+            self.assertEqual(results[0]["sha256"], record["sha256"])
+            self.assertTrue(project.exists())
+
+            with Path(record["archive"]).open("ab") as handle:
+                handle.write(b"corruption")
+            with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
+                verify_manifest(manifest)
+
+    def test_verify_manifest_reports_git_metadata_without_network_access(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git",
+                        "remote_url": str(root / "app.git"),
+                        "commit": "a" * 40,
+                    }
+                ],
+            )
+
+            results = verify_manifest(manifest)
+
+            self.assertEqual(results[0]["status"], "metadata-only")
+            self.assertEqual(results[0]["commit"], "a" * 40)
+
     def test_windows_git_tree_kill_failure_falls_back_to_killing_git(self) -> None:
         process = mock.Mock(pid=123, stdout=None, stderr=None)
         process.communicate.return_value = (None, None)

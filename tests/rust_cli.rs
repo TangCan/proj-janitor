@@ -62,6 +62,64 @@ fn normalized_output(output: &str) -> String {
 }
 
 #[test]
+fn verify_checks_archive_hash_without_restoring() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .arg("--always-archive")
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backup_dest.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("manifest-")
+        })
+        .unwrap();
+
+    let verified = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(result["projects"][0]["status"], "verified");
+    assert!(project.exists());
+
+    let manifest_data: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    let archive = PathBuf::from(manifest_data["records"][0]["archive"].as_str().unwrap());
+    fs::write(&archive, b"corruption").unwrap();
+    let rejected = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("sha256 mismatch"));
+}
+
+#[test]
 fn backup_reads_backup_dest_from_environment() {
     let temp = TestDir::new();
     let project = temp.project();

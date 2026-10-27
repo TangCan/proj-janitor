@@ -116,6 +116,13 @@ enum Action {
         #[arg(long)]
         json: bool,
     },
+    Verify {
+        manifest: PathBuf,
+        #[arg(long = "project")]
+        projects: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -188,6 +195,11 @@ fn run() -> anyhow::Result<()> {
             yes,
             json,
         } => restore_cmd(&manifest, dest, &projects, dry_run, no_verify, yes, json),
+        Action::Verify {
+            manifest,
+            projects,
+            json,
+        } => restore::verify_cmd(&manifest, &projects, json),
     }
 }
 

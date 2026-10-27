@@ -108,17 +108,9 @@ pub(crate) fn redact_remote(remote: &str) -> String {
     remote.to_owned()
 }
 
-pub(crate) fn restore_cmd(
-    manifest_path: &Path,
-    dest: Option<PathBuf>,
-    projects: &[String],
-    dry: bool,
-    no_verify: bool,
-    yes: bool,
-    json: bool,
-) -> anyhow::Result<()> {
-    let manifest_path = fs::canonicalize(expand(manifest_path))?;
-    let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+fn load_manifest(path: &Path) -> anyhow::Result<(PathBuf, Manifest)> {
+    let path = fs::canonicalize(expand(path))?;
+    let manifest: Manifest = serde_json::from_slice(&fs::read(&path)?)?;
     anyhow::ensure!(
         manifest.schema_version == 2,
         "unsupported manifest schema_version: {}",
@@ -128,6 +120,157 @@ pub(crate) fn restore_cmd(
         !manifest.records.is_empty(),
         "manifest records must be a non-empty array"
     );
+    Ok((path, manifest))
+}
+
+fn selected_records<'a>(
+    records: &'a [Record],
+    projects: &[String],
+) -> anyhow::Result<Vec<&'a Record>> {
+    if projects.is_empty() {
+        return Ok(records.iter().collect());
+    }
+    let wanted: HashSet<_> = projects.iter().map(String::as_str).collect();
+    let selected: Vec<_> = records
+        .iter()
+        .filter(|record| wanted.contains(record.project.as_str()))
+        .collect();
+    for project in projects {
+        anyhow::ensure!(
+            selected.iter().any(|record| record.project == *project),
+            "project not found in manifest: {project}"
+        );
+    }
+    Ok(selected)
+}
+
+pub(crate) fn verify_cmd(
+    manifest_path: &Path,
+    projects: &[String],
+    json: bool,
+) -> anyhow::Result<()> {
+    let (manifest_path, manifest) = load_manifest(manifest_path)?;
+    let mut names = HashSet::new();
+    let mut results = Vec::new();
+    for record in selected_records(&manifest.records, projects)? {
+        anyhow::ensure!(
+            safe_name(&record.project),
+            "unsafe project name: {}",
+            record.project
+        );
+        anyhow::ensure!(
+            names.insert(record.project.clone()),
+            "duplicate project: {}",
+            record.project
+        );
+        match record.strategy.as_str() {
+            "archive" => {
+                let archive =
+                    resolve_archive(record, manifest_path.parent().unwrap_or(Path::new(".")))?;
+                let expected = record
+                    .sha256
+                    .as_deref()
+                    .filter(|hash| !hash.is_empty())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("manifest has no sha256 for {}", record.project)
+                    })?;
+                let actual = sha256(&archive)?;
+                anyhow::ensure!(
+                    actual.eq_ignore_ascii_case(expected),
+                    "sha256 mismatch for {}",
+                    archive.display()
+                );
+                results.push((
+                    record.project.clone(),
+                    "archive",
+                    "verified",
+                    Some(archive),
+                    Some(actual),
+                ));
+            }
+            "git" => {
+                let url = record
+                    .remote_url
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("missing remote_url"))?;
+                let commit = record
+                    .commit
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
+                validate_git_restore(url, commit)?;
+                results.push((
+                    record.project.clone(),
+                    "git",
+                    "metadata-only",
+                    None,
+                    Some(commit.to_owned()),
+                ));
+            }
+            other => anyhow::bail!("unsupported backup strategy: {other}"),
+        }
+    }
+    if json {
+        let projects: Vec<_> = results
+            .iter()
+            .map(|(project, strategy, status, archive, detail)| {
+                let mut value = serde_json::json!({
+                    "project": project,
+                    "strategy": strategy,
+                    "status": status,
+                    "archive": archive
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned()),
+                });
+                value["sha256"] = if *strategy == "archive" {
+                    serde_json::json!(detail)
+                } else {
+                    serde_json::Value::Null
+                };
+                value["commit"] = if *strategy == "git" {
+                    serde_json::json!(detail)
+                } else {
+                    serde_json::Value::Null
+                };
+                value
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "manifest": manifest_path,
+                "projects": projects,
+            }))?
+        );
+    } else {
+        for (project, strategy, status, archive, detail) in &results {
+            if *strategy == "archive" {
+                println!(
+                    "[archive] {project}: SHA-256 {status} {}",
+                    archive.as_ref().unwrap().display()
+                );
+            } else {
+                let commit = detail.as_deref().unwrap_or_default();
+                println!(
+                    "[git] {project}: manifest metadata valid (commit {}; remote not checked)",
+                    &commit[..12.min(commit.len())]
+                );
+            }
+        }
+        println!("Verified {} project(s).", results.len());
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_cmd(
+    manifest_path: &Path,
+    dest: Option<PathBuf>,
+    projects: &[String],
+    dry: bool,
+    no_verify: bool,
+    yes: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    let (manifest_path, manifest) = load_manifest(manifest_path)?;
     let dest = if let Some(dest) = dest {
         let resolved = resolve_for_creation(&expand(&dest))?;
         anyhow::ensure!(
@@ -142,11 +285,7 @@ pub(crate) fn restore_cmd(
     let mut plans = Vec::new();
     let mut names = HashSet::new();
     let mut portable_targets = HashSet::new();
-    let wanted: HashSet<_> = projects.iter().collect();
-    for r in &manifest.records {
-        if !wanted.is_empty() && !wanted.contains(&r.project) {
-            continue;
-        }
+    for r in selected_records(&manifest.records, projects)? {
         anyhow::ensure!(safe_name(&r.project), "unsafe project name: {}", r.project);
         anyhow::ensure!(
             names.insert(r.project.clone()),
@@ -213,12 +352,6 @@ pub(crate) fn restore_cmd(
             );
         }
         plans.push((r.clone(), target, archive));
-    }
-    for p in projects {
-        anyhow::ensure!(
-            plans.iter().any(|(r, _, _)| &r.project == p),
-            "project not found in manifest: {p}"
-        )
     }
     if dry {
         if json {

@@ -88,23 +88,7 @@ def plan_restore(
         if dest.exists() and not dest.is_dir():
             raise RestoreError(f"destination is not a directory: {dest}")
 
-    records = manifest["records"]
-    requested = list(projects)
-    if requested:
-        wanted = set(requested)
-        selected = []
-        found = set()
-        for record in records:
-            name = _record_project(record)
-            if name in wanted:
-                selected.append(record)
-                found.add(name)
-        missing = wanted - found
-        if missing:
-            names = ", ".join(sorted(missing))
-            raise RestoreError(f"project not found in manifest: {names}")
-    else:
-        selected = records
+    selected = _select_records(manifest["records"], projects)
 
     plans: list[RestorePlan] = []
     seen: set[str] = set()
@@ -195,6 +179,81 @@ def plan_restore(
             f"unsupported backup strategy for {project}: {strategy!r}"
         )
     return plans
+
+
+def verify_manifest(
+    manifest_path: Path,
+    projects: Iterable[str] = (),
+) -> list[dict[str, str | None]]:
+    manifest_path, manifest = load_manifest(manifest_path)
+    selected = _select_records(manifest["records"], projects)
+    results: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for record in selected:
+        project = _record_project(record)
+        if project in seen:
+            raise RestoreError(f"duplicate project in manifest: {project}")
+        seen.add(project)
+
+        strategy = record.get("strategy")
+        if strategy == "archive":
+            archive = _resolve_archive(record, manifest_path.parent, project)
+            expected = record.get("sha256")
+            if not isinstance(expected, str) or not expected:
+                raise RestoreError(f"manifest has no sha256 for {project}")
+            try:
+                actual = sha256_file(archive)
+            except OSError as exc:
+                raise RestoreError(f"cannot read archive {archive}: {exc}") from exc
+            if actual.lower() != expected.lower():
+                raise RestoreError(
+                    f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
+                )
+            results.append(
+                {
+                    "project": project,
+                    "strategy": "archive",
+                    "status": "verified",
+                    "archive": str(archive),
+                    "sha256": actual,
+                    "commit": None,
+                }
+            )
+        elif strategy == "git":
+            remote_url = _record_string(record, "remote_url")
+            _validate_remote_url(remote_url)
+            commit = _record_string(record, "commit")
+            if not _COMMIT_RE.fullmatch(commit):
+                raise RestoreError(f"invalid commit for {project}: {commit!r}")
+            results.append(
+                {
+                    "project": project,
+                    "strategy": "git",
+                    "status": "metadata-only",
+                    "archive": None,
+                    "sha256": None,
+                    "commit": commit,
+                }
+            )
+        else:
+            raise RestoreError(
+                f"unsupported backup strategy for {project}: {strategy!r}"
+            )
+    return results
+
+
+def _select_records(records: list[dict], projects: Iterable[str]) -> list[dict]:
+    requested = list(projects)
+    if not requested:
+        return records
+    wanted = set(requested)
+    selected = [record for record in records if _record_project(record) in wanted]
+    found = {_record_project(record) for record in selected}
+    missing = wanted - found
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise RestoreError(f"project not found in manifest: {names}")
+    return selected
 
 
 def load_manifest(path: Path) -> tuple[Path, dict]:

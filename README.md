@@ -8,6 +8,7 @@
 - `backup` 优先记录可恢复信息：已推送到 GitHub 的干净项目只写入远程 URL 和提交 SHA；其余项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；先校验 manifest 和归档 SHA-256，且不覆盖已有目录。
+- main 上新增的 `verify` 不写入或恢复文件：校验归档 SHA-256；Git 记录只验证 manifest 中的 URL 和提交格式，不联网检查远程。此命令尚未包含在 crates.io `0.2.4` 中。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
@@ -33,7 +34,7 @@ cargo install --locked proj-janitor --version 0.2.4
 
 从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
-Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复仍需本机安装 Git。
+Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`clean`；main 还加入了尚未发布的 `verify` 命令。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复仍需本机安装 Git。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
@@ -173,7 +174,15 @@ projjan restore <manifest> --dest ~/restored --project xtask_todo
 
 # 输出纯 JSON
 projjan restore <manifest> --dest ~/restored --dry-run --json
+
+# main 版：校验归档 SHA-256，并检查 Git 备份元数据（不联网）
+projjan verify <manifest>
+
+# 只校验指定项目，并输出 JSON
+projjan verify <manifest> --project xtask_todo --json
 ```
+
+`verify` 的 Git 结果标记为 `metadata-only`：不会联网确认远程仓库或提交是否仍可用。
 
 恢复规则：
 
@@ -229,7 +238,7 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次验证（2026-10-27）：Python 3.12 的 124 项测试通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 3 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL 首轮 Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次验证（2026-10-27）：Python 3.12 的 127 项测试通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 4 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL 首轮 Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.4` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.4 发布记录](docs/发布记录/0.2.4-Rust版.md)。
 
 Rust 版开发检查：
@@ -259,6 +268,5 @@ python3 -m unittest discover -s tests -v
 
 - 支持 `git bundle`，保留完整提交历史并减小归档体积。
 - 增量备份与保留策略（例如只保留最近 N 份）。
-- 独立的 `verify` 命令（当前归档校验内置于 `restore`）。
 - 配置文件（排除规则、备份目标、保留策略）。
 - 恢复时对 Git 远程提交做联网预检。

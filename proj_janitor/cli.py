@@ -27,6 +27,7 @@ from proj_janitor.restore import (
     execute_restore,
     plan_restore,
     redact_remote_url,
+    verify_manifest,
 )
 from proj_janitor.scanner import discover_projects, format_projects
 
@@ -43,6 +44,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_clean(args)
     if args.command == "restore":
         return _cmd_restore(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
 
     parser.print_help()
     return 2
@@ -162,6 +165,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip confirmation when restoring to original locations",
     )
     restore.add_argument("--json", action="store_true", help="emit JSON")
+
+    verify = subparsers.add_parser(
+        "verify",
+        help="verify backup archives against a manifest",
+    )
+    verify.add_argument("manifest", type=Path)
+    verify.add_argument(
+        "--project",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="verify only this project (repeatable)",
+    )
+    verify.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -354,6 +371,36 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     print(f"Restored {len(results)} project(s).")
     for result in results:
         print(f"  [{result.strategy}] {result.project} -> {result.target}")
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    try:
+        results = verify_manifest(args.manifest, projects=args.project)
+    except RestoreError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        payload = {
+            "manifest": str(args.manifest.expanduser().resolve()),
+            "projects": results,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    for result in results:
+        if result["strategy"] == "archive":
+            print(
+                f"[archive] {result['project']}: SHA-256 verified "
+                f"{result['archive']}"
+            )
+        else:
+            print(
+                f"[git] {result['project']}: manifest metadata valid "
+                f"(commit {result['commit'][:12]}; remote not checked)"
+            )
+    print(f"Verified {len(results)} project(s).")
     return 0
 
 

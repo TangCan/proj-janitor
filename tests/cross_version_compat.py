@@ -82,6 +82,13 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         "--backup-dest", str(python_backups), "--always-archive",
     ])
     python_manifest = next((python_backups / "demo").glob("manifest-*.json"))
+    python_verified = json.loads(
+        run([sys.executable, "-m", "proj_janitor", "verify", str(python_manifest), "--json"])
+    )
+    rust_verified = json.loads(
+        run([str(RUST_CLI), "verify", str(python_manifest), "--json"])
+    )
+    assert python_verified == rust_verified, "Python and Rust verify results differ"
     rust_destination = root / "rust-restored"
     run([str(RUST_CLI), "restore", str(python_manifest), "--dest", str(rust_destination)])
     assert_restored(rust_destination / "demo")
@@ -92,6 +99,13 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         "--always-archive",
     ])
     rust_manifest = next((rust_backups / "demo").glob("manifest-*.json"))
+    python_verified = json.loads(
+        run([sys.executable, "-m", "proj_janitor", "verify", str(rust_manifest), "--json"])
+    )
+    rust_verified = json.loads(
+        run([str(RUST_CLI), "verify", str(rust_manifest), "--json"])
+    )
+    assert python_verified == rust_verified, "Python and Rust verify results differ"
     python_destination = root / "python-restored"
     run([
         sys.executable, "-m", "proj_janitor", "restore", str(rust_manifest),

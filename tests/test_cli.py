@@ -42,6 +42,27 @@ class Tty(io.StringIO):
 
 
 class CliTests(unittest.TestCase):
+    def test_verify_archive_manifest_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+            code, _, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifest = next((backup_dest / "app").glob("manifest-*.json"))
+
+            code, out, err = run_cli("verify", str(manifest), "--json")
+
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(out)["projects"][0]["status"], "verified")
+            self.assertTrue(project.exists())
+
     def test_scan_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             make_project(Path(tmp))
