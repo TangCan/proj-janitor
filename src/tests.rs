@@ -20,6 +20,7 @@ fn artifact_matching_uses_cleanup_rules() {
     assert!(is_artifact(".venv"));
     assert!(!is_artifact("src"));
     assert!(!is_artifact(".git"));
+    assert_eq!(is_artifact("NODE_MODULES"), cfg!(windows));
 }
 
 struct TestDir(PathBuf);

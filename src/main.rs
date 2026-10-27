@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use globset::{Glob, GlobMatcher};
+use globset::{GlobBuilder, GlobMatcher};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -329,7 +329,12 @@ pub(crate) fn is_artifact(s: &str) -> bool {
             RULES
                 .iter()
                 .flat_map(|(_, patterns)| *patterns)
-                .filter_map(|pattern| Glob::new(pattern).ok())
+                .filter_map(|pattern| {
+                    GlobBuilder::new(pattern)
+                        .case_insensitive(cfg!(windows))
+                        .build()
+                        .ok()
+                })
                 .map(|glob| glob.compile_matcher())
                 .collect()
         })
