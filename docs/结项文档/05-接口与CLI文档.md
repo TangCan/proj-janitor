@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-27 清单对照修订 |
-| 源码提交 | `9ddf1c8bc5b5e7f9c05d705019c8e820fbe0086a`（main 程序源码快照；`v0.2.4` 为已发布标签） |
+| 源码提交 | `becfc9dc71d21a68cba3eacd06e26d47dfaac005`（main 当前程序快照；`v0.2.4` 为已发布标签） |
 | 源码标签 | `v0.2.4` 为 Rust 已发布标签；main 有发布后维护修订，未另发版本 |
 | 文档日期 | 2026-10-27 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -1277,7 +1277,7 @@ tar -xzf <archive>
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive` |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
-| `verify` | `projjan verify MANIFEST` | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json` |
+| `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；尚未包含于已发布 `0.2.4` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
 安装已发布 crate：
@@ -1301,7 +1301,7 @@ projjan verify MANIFEST
 projjan verify MANIFEST --project NAME --json
 ```
 
-归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不会联网检查远程。命令不写入文件，也不检查恢复目标是否存在。
+归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不会联网检查远程。命令不写入文件，也不检查恢复目标是否存在。当前命令位于 main，尚未进入 crates.io `0.2.4`。
 
 ## 16.3 当前安全与文件接口
 
@@ -1322,9 +1322,10 @@ projjan verify MANIFEST --project NAME --json
 
 ### 发布后 main 维护状态（2026-10-27）
 
-- 当前程序源码快照：`9ddf1c8bc5b5e7f9c05d705019c8e820fbe0086a`（`v0.2.4-11-g9ddf1c8`）；Rust `0.2.4` 正式发布标签仍指向 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`。main 上的后续维护尚未重新发布为 crate 版本。
-- Python Windows Git 恢复超时清理现已在 `taskkill /T` 失败时回退终止主进程；Python 测试为 124 项通过，Rust 为 26 项单元测试和 3 项 CLI 集成测试通过。
-- GitHub Actions run [40484612175](https://github.com/TangCan/proj-janitor/actions/runs/40484612175) 的 13/13 个 job 成功，包含 RustSec 与 Python 构建依赖审计；两项未报告已知漏洞。
-- GitHub CodeQL 默认扫描已覆盖 Actions、Python、Rust；首轮 run [40485038662](https://github.com/TangCan/proj-janitor/actions/runs/40485038662) 三个语言 job 成功，当前无开放 CodeQL 告警。
-- Dependabot alerts、security updates、每周版本更新和 GitHub 私密漏洞报告均已启用；当前无开放 Dependabot 告警。
-- 正式结项仍待实际负责人/接收人验收与签字；自动化扫描不替代代码安全审计。
+- 当前程序源码快照：`becfc9dc71d21a68cba3eacd06e26d47dfaac005`（`v0.2.4-16-gbecfc9d`）；Rust `0.2.4` 正式发布标签仍指向 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`。main 后续修订尚未重新发布为 crate 版本。
+- main 新增只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程；该命令尚未进入 crates.io `0.2.4`。
+- Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
+- Python 127 项测试、Rust 26 项单元测试和 5 项 CLI 集成测试通过；Python/Rust 对两种来源 manifest 的 verify JSON 结果一致。
+- GitHub Actions run [40495550746](https://github.com/TangCan/proj-janitor/actions/runs/40495550746) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40495550578](https://github.com/TangCan/proj-janitor/actions/runs/40495550578) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
