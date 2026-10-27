@@ -130,13 +130,14 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
         let dec = GzDecoder::new(f);
         let mut ar = Archive::new(dec);
         let entries = ar.entries()?;
-        let mut count = 0;
+        let mut member_count = 0;
         let mut directories = Vec::new();
         let mut symlinks = Vec::new();
         let mut casefolded_paths = HashMap::new();
         let mut archive_members = HashSet::new();
         for item in entries {
             let mut e = item?;
+            member_count += 1;
             let raw_name = e.path_bytes();
             anyhow::ensure!(
                 !raw_name.contains(&b'\\'),
@@ -192,10 +193,9 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
                 let mut f = File::create(&out)?;
                 io::copy(&mut e, &mut f)?;
                 set_mode(&out, mode)?;
-                count += 1;
             }
         }
-        anyhow::ensure!(count > 0, "archive is empty");
+        anyhow::ensure!(member_count > 0, "archive is empty");
         let root = tmp.join(project);
         anyhow::ensure!(
             root.is_dir() && !root.is_symlink(),
