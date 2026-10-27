@@ -356,6 +356,90 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             run_git_with_timeout(&mut init, project, "init")?.success(),
             "git init failed for {project}"
         );
+        let remote_suffix = temporary
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .replace(['.', '-'], "_");
+        let fetch_remote = format!("projjan_{remote_suffix}");
+        let refspecs = [
+            "+refs/heads/*:refs/remotes/origin/*",
+            "+refs/tags/*:refs/tags/*",
+        ];
+        for refspec in refspecs {
+            let mut add_fetch = Command::new("git");
+            add_fetch
+                .arg("-C")
+                .arg(&repo)
+                .args(["config", "--local", "--add"])
+                .arg(format!("remote.{fetch_remote}.fetch"))
+                .arg(refspec)
+                .stdout(Stdio::null());
+            anyhow::ensure!(
+                run_git_with_timeout(&mut add_fetch, project, "config")?.success(),
+                "cannot configure Git fetch for {project}"
+            );
+        }
+        const CONFIG_PROBE_URL: &str = "https://projjan.invalid/";
+        let probe_env = git_config_env(&format!("remote.{fetch_remote}.url"), CONFIG_PROBE_URL);
+        let uses_config_env = if let Some(probe_env) = &probe_env {
+            // Probe with a harmless URL so secrets never enter argv or probe output.
+            let probe_output = temporary.join("config-probe");
+            let mut probe = Command::new("git");
+            probe
+                .arg("-C")
+                .arg(&repo)
+                .args(["config", "--get"])
+                .arg(format!("remote.{fetch_remote}.url"))
+                .stdout(fs::File::create(&probe_output)?);
+            for (key, value) in probe_env {
+                probe.env(key, value);
+            }
+            let probe_status = run_git_with_timeout(&mut probe, project, "config probe")?;
+            drop(probe);
+            let supported = probe_status.success()
+                && fs::read_to_string(&probe_output)?.trim() == CONFIG_PROBE_URL;
+            let _ = fs::remove_file(probe_output);
+            supported
+        } else {
+            false
+        };
+        anyhow::ensure!(
+            uses_config_env || safe_url == url,
+            "Git cannot safely use this sensitive URL; upgrade Git or use a credential helper or SSH"
+        );
+        let mut fetch = Command::new("git");
+        fetch
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .arg("-C")
+            .arg(&repo)
+            .args(["fetch", "--no-write-fetch-head", "--no-tags"]);
+        if uses_config_env {
+            fetch.arg(&fetch_remote);
+            let actual_env = git_config_env(&format!("remote.{fetch_remote}.url"), url)
+                .ok_or_else(|| anyhow::anyhow!("cannot prepare Git config environment"))?;
+            for (key, value) in actual_env {
+                fetch.env(key, value);
+            }
+        } else {
+            fetch.arg("--").arg(url).args(refspecs);
+        }
+        fetch.stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut fetch, project, "fetch")?.success(),
+            "git fetch failed for {project}"
+        );
+        let mut remove_fetch_remote = Command::new("git");
+        remove_fetch_remote
+            .arg("-C")
+            .arg(&repo)
+            .args(["config", "--local", "--remove-section"])
+            .arg(format!("remote.{fetch_remote}"))
+            .stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut remove_fetch_remote, project, "config")?.success(),
+            "cannot remove temporary Git remote for {project}"
+        );
         let mut add_remote = Command::new("git");
         add_remote
             .arg("-C")
@@ -365,22 +449,6 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         anyhow::ensure!(
             run_git_with_timeout(&mut add_remote, project, "remote add")?.success(),
             "cannot configure restored remote for {project}"
-        );
-        let mut fetch = Command::new("git");
-        fetch
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .arg("-C")
-            .arg(&repo)
-            .args(["fetch", "--no-write-fetch-head", "--no-tags", "--"])
-            .arg(url)
-            .args([
-                "+refs/heads/*:refs/remotes/origin/*",
-                "+refs/tags/*:refs/tags/*",
-            ])
-            .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut fetch, project, "fetch")?.success(),
-            "git fetch failed for {project}"
         );
         let mut checkout = Command::new("git");
         checkout
@@ -456,6 +524,20 @@ fn run_git_with_timeout(
         }
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn git_config_env(key: &str, value: &str) -> Option<Vec<(String, String)>> {
+    let count = match std::env::var("GIT_CONFIG_COUNT") {
+        Ok(value) => value.parse::<usize>().ok()?,
+        Err(std::env::VarError::NotPresent) => 0,
+        Err(std::env::VarError::NotUnicode(_)) => return None,
+    };
+    let next = count.checked_add(1)?;
+    Some(vec![
+        ("GIT_CONFIG_COUNT".into(), next.to_string()),
+        (format!("GIT_CONFIG_KEY_{count}"), key.to_owned()),
+        (format!("GIT_CONFIG_VALUE_{count}"), value.to_owned()),
+    ])
 }
 
 #[cfg(unix)]

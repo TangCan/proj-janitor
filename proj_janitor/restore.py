@@ -384,20 +384,59 @@ def _restore_git(plan: RestorePlan) -> None:
     try:
         safe_remote = redact_remote_url(plan.remote_url)
         _run_git(["init", str(repo)])
-        _run_git(["-C", str(repo), "remote", "add", "origin", safe_remote])
-        _run_git(
-            [
-                "-C",
-                str(repo),
-                "fetch",
-                "--no-write-fetch-head",
-                "--no-tags",
-                "--",
-                plan.remote_url,
-                "+refs/heads/*:refs/remotes/origin/*",
-                "+refs/tags/*:refs/tags/*",
-            ]
+        fetch_remote = f"projjan-restore-{temporary.name.rsplit('-', 1)[-1]}"
+        refspecs = (
+            "+refs/heads/*:refs/remotes/origin/*",
+            "+refs/tags/*:refs/tags/*",
         )
+        for refspec in refspecs:
+            _run_git(
+                [
+                    "-C",
+                    str(repo),
+                    "config",
+                    "--local",
+                    "--add",
+                    f"remote.{fetch_remote}.fetch",
+                    refspec,
+                ]
+            )
+        probe_url = "https://projjan.invalid/"
+        probe_env = _git_config_env(f"remote.{fetch_remote}.url", probe_url)
+        uses_config_env = False
+        if probe_env is not None:
+            # Probe with a harmless URL so secrets never enter argv or probe output.
+            probe = _run_git(
+                ["-C", str(repo), "config", "--get", f"remote.{fetch_remote}.url"],
+                extra_env=probe_env,
+                check=False,
+            )
+            uses_config_env = (
+                probe.returncode == 0 and probe.stdout.strip() == probe_url
+            )
+        if not uses_config_env and safe_remote != plan.remote_url:
+            raise RestoreError(
+                "Git cannot safely use this sensitive URL; upgrade Git or "
+                "use a credential helper or SSH"
+            )
+        fetch_args = ["-C", str(repo), "fetch", "--no-write-fetch-head", "--no-tags"]
+        fetch_env = None
+        if uses_config_env:
+            fetch_args.append(fetch_remote)
+            fetch_env = dict(probe_env)
+            config_index = int(fetch_env["GIT_CONFIG_COUNT"]) - 1
+            fetch_env[f"GIT_CONFIG_VALUE_{config_index}"] = plan.remote_url
+        else:
+            fetch_args.extend([plan.remote_url, *refspecs])
+        _run_git(
+            fetch_args,
+            extra_env=fetch_env,
+            sensitive_remote=plan.remote_url,
+        )
+        _run_git(
+            ["-C", str(repo), "config", "--local", "--remove-section", f"remote.{fetch_remote}"]
+        )
+        _run_git(["-C", str(repo), "remote", "add", "origin", safe_remote])
         _run_git(["-C", str(repo), "checkout", "--detach", plan.commit])
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
         if not head.lower().startswith(plan.commit.lower()):
@@ -506,9 +545,17 @@ def _validate_archive_link(
         raise RestoreError(f"archive symlink escapes project: {member.name}")
 
 
-def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    args: list[str],
+    *,
+    extra_env: dict[str, str] | None = None,
+    sensitive_remote: str | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    if extra_env is not None:
+        environment.update(extra_env)
     command = " ".join(args[:2])
     try:
         options = {"start_new_session": True} if os.name == "posix" else {}
@@ -541,9 +588,9 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
     result = subprocess.CompletedProcess(
         ["git", *args], process.returncode, stdout, stderr
     )
-    if result.returncode != 0:
+    if check and result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        if _git_args_have_sensitive_remote(args):
+        if _git_args_have_sensitive_remote(args, sensitive_remote):
             detail = "remote URL details redacted"
         if not detail:
             detail = f"exit code {result.returncode}"
@@ -551,8 +598,10 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _git_args_have_sensitive_remote(args: list[str]) -> bool:
-    for value in args:
+def _git_args_have_sensitive_remote(
+    args: list[str], remote_override: str | None = None
+) -> bool:
+    for value in ([remote_override] if remote_override else []) + args:
         if value.startswith(("http://", "https://", "ssh://", "file://")):
             try:
                 remote = urlsplit(value)
@@ -565,6 +614,20 @@ def _git_args_have_sensitive_remote(args: list[str]) -> bool:
         elif re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:.+", value):
             return True
     return False
+
+
+def _git_config_env(key: str, value: str) -> dict[str, str] | None:
+    try:
+        count = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        return None
+    if count < 0:
+        return None
+    return {
+        "GIT_CONFIG_COUNT": str(count + 1),
+        f"GIT_CONFIG_KEY_{count}": key,
+        f"GIT_CONFIG_VALUE_{count}": value,
+    }
 
 
 def _stop_git_process(process: subprocess.Popen[str]) -> None:

@@ -610,7 +610,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 4. 指定 `--dest` 时，目标固定为 `--dest/<项目名>/`；`--dest` 已存在但不是目录时拒绝。
 5. 同一批恢复中目标路径重复或大小写折叠后冲突时拒绝，避免在大小写不敏感文件系统上覆盖或中途失败。
 6. 预检所有目标路径后才会开始恢复；任一目标已存在或是符号链接时整批不开始。
-7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。
+7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用 Git 临时配置环境从原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。旧版 Git 不支持该环境配置时，只有不含敏感信息的 URL 才回退到命令参数传递。
 8. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
 9. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，临时目录会清理。
@@ -1005,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
-内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` init 临时仓库、写入脱敏 origin、直接 fetch 后 `checkout --detach` 并验证 HEAD，Git 子进程每步超时为 600 秒；fetch 不写入包含 URL 的 `FETCH_HEAD`；`_run_git` 遇到敏感 Git URL 时不回显原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
+内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` init 临时仓库、写入脱敏 origin、通过 Git 临时配置环境 fetch 后 `checkout --detach` 并验证 HEAD，Git 子进程每步超时为 600 秒；fetch 不写入包含 URL 的 `FETCH_HEAD`；旧版 Git 只对不含敏感信息的 URL 回退到参数传递；`_run_git` 遇到敏感 Git URL 时不回显原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
 
 ### 12.5 模型与配置
 
