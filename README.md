@@ -228,7 +228,7 @@ projjan restore <manifest> --dest ~/restored --dry-run --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次完整本地回归（2026-10-27）：Python 120 项测试通过（Python 3.12.3）；Rust stable 和 MSRV 1.88 均通过 20 项单元测试及 3 项 CLI 集成测试；Python/Rust schema v2 归档兼容脚本通过。验证运行于 Linux；Windows 仅做 Rust 目标交叉编译，未做实机测试。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次完整本地回归（2026-10-27）：Python 120 项测试通过（Python 3.12.3）；Rust stable 和 MSRV 1.88 均通过 21 项单元测试及 3 项 CLI 集成测试，其中包含本地裸仓库 Git 恢复；Python/Rust schema v2 归档兼容脚本通过。验证运行于 Linux；Windows 仅做 Rust 目标交叉编译，未做实机测试。Python 版无第三方运行时依赖，要求 Python 3.10+。
 同日 `cargo fmt --check`、Clippy、Windows 目标编译和 stable/MSRV `cargo package --no-verify` 通过。crates.io 发布和 `cargo install --locked` 验证记录于 2026-10-24。
 
 Rust 版开发检查：

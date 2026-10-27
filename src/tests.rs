@@ -5,7 +5,7 @@ use crate::archive::{
 use crate::backup::backup_cmd;
 use crate::clean::tree_size;
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
-use crate::restore::{redact_remote, validate_git_restore};
+use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
 use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fs::File, process::Command};
@@ -675,6 +675,92 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     assert_eq!(
         fs::read_to_string(restore_root.join("demo/data.txt")).unwrap(),
         "restore me\n"
+    );
+}
+
+#[test]
+fn git_restore_fetches_commit_without_persisting_fetch_url() {
+    let temp = TestDir::new();
+    let project = temp.0.join("source");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping Git restore fixture");
+        return;
+    }
+    let remote = temp.0.join("remote.git");
+    assert!(git_ok(&remote, &["init", "--bare"]));
+    let remote_arg = remote.to_string_lossy().into_owned();
+    assert!(local_git(&project, &["push", &remote_arg, "main"]));
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(&project)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    let commit = String::from_utf8(head.stdout).unwrap().trim().to_owned();
+    let manifest = Manifest {
+        schema_version: 2,
+        created_at: "2026-10-27T00:00:00+00:00".into(),
+        tool: "proj-janitor".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        include_artifacts: false,
+        always_archive: false,
+        records: vec![Record {
+            project: "demo".into(),
+            source: project.to_string_lossy().into_owned(),
+            archive: None,
+            archive_bytes: 0,
+            source_bytes: 0,
+            sha256: None,
+            strategy: "git".into(),
+            remote: Some("origin".into()),
+            remote_url: Some(remote_arg.clone()),
+            branch: Some("main".into()),
+            commit: Some(commit.clone()),
+            upstream: Some("origin/main".into()),
+            verified: Some("local-ref".into()),
+            fallback_reason: None,
+        }],
+    };
+    let manifest_path = temp.0.join("manifest.json");
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let dest = temp.0.join("restored");
+
+    restore_cmd(
+        &manifest_path,
+        Some(dest.clone()),
+        &[],
+        false,
+        false,
+        true,
+        false,
+    )
+    .unwrap();
+
+    let restored = dest.join("demo");
+    assert_eq!(
+        fs::read_to_string(restored.join("tracked.txt")).unwrap(),
+        "clean\n"
+    );
+    assert!(!restored.join(".git/FETCH_HEAD").exists());
+    let origin = Command::new("git")
+        .arg("-C")
+        .arg(&restored)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .unwrap();
+    assert!(origin.status.success());
+    assert_eq!(String::from_utf8(origin.stdout).unwrap().trim(), remote_arg);
+    let actual_head = Command::new("git")
+        .arg("-C")
+        .arg(&restored)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(actual_head.status.success());
+    assert_eq!(
+        String::from_utf8(actual_head.stdout).unwrap().trim(),
+        commit
     );
 }
 
