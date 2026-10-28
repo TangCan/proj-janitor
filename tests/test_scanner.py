@@ -315,32 +315,37 @@ class GitRecoveryTests(unittest.TestCase):
                 "local tag differs from remote: v1",
             )
 
-    def test_tag_verification_failure_blocks_backup(self) -> None:
+    def test_git_subprocess_failures_block_url_only_backup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_pushed_repo(Path(tmp))
             git(project, "tag", "v1")
             real_run = subprocess.run
 
-            for failure in ("timeout", "nonzero"):
-                with self.subTest(failure=failure):
-                    def fail_remote_tags(command, *args, **kwargs):
-                        if "ls-remote" in command:
-                            if failure == "timeout":
-                                raise subprocess.TimeoutExpired(command, timeout=10)
-                            return subprocess.CompletedProcess(command, 1, "", "")
-                        return real_run(command, *args, **kwargs)
+            cases = (
+                ("ls-remote", "timeout", "cannot verify local tags on remote"),
+                ("ls-remote", "nonzero", "cannot verify local tags on remote"),
+                ("ls-remote", "spawn", "cannot verify local tags on remote"),
+                ("status", "nonzero", "git status failed"),
+            )
+            for target, failure, reason in cases:
+                with self.subTest(command=target, failure=failure):
+                    def fail_git(command, *args, **kwargs):
+                        if target not in command:
+                            return real_run(command, *args, **kwargs)
+                        if failure == "timeout":
+                            raise subprocess.TimeoutExpired(command, timeout=10)
+                        if failure == "spawn":
+                            raise PermissionError("git could not be started")
+                        return subprocess.CompletedProcess(command, 1, "", "")
 
                     with patch(
                         "proj_janitor.scanner.subprocess.run",
-                        side_effect=fail_remote_tags,
+                        side_effect=fail_git,
                     ):
                         state = inspect_git_recoverability(scan_project(project))
 
                     self.assertFalse(state.eligible)
-                    self.assertEqual(
-                        state.reason,
-                        "cannot verify local tags on remote",
-                    )
+                    self.assertEqual(state.reason, reason)
 
     def test_non_github_remote_is_not_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
