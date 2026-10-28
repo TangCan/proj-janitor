@@ -269,6 +269,38 @@ fn verify_checks_archive_hash_without_restoring() {
 }
 
 #[test]
+fn backup_deduplicates_overlapping_roots() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&temp.0)
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .arg("--always-archive")
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&backup.stdout)
+            .matches("[archive] demo:")
+            .count(),
+        1
+    );
+    assert_eq!(
+        fs::read_dir(backup_dest.join("demo")).unwrap().count(),
+        2,
+        "one archive and one manifest should be written"
+    );
+}
+
+#[test]
 fn backup_reads_backup_dest_from_environment() {
     let temp = TestDir::new();
     let project = temp.project();

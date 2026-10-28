@@ -92,6 +92,25 @@ class CliTests(unittest.TestCase):
             self.assertIn("Dry run", out)
             self.assertFalse(dest.exists())
 
+    def test_backup_deduplicates_overlapping_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--always-archive",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertIn("Backed up 1 project(s).", out)
+            self.assertEqual(len(list((backup_dest / "app").glob("manifest-*.json"))), 1)
+
     def test_backup_rejects_destination_inside_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))
