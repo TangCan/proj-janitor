@@ -57,6 +57,13 @@ class ScannerTests(unittest.TestCase):
             beta = root / "beta"
             beta.mkdir()
             (beta / "notes.txt").write_text("x", encoding="utf-8")
+            hidden = root / ".hidden"
+            hidden.mkdir()
+            (hidden / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            try:
+                (root / "linked-alpha").symlink_to(alpha, target_is_directory=True)
+            except OSError:
+                pass
 
             projects = discover_projects(root)
 

@@ -316,6 +316,27 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
     let plan: serde_json::Value = serde_json::from_slice(&clean.stdout).unwrap();
     assert_eq!(plan.as_array().unwrap().len(), 1);
     assert!(project.join("target/cache").is_file());
+
+    let hidden = temp.0.join(".hidden-project");
+    fs::create_dir(&hidden).unwrap();
+    fs::write(hidden.join("Cargo.toml"), "[package]\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&project, temp.0.join("linked-demo")).unwrap();
+    let scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("scan")
+        .arg(&temp.0)
+        .arg(&project)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let projects: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
+    assert_eq!(projects.as_array().unwrap().len(), 1);
+    assert_eq!(projects[0]["name"], "demo");
 }
 
 #[test]
