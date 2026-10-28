@@ -254,7 +254,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次验证（2026-10-28）：Python 3.12 的 131 项测试通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 8 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次验证（2026-10-28）：Python 共 132 项；本地 Linux 131 项通过，1 项 Windows 专用测试跳过，Windows CI 通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 8 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：
