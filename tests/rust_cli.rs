@@ -85,11 +85,18 @@ fn backup_cli_creates_an_archive_and_manifest() {
     }
 
     let project_backup = backup_dest.join(project.file_name().unwrap());
-    assert_eq!(
-        fs::read_dir(&project_backup).unwrap().count(),
-        2,
-        "expected one archive and one manifest"
-    );
+    let entries: Vec<_> = fs::read_dir(&project_backup).unwrap().collect();
+    assert_eq!(entries.len(), 2, "expected one archive and one manifest");
+    let manifest = entries
+        .into_iter()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
