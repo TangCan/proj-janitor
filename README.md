@@ -44,6 +44,8 @@ cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branc
 
 main 的 Cargo 版本号为 `0.2.5`。从 Git 安装 main 时，具体行为仍可能包含发布后的维护提交。
 
+当前 main 的 `--exclude-git-metadata` 正在准备作为 Rust `0.2.6` 候选发布；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
+
 Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复仍需本机安装 Git。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
