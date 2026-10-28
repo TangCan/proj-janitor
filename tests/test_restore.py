@@ -98,7 +98,7 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual(results[0]["status"], "metadata-only")
             self.assertEqual(results[0]["commit"], "a" * 40)
 
-    def test_windows_git_tree_kill_failure_falls_back_to_killing_git(self) -> None:
+    def test_git_timeout_stops_process_and_windows_tree_kill_falls_back(self) -> None:
         process = mock.Mock(pid=123, stdout=None, stderr=None)
         process.communicate.return_value = (None, None)
 
@@ -116,6 +116,22 @@ class RestoreTests(unittest.TestCase):
         taskkill.assert_called_once()
         kill_git.assert_called_once_with(process)
         process.communicate.assert_called_once_with(timeout=10)
+
+        process = mock.Mock(pid=123)
+        process.communicate.side_effect = restore_module.subprocess.TimeoutExpired(
+            ["git", "status"], timeout=10
+        )
+        with (
+            mock.patch.object(
+                restore_module.subprocess,
+                "Popen",
+                return_value=process,
+            ),
+            mock.patch.object(restore_module, "_stop_git_process") as stop_git,
+            self.assertRaisesRegex(RestoreError, "timed out after"),
+        ):
+            restore_module._run_git(["status"])
+        stop_git.assert_called_once_with(process)
 
     def test_backup_and_restore_keep_parent_relative_internal_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
