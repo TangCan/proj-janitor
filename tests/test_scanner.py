@@ -319,10 +319,16 @@ class GitRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = make_pushed_repo(Path(tmp))
             git(project, "tag", "v1")
+            real_run = subprocess.run
+
+            def timeout_remote_tags(command, *args, **kwargs):
+                if "ls-remote" in command:
+                    raise subprocess.TimeoutExpired(command, timeout=10)
+                return real_run(command, *args, **kwargs)
 
             with patch(
-                "proj_janitor.scanner._remote_tag_refs",
-                return_value=None,
+                "proj_janitor.scanner.subprocess.run",
+                side_effect=timeout_remote_tags,
             ):
                 state = inspect_git_recoverability(scan_project(project))
 
