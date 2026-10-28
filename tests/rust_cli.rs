@@ -279,6 +279,8 @@ fn verify_checks_archive_hash_without_restoring() {
 
 #[test]
 fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
+    use std::time::{Duration, UNIX_EPOCH};
+
     let temp = TestDir::new();
     let project = temp.project();
     fs::create_dir_all(project.join("target")).unwrap();
@@ -349,6 +351,15 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         "build.gradle.kts",
         "pom.xml",
     ];
+    let latest_modified = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    fs::File::open(project.join("pyproject.toml"))
+        .unwrap()
+        .set_modified(UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+        .unwrap();
+    fs::File::open(project.join("target/cache"))
+        .unwrap()
+        .set_modified(latest_modified)
+        .unwrap();
     for (index, marker) in markers.iter().enumerate() {
         let marked = temp.0.join(format!("marker-{index}"));
         fs::create_dir(&marked).unwrap();
@@ -382,6 +393,22 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         .collect();
     expected.insert("demo".into());
     assert_eq!(names, expected);
+    let projects = projects.as_array().unwrap();
+    let empty_git_project = projects
+        .iter()
+        .find(|project| project["name"] == "marker-0")
+        .unwrap();
+    assert_eq!(empty_git_project["size_bytes"], 0);
+    assert!(empty_git_project["last_modified"].is_null());
+    let demo = projects
+        .iter()
+        .find(|project| project["name"] == "demo")
+        .unwrap();
+    let actual_modified =
+        chrono::DateTime::parse_from_rfc3339(demo["last_modified"].as_str().unwrap())
+            .unwrap()
+            .timestamp();
+    assert_eq!(actual_modified, 1_700_000_000);
 }
 
 #[test]
