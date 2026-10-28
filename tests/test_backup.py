@@ -298,12 +298,11 @@ class BackupTests(unittest.TestCase):
             self.assertTrue(manifest_paths[0].is_file())
             self.assertEqual(Path(records[0].archive).parent, dest.resolve() / "app")
 
-    def test_backup_can_exclude_git_metadata_and_records_the_choice(self) -> None:
+    def test_backup_can_exclude_git_metadata_file_and_records_the_choice(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = make_project(root)
-            (project / ".git").mkdir()
-            (project / ".git" / "config").write_text("local git data\n", encoding="utf-8")
+            (project / ".git").write_text("gitdir: ../.git/worktrees/app\n", encoding="utf-8")
             dest = root / "backups"
 
             manifests, records, failures = run_backup(
@@ -321,7 +320,7 @@ class BackupTests(unittest.TestCase):
                 names = tar.getnames()
             self.assertIn("app/src/main.py", names)
             self.assertFalse(any("/.git/" in name or name.endswith("/.git") for name in names))
-            self.assertTrue((project / ".git" / "config").is_file())
+            self.assertTrue((project / ".git").is_file())
 
     def test_git_exclusion_manifest_records_option_even_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
