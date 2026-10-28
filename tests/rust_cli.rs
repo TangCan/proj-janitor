@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -330,9 +331,33 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
     fs::write(hidden.join("Cargo.toml"), "[package]\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&project, temp.0.join("linked-demo")).unwrap();
-    let cargo_project = temp.0.join("cargo-demo");
-    fs::create_dir(&cargo_project).unwrap();
-    fs::write(cargo_project.join("Cargo.toml"), "[package]\n").unwrap();
+    let markers = [
+        ".git",
+        ".hg",
+        ".svn",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        "CMakeLists.txt",
+        "Makefile",
+        "meson.build",
+        "build.gradle",
+        "build.gradle.kts",
+        "pom.xml",
+    ];
+    for (index, marker) in markers.iter().enumerate() {
+        let marked = temp.0.join(format!("marker-{index}"));
+        fs::create_dir(&marked).unwrap();
+        if *marker == ".git" {
+            fs::create_dir(marked.join(marker)).unwrap();
+        } else {
+            fs::write(marked.join(marker), "").unwrap();
+        }
+    }
     let scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("scan")
         .arg(&temp.0)
@@ -346,13 +371,17 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         String::from_utf8_lossy(&scan.stderr)
     );
     let projects: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
-    let names: std::collections::HashSet<_> = projects
+    let names: BTreeSet<String> = projects
         .as_array()
         .unwrap()
         .iter()
-        .map(|project| project["name"].as_str().unwrap())
+        .map(|project| project["name"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names, ["demo", "cargo-demo"].into_iter().collect());
+    let mut expected: BTreeSet<String> = (0..markers.len())
+        .map(|index| format!("marker-{index}"))
+        .collect();
+    expected.insert("demo".into());
+    assert_eq!(names, expected);
 }
 
 #[test]
