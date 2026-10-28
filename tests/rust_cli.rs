@@ -330,6 +330,9 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
     fs::write(hidden.join("Cargo.toml"), "[package]\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&project, temp.0.join("linked-demo")).unwrap();
+    let cargo_project = temp.0.join("cargo-demo");
+    fs::create_dir(&cargo_project).unwrap();
+    fs::write(cargo_project.join("Cargo.toml"), "[package]\n").unwrap();
     let scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("scan")
         .arg(&temp.0)
@@ -343,8 +346,13 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         String::from_utf8_lossy(&scan.stderr)
     );
     let projects: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
-    assert_eq!(projects.as_array().unwrap().len(), 1);
-    assert_eq!(projects[0]["name"], "demo");
+    let names: std::collections::HashSet<_> = projects
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|project| project["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["demo", "cargo-demo"].into_iter().collect());
 }
 
 #[test]

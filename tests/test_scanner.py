@@ -4,9 +4,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 
+from proj_janitor.config import PROJECT_MARKERS
 from proj_janitor.scanner import (
     _remote_tag_refs,
     discover_projects,
@@ -60,12 +62,22 @@ class ScannerTests(unittest.TestCase):
             hidden = root / ".hidden"
             hidden.mkdir()
             (hidden / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            marker_projects = set()
+            for index, marker in enumerate(PROJECT_MARKERS):
+                marked = root / f"marker-{index}"
+                marked.mkdir()
+                if marker == ".git":
+                    (marked / marker).mkdir()
+                else:
+                    (marked / marker).write_text("", encoding="utf-8")
+                marker_projects.add(marked.name)
 
             projects = discover_projects(root)
 
-            self.assertEqual([project.name for project in projects], ["alpha"])
-            self.assertEqual(projects[0].size_bytes, 10)
-            self.assertIn("pyproject.toml", projects[0].markers)
+            by_name = {project.name: project for project in projects}
+            self.assertEqual(set(by_name), {"alpha", *marker_projects})
+            self.assertEqual(by_name["alpha"].size_bytes, 10)
+            self.assertIn("pyproject.toml", by_name["alpha"].markers)
 
     def test_discovery_skips_symlink_directories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,13 +128,23 @@ class ScannerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "app"
             root.mkdir()
-            (root / "package.json").write_text("{}", encoding="utf-8")
+            marker = root / "package.json"
+            marker.write_text("{}", encoding="utf-8")
+            timestamp = 1_700_000_000
+            os.utime(marker, (timestamp, timestamp))
 
             project = scan_project(root)
 
             self.assertIsNone(project.git)
             self.assertEqual(project.branch_label, "-")
             self.assertEqual(project.dirty_label, "-")
+            self.assertAlmostEqual(project.last_modified.timestamp(), timestamp, delta=1)
+
+            empty = Path(tmp) / "empty"
+            (empty / ".git").mkdir(parents=True)
+            empty_project = scan_project(empty)
+            self.assertEqual(empty_project.size_bytes, 0)
+            self.assertIsNone(empty_project.last_modified)
 
     @unittest.skipUnless(shutil.which("git"), "git is not available")
     def test_scan_project_reports_clean_and_dirty_git_states(self) -> None:
