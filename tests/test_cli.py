@@ -198,7 +198,7 @@ class CliTests(unittest.TestCase):
                 exclude_git_metadata=False,
             ):
                 if project.name == "bad":
-                    raise OSError("disk full")
+                    raise PermissionError("access denied")
                 return real_backup_project(
                     project,
                     archive_dir,
@@ -218,7 +218,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(code, 1)
             self.assertIn("Backed up 1 project(s).", out)
-            self.assertIn("error: bad: disk full", err)
+            self.assertIn("error: bad: access denied", err)
             self.assertNotIn("Traceback", err)
             self.assertTrue(list((dest / "good").glob("manifest-*.json")))
             self.assertFalse(list((dest / "bad").glob("manifest-*.json")))
