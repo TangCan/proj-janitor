@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -130,8 +130,11 @@ class ScannerTests(unittest.TestCase):
             root.mkdir()
             marker = root / "package.json"
             marker.write_text("{}", encoding="utf-8")
+            older_file = root / "older.py"
+            older_file.write_text("old", encoding="utf-8")
             timestamp = 1_700_000_000
             os.utime(marker, (timestamp, timestamp))
+            os.utime(older_file, (timestamp - 100, timestamp - 100))
 
             project = scan_project(root)
 
