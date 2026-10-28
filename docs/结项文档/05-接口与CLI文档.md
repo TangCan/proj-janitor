@@ -8,15 +8,15 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-28 清单对照修订 |
-| 源码提交 | `7bd6f317637ce1daace91e896cfd57b07f601818`（main 当前程序快照；`v0.2.5` 为已发布标签） |
-| 源码标签 | `v0.2.5` 为 Rust 已发布标签；main 有发布后维护修订，未另发版本 |
+| 源码提交 | `2dd10979862f95cc1b8240695410769614b91f4d`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-28 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> **本次修订口径（2026-10-27）**：本文早期章节保留历史 Python 0.1.0 和旧源码快照的结项记录，其中的“当前”版本、测试数量及 CI 结果不代表最新 main。Rust 最新已发布版本为 0.2.5（`v0.2.5`），Python 包仍为 0.1.0；当前 main 快照和发布后维护状态见文末补充。正式验收、评审或签字只有在实际记录存在时才可认定；本次不补造此类记录。
+> **本次修订口径（2026-10-27）**：本文早期章节保留历史 Python 0.1.0 和旧源码快照的结项记录，其中的“当前”版本、测试数量及 CI 结果不代表最新 main。Rust 最新已发布版本为 0.2.5（`v0.2.5`）；main 另有未发布的 0.2.6 候选，Python 包仍为 0.1.0；当前 main 快照和发布后维护状态见文末补充。正式验收、评审或签字只有在实际记录存在时才可认定；本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -330,7 +330,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
-| `--exclude-git-metadata` | 否 | 关闭 | 仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。main 支持，尚未进入 crates.io 0.2.5。 |
+| `--exclude-git-metadata` | 否 | 关闭 | 仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。0.2.6 候选支持；尚未进入已发布的 crates.io 0.2.5。 |
 
 ### 6.2 策略选择
 
@@ -1281,7 +1281,7 @@ tar -xzf <archive>
 | 子命令 | 用法 | 主要参数/语义 |
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
-| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive`；main-only `--exclude-git-metadata` 未发布至 crates.io 0.2.5 |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive`；候选版 `--exclude-git-metadata` 未发布至 crates.io 0.2.5 |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
 | `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
@@ -1298,7 +1298,7 @@ cargo install --locked proj-janitor --version 0.2.5
 cargo install --locked --path .
 ```
 
-若要使用 main 中发布后新增的维护功能，可在仓库根目录运行 `cargo install --locked --path .`，或直接运行 `cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor`。main 的版本字符串为 0.2.5；确认具体源码时应检查 Git commit。
+若要使用 main 中发布后新增的维护功能，可在仓库根目录运行 `cargo install --locked --path .`，或直接运行 `cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor`。main 当前版本字符串为 0.2.6 候选；crates.io 稳定版仍为 0.2.5。确认具体源码时应检查 Git commit。
 
 ### 16.2 `verify` 子命令
 
@@ -1328,11 +1328,11 @@ projjan verify MANIFEST --project NAME --json
 
 ### 发布后 main 维护状态（2026-10-28）
 
-- Rust `0.2.5` 发布功能源码提交：`21f57a7a1fb09074acafd07a524be73330b6eacd`；当前 main 快照：`7bd6f317637ce1daace91e896cfd57b07f601818`，含未发布的工作树归档选项；Python 包仍为 `0.1.0`。
+- 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，功能提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，头部文档提交 `2dd10979862f95cc1b8240695410769614b91f4d`，尚未创建 tag 或发布；Python 包仍为 `0.1.0`。
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
-- main 还支持 `--exclude-git-metadata`：归档时省略 `.git`，manifest 的 `exclude_git_metadata` 记录实际行为；恢复后没有 Git 历史。该选项尚未进入已发布的 crates.io `0.2.5` 或 PyPI `0.1.0`。
+- `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
 - Python 128 项测试、Rust 26 项单元测试和 6 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40623377128](https://github.com/TangCan/proj-janitor/actions/runs/40623377128) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40623377085](https://github.com/TangCan/proj-janitor/actions/runs/40623377085) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- GitHub Actions run [40625868275](https://github.com/TangCan/proj-janitor/actions/runs/40625868275) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40625867392](https://github.com/TangCan/proj-janitor/actions/runs/40625867392) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
