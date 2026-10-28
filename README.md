@@ -42,7 +42,7 @@ cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branc
 
 这会安装 main 当前源码，随后的提交可能改变功能；稳定安装仍使用上面的 crates.io 版本。
 
-main 的 Cargo 版本号为 `0.2.5`。从 Git 安装 main 时，具体行为仍可能包含发布后的维护提交。
+main 当前候选 Cargo 版本号为 `0.2.6`；crates.io 稳定版仍为 `0.2.5`。从 Git 安装 main 时，具体行为仍可能随后续维护提交变化。
 
 当前 main 的 `--exclude-git-metadata` 正在准备作为 Rust `0.2.6` 候选发布；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
 
