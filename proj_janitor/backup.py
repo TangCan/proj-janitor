@@ -99,6 +99,7 @@ def run_backup(
     include_artifacts: bool = False,
     dry_run: bool = False,
     always_archive: bool = False,
+    exclude_git_metadata: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -140,6 +141,7 @@ def run_backup(
                 created_at,
                 include_artifacts,
                 always_archive,
+                exclude_git_metadata,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file(manifest_path)
@@ -160,6 +162,7 @@ def _backup_one(
     created_at: str,
     include_artifacts: bool,
     always_archive: bool,
+    exclude_git_metadata: bool,
 ) -> BackupRecord:
     archive_path: Path | None = None
     if plan.strategy == "git":
@@ -193,6 +196,7 @@ def _backup_one(
             patterns=patterns,
             archive_name=plan.archive_name,
             fallback_reason=plan.reason,
+            exclude_git_metadata=exclude_git_metadata,
         )
 
     manifest = {
@@ -202,6 +206,7 @@ def _backup_one(
         "version": __version__,
         "include_artifacts": include_artifacts,
         "always_archive": always_archive,
+        "exclude_git_metadata": exclude_git_metadata and record.strategy == "archive",
         "records": [asdict(record)],
     }
     try:
@@ -246,6 +251,7 @@ def backup_project(
     patterns: Iterable[str] = (),
     archive_name: str | None = None,
     fallback_reason: str | None = None,
+    exclude_git_metadata: bool = False,
 ) -> BackupRecord:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
@@ -258,7 +264,9 @@ def backup_project(
                 tar.add(
                     project.path,
                     arcname=project.name,
-                    filter=_make_filter(project.name, patterns, project.path),
+                    filter=_make_filter(
+                        project.name, patterns, project.path, exclude_git_metadata
+                    ),
                 )
         archive_bytes = archive.stat().st_size
         digest = sha256_file(archive)
@@ -289,6 +297,7 @@ def _make_filter(
     arc_root: str,
     patterns: tuple[str, ...],
     project_path: Path,
+    exclude_git_metadata: bool = False,
 ):
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
     seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
@@ -296,6 +305,8 @@ def _make_filter(
     def exclude(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
         parts = PurePosixPath(info.name).parts
         relative = parts[1:] if parts and parts[0] == arc_root else parts
+        if exclude_git_metadata and ".git" in relative:
+            return None
         for index, part in enumerate(relative if patterns else ()):
             if part == COVERAGE_DIR:
                 if index == 0 and coverage_artifact:

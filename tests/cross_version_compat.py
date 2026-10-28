@@ -53,6 +53,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     project = root / "demo"
     (project / "src").mkdir(parents=True)
     (project / ".git").mkdir()
+    (project / ".git/config").write_text("private git metadata\n", encoding="utf-8")
     for marker in PROJECT_MARKERS:
         if marker != ".git":
             (project / marker).write_text("", encoding="utf-8")
@@ -92,6 +93,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     rust_destination = root / "rust-restored"
     run([str(RUST_CLI), "restore", str(python_manifest), "--dest", str(rust_destination)])
     assert_restored(rust_destination / "demo")
+    assert (rust_destination / "demo/.git/config").is_file()
 
     rust_backups = root / "rust-backups"
     run([
@@ -112,6 +114,28 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         "--dest", str(python_destination),
     ])
     assert_restored(python_destination / "demo")
+    assert (python_destination / "demo/.git/config").is_file()
+
+    for producer, consumer, suffix in (
+        ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)], "python-to-rust"),
+        ([str(RUST_CLI)], [sys.executable, "-m", "proj_janitor"], "rust-to-python"),
+    ):
+        backup_dest = root / f"without-git-{suffix}-backups"
+        run([
+            *producer, "backup", str(project), "--backup-dest", str(backup_dest),
+            "--always-archive", "--exclude-git-metadata",
+        ])
+        manifest = next((backup_dest / "demo").glob("manifest-*.json"))
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        assert payload["exclude_git_metadata"] is True
+        verified = json.loads(run([*consumer, "verify", str(manifest), "--json"]))
+        assert verified["projects"][0]["status"] == "verified"
+        destination = root / f"without-git-{suffix}-restored"
+        run([*consumer, "restore", str(manifest), "--dest", str(destination)])
+        restored = destination / "demo"
+        assert_restored(restored)
+        assert not (restored / ".git").exists()
+    assert (project / ".git/config").is_file()
 
     directory_only_project = root / "directory-only"
     (directory_only_project / ".git").mkdir(parents=True)

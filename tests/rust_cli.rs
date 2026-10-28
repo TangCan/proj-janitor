@@ -66,6 +66,8 @@ fn normalized_output(output: &str) -> String {
 fn backup_cli_creates_an_archive_and_manifest() {
     let temp = TestDir::new();
     let project = temp.project();
+    fs::create_dir(project.join(".git")).unwrap();
+    fs::write(project.join(".git/config"), "keep git history\n").unwrap();
     let backup_dest = temp.0.join("backups");
     let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("backup")
@@ -95,8 +97,82 @@ fn backup_cli_creates_an_archive_and_manifest() {
                 .is_some_and(|extension| extension == "json")
         })
         .unwrap();
-    let manifest: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
-    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["version"], env!("CARGO_PKG_VERSION"));
+    let restored_dest = temp.0.join("default-restore");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert!(restored_dest.join("demo/.git/config").is_file());
+}
+
+#[test]
+fn backup_can_archive_working_tree_without_git_metadata() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("src/main.py"), "print('hi')\n").unwrap();
+    let git_dir = project.join(".git");
+    fs::create_dir(&git_dir).unwrap();
+    fs::write(git_dir.join("config"), "private git metadata\n").unwrap();
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .arg("--always-archive")
+        .arg("--exclude-git-metadata")
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+
+    let project_backup = backup_dest.join("demo");
+    let manifest = fs::read_dir(&project_backup)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["exclude_git_metadata"], true);
+
+    let restored_dest = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(restored_dest.join("demo/src/main.py")).unwrap(),
+        "print('hi')\n"
+    );
+    assert!(!restored_dest.join("demo/.git").exists());
+    assert!(git_dir.join("config").is_file());
 }
 
 #[test]

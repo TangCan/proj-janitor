@@ -318,6 +318,7 @@ projjan scan ~/projects ~/archive --json
 ```text
 projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
                  [--include-artifacts] [--always-archive]
+                 [--exclude-git-metadata]
 ```
 
 `--backup-dest` 与环境变量 `BACKUP_DEST` 二选一；同时指定时命令行参数优先。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。
@@ -329,6 +330,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
+| `--exclude-git-metadata` | 否 | 关闭 | 仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。main 支持，尚未进入 crates.io 0.2.5。 |
 
 ### 6.2 策略选择
 
@@ -344,6 +346,8 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 说明：
 
 - `--include-artifacts` 和 `--always-archive` 都会跳过 Git 可恢复性检查。此时归档记录不会携带 `remote`、`remote_url`、`branch`、`commit`、`upstream` 或 `verified`。
+- `--exclude-git-metadata` 不改变源项目；归档中的 `.git` 目录或文件会被跳过，manifest 顶层记录 `exclude_git_metadata: true`。需要保留 Git 历史时不要启用此项。
+- 该选项不强制 archive 策略；若最终选择 Git URL-only，则不会生成本地归档。
 - Git 策略记录本地 Git 引用证据（`verified: "local-ref"`）；存在本地 tag 时会联网查询远程 tag，但不抓取远程提交，也不证明远端仍存在该提交。
 - HTTPS GitHub URL 可内嵌 PAT；`remote_url` 在写入记录、manifest 和 CLI 输出前会去除用户名、密码/token、查询字符串和片段。
 - 归档策略会记录 `fallback_reason`；如果没有具体原因，使用 `not recoverable from GitHub`。
@@ -856,6 +860,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `version` | string | 当前工具版本，`"0.1.0"`。 |
 | `include_artifacts` | boolean | 本次运行是否使用 `--include-artifacts`。 |
 | `always_archive` | boolean | 本次运行是否使用 `--always-archive`。 |
+| `exclude_git_metadata` | boolean | 该项目实际使用 archive 且省略 `.git` 时为 `true`；旧 manifest 缺省时视为 `false`。 |
 | `records` | array[object] | 每个清单只包含当前项目的一条记录；批量运行按项目分别写清单。 |
 
 ### 11.2 记录字段
@@ -896,6 +901,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
   "version": "0.1.0",
   "include_artifacts": false,
   "always_archive": false,
+  "exclude_git_metadata": false,
   "records": [
     {
       "project": "demo",
@@ -968,8 +974,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
 | `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
-| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | 备份根目录参数为 `backup_dest`；dry-run 不写文件。 |
-| `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None) -> BackupRecord` | 归档记录 | `archive_dir` 为项目备份目录；写单个 `tar.gz`，计算大小和 SHA-256；不写 manifest。 |
+| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；Git 策略本身不产生归档。 |
+| `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None, exclude_git_metadata=False) -> BackupRecord` | 归档记录 | `exclude_git_metadata=True` 时输出工作树快照，不含 Git 历史。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
 | `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名、大小写不同或 Unicode 规范化等价的项目追加 8 位路径哈希。 |
@@ -1275,7 +1281,7 @@ tar -xzf <archive>
 | 子命令 | 用法 | 主要参数/语义 |
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
-| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive` |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive`；main-only `--exclude-git-metadata` 未发布至 crates.io 0.2.5 |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
 | `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |

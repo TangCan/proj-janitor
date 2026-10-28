@@ -22,6 +22,7 @@ pub(crate) fn backup_cmd(
     dry: bool,
     include_artifacts: bool,
     always: bool,
+    exclude_git_metadata: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -116,10 +117,15 @@ pub(crate) fn backup_cmd(
                 );
             } else {
                 println!(
-                    "[archive] {}: {} -> {}",
+                    "[archive] {}: {} -> {}{}",
                     p.name,
                     human(p.size_bytes),
-                    archive_path.display()
+                    archive_path.display(),
+                    if exclude_git_metadata {
+                        " [Git metadata excluded; restore has no Git history]"
+                    } else {
+                        ""
+                    }
                 );
             }
             continue;
@@ -145,7 +151,12 @@ pub(crate) fn backup_cmd(
                     fallback_reason: None,
                 });
             }
-            create_archive(&p.path, &archive_path, include_artifacts)?;
+            create_archive(
+                &p.path,
+                &archive_path,
+                include_artifacts,
+                exclude_git_metadata,
+            )?;
             archive_created = true;
             let hash = sha256(&archive_path)?;
             let bytes = fs::metadata(&archive_path)?.len();
@@ -175,6 +186,7 @@ pub(crate) fn backup_cmd(
                     version: VERSION.into(),
                     include_artifacts,
                     always_archive: always,
+                    exclude_git_metadata: exclude_git_metadata && record.strategy == "archive",
                     records: vec![record.clone()],
                 };
                 let write_result = serde_json::to_vec_pretty(&manifest)
@@ -201,10 +213,15 @@ pub(crate) fn backup_cmd(
                     );
                 } else {
                     println!(
-                        "[archive] {}: {} sha256:{}",
+                        "[archive] {}: {} sha256:{}{}",
                         record.project,
                         human(record.archive_bytes),
-                        &record.sha256.as_deref().unwrap_or_default()[..12]
+                        &record.sha256.as_deref().unwrap_or_default()[..12],
+                        if exclude_git_metadata {
+                            " [Git metadata excluded; restore has no Git history]"
+                        } else {
+                            ""
+                        }
                     );
                 }
                 println!("Manifest: {}", manifest_path.display());

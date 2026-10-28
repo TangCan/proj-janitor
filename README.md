@@ -81,6 +81,8 @@ projjan backup ~/richard_plus/amp_zk ~/richard_plus/bos_dynamic --backup-dest ~/
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --dry-run
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --include-artifacts
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --always-archive
+# 当前 main：归档时排除 .git 元数据，恢复后不含 Git 历史
+projjan backup ~/richard_plus/bos_dynamic --backup-dest ~/backups/projects --always-archive --exclude-git-metadata
 ```
 
 也可设置默认备份目录，之后省略选项：
@@ -100,6 +102,8 @@ projjan backup ~/richard_plus
 - 归档会包含 `.git/config`。如果远程 URL 内嵌凭据，归档也会包含该凭据；对这类项目执行归档前应先清理远程 URL，或确认归档的访问权限。
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
+
+当前 main 另支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。它目前尚未包含在 crates.io `0.2.5` 或 PyPI `0.1.0` 中。需要保留 Git 历史时不要使用。
 
 每个项目使用一个稳定的项目目录，不再创建 `backup-.../` 运行目录。纯 `git` 备份只在该目录下写清单：
 
@@ -128,7 +132,7 @@ backups/
 - 同一秒内重复备份同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有文件。
 - 旧版本生成的 `backup-YYYYmmdd-HHMMSS/` 目录不会被自动迁移或删除。
 
-清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive` 和 `records`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
+清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 只有在 archive 实际省略 `.git` 时才为 `true`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
 
 ### 3. 清理
 
@@ -248,7 +252,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次验证（2026-10-28）：Python 3.12 的 127 项测试通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 5 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次验证（2026-10-28）：Python 3.12 的 128 项测试通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 6 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：

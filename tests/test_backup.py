@@ -298,6 +298,31 @@ class BackupTests(unittest.TestCase):
             self.assertTrue(manifest_paths[0].is_file())
             self.assertEqual(Path(records[0].archive).parent, dest.resolve() / "app")
 
+    def test_backup_can_exclude_git_metadata_and_records_the_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / ".git").mkdir()
+            (project / ".git" / "config").write_text("local git data\n", encoding="utf-8")
+            dest = root / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                always_archive=True,
+                exclude_git_metadata=True,
+            )
+
+            self.assertFalse(failures)
+            self.assertTrue(manifests[0].is_file())
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+            self.assertTrue(manifest["exclude_git_metadata"])
+            with tarfile.open(records[0].archive, "r:gz") as tar:
+                names = tar.getnames()
+            self.assertIn("app/src/main.py", names)
+            self.assertFalse(any("/.git/" in name or name.endswith("/.git") for name in names))
+            self.assertTrue((project / ".git" / "config").is_file())
+
     def test_coverage_root_artifact_is_excluded_but_nested_is_kept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

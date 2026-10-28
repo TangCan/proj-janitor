@@ -87,6 +87,8 @@ enum Action {
         include_artifacts: bool,
         #[arg(long)]
         always_archive: bool,
+        #[arg(long)]
+        exclude_git_metadata: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -133,6 +135,8 @@ pub(crate) struct Manifest {
     pub(crate) version: String,
     pub(crate) include_artifacts: bool,
     pub(crate) always_archive: bool,
+    #[serde(default)]
+    pub(crate) exclude_git_metadata: bool,
     pub(crate) records: Vec<Record>,
 }
 #[derive(Serialize, Deserialize, Clone)]
@@ -183,12 +187,14 @@ fn run() -> anyhow::Result<()> {
             dry_run,
             include_artifacts,
             always_archive,
+            exclude_git_metadata,
         } => backup_cmd(
             &roots,
             backup_dest,
             dry_run,
             include_artifacts,
             always_archive,
+            exclude_git_metadata,
         ),
         Action::Clean {
             roots,

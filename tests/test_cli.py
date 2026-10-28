@@ -176,6 +176,7 @@ class CliTests(unittest.TestCase):
                 patterns=(),
                 archive_name=None,
                 fallback_reason=None,
+                exclude_git_metadata=False,
             ):
                 if project.name == "bad":
                     raise OSError("disk full")
@@ -185,6 +186,7 @@ class CliTests(unittest.TestCase):
                     patterns=patterns,
                     archive_name=archive_name,
                     fallback_reason=fallback_reason,
+                    exclude_git_metadata=exclude_git_metadata,
                 )
 
             with mock.patch(

@@ -56,7 +56,12 @@ pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> anyhow::Result<()> {
+pub(crate) fn create_archive(
+    project: &Path,
+    archive: &Path,
+    include: bool,
+    exclude_git_metadata: bool,
+) -> anyhow::Result<()> {
     let f = create_private_file(archive)?;
     let result = (|| -> anyhow::Result<()> {
         let enc = GzEncoder::new(f, Compression::default());
@@ -68,7 +73,9 @@ pub(crate) fn create_archive(project: &Path, archive: &Path, include: bool) -> a
         for e in WalkDir::new(project)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|entry| !archive_excluded(entry.path(), project, include))
+            .filter_entry(|entry| {
+                !archive_excluded(entry.path(), project, include, exclude_git_metadata)
+            })
         {
             let e = e?;
             let rel = e.path().strip_prefix(project)?;
@@ -383,13 +390,28 @@ fn create_symlink(target: &Path, link: &Path, target_is_dir: bool) -> anyhow::Re
 fn create_symlink(_target: &Path, _link: &Path, _target_is_dir: bool) -> anyhow::Result<()> {
     anyhow::bail!("symbolic link restoration is unsupported on this platform")
 }
-fn archive_excluded(path: &Path, project: &Path, include: bool) -> bool {
-    if include || path == project {
+fn archive_excluded(
+    path: &Path,
+    project: &Path,
+    include: bool,
+    exclude_git_metadata: bool,
+) -> bool {
+    if path == project {
         return false;
     }
     let Ok(relative) = path.strip_prefix(project) else {
         return true;
     };
+    if exclude_git_metadata
+        && relative
+            .components()
+            .any(|component| component.as_os_str() == ".git")
+    {
+        return true;
+    }
+    if include {
+        return false;
+    }
     for (index, component) in relative.components().enumerate() {
         let name = component.as_os_str().to_string_lossy();
         if name == "coverage" {

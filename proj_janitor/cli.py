@@ -102,6 +102,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="archive every project even when it can be recovered from GitHub",
     )
+    backup.add_argument(
+        "--exclude-git-metadata",
+        action="store_true",
+        help="omit .git metadata from archives; restored archives have no Git history",
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -238,6 +243,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                     f"  [archive] {plan.project.name}: "
                     f"{human_size(plan.project.size_bytes)}"
                     f" -> {archive} ({plan.reason})"
+                    + (
+                        " [Git metadata excluded; restore has no Git history]"
+                        if args.exclude_git_metadata
+                        else ""
+                    )
                 )
         return 1 if failures else 0
 
@@ -247,6 +257,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             backup_dest,
             include_artifacts=args.include_artifacts,
             always_archive=args.always_archive,
+            exclude_git_metadata=args.exclude_git_metadata,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -267,6 +278,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 f"  [archive] {record.project}: "
                 f"{human_size(record.archive_bytes)}"
                 f"  sha256:{digest}  {record.archive}{reason}"
+                + (
+                    " [Git metadata excluded; restore has no Git history]"
+                    if args.exclude_git_metadata
+                    else ""
+                )
             )
     if manifest_paths:
         _print_manifests(manifest_paths)

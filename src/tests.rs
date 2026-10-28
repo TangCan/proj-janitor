@@ -316,7 +316,7 @@ fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
     }
 
     let archive = temp.0.join("demo.tar.gz");
-    create_archive(&project, &archive, false).unwrap();
+    create_archive(&project, &archive, false, false).unwrap();
     let restored = temp.0.join("restored/demo");
     extract_archive(&archive, &restored, "demo").unwrap();
 
@@ -386,7 +386,7 @@ fn backup_rejects_symlink_targets_outside_project() {
     symlink(&outside, project.join("src/outside-link")).unwrap();
 
     let archive = temp.0.join("demo.tar.gz");
-    let error = create_archive(&project, &archive, false).unwrap_err();
+    let error = create_archive(&project, &archive, false, false).unwrap_err();
 
     assert!(
         error
@@ -405,7 +405,7 @@ fn backup_rejects_windows_traversal_member_names() {
     fs::write(project.join(r"src\..\..\escape.txt"), "bad\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
 
-    let error = create_archive(&project, &archive, false).unwrap_err();
+    let error = create_archive(&project, &archive, false, false).unwrap_err();
 
     assert!(error.to_string().contains("unsafe archive path"));
     assert!(!archive.exists());
@@ -419,7 +419,7 @@ fn backup_output_creation_never_overwrites_existing_files() {
     fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
     fs::write(&archive, "keep existing archive").unwrap();
-    assert!(create_archive(&project, &archive, false).is_err());
+    assert!(create_archive(&project, &archive, false, false).is_err());
     assert_eq!(
         fs::read_to_string(&archive).unwrap(),
         "keep existing archive"
@@ -451,6 +451,7 @@ fn backup_outputs_are_private_to_the_current_user() {
         false,
         false,
         true,
+        false,
     )
     .unwrap();
 
@@ -487,6 +488,7 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
         false,
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -510,7 +512,15 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
     assert!(!serde_json::to_string(&manifest).unwrap().contains("token"));
 
     fs::write(project.join("tracked.txt"), "modified\n").unwrap();
-    backup_cmd(&[project], Some(backup_dir.clone()), false, false, false).unwrap();
+    backup_cmd(
+        &[project],
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap();
     let archive_manifest_path = fs::read_dir(backup_dir.join("demo"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -544,6 +554,7 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
         Some(backup_dest.clone()),
         false,
         true,
+        false,
         false,
     )
     .unwrap_err();
@@ -612,6 +623,7 @@ fn backup_disambiguates_project_names_that_differ_only_by_case() {
         false,
         true,
         false,
+        false,
     )
     .unwrap();
 
@@ -648,6 +660,7 @@ fn backup_continues_after_one_project_directory_creation_fails() {
             false,
             true,
             false,
+            false,
         )
         .is_err()
     );
@@ -671,7 +684,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     let backup_dir = temp.0.join("backups/demo");
     fs::create_dir_all(&backup_dir).unwrap();
     let archive = backup_dir.join("demo.tar.gz");
-    create_archive(&source, &archive, true).unwrap();
+    create_archive(&source, &archive, true, false).unwrap();
     let record = Record {
         project: "demo".into(),
         source: source.to_string_lossy().into_owned(),
@@ -695,6 +708,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         version: "0.1.0".into(),
         include_artifacts: false,
         always_archive: false,
+        exclude_git_metadata: false,
         records: vec![record],
     };
     let manifest_path = backup_dir.join("manifest.json");
@@ -727,7 +741,7 @@ fn restore_accepts_archive_containing_only_project_directory() {
     fs::create_dir_all(source.join(".git")).unwrap();
     fs::create_dir_all(source.join("target/cache")).unwrap();
     let archive = temp.0.join("demo.tar.gz");
-    create_archive(&source, &archive, false).unwrap();
+    create_archive(&source, &archive, false, false).unwrap();
 
     let target = temp.0.join("restored/demo");
     extract_archive(&archive, &target, "demo").unwrap();
@@ -764,6 +778,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         version: env!("CARGO_PKG_VERSION").into(),
         include_artifacts: false,
         always_archive: false,
+        exclude_git_metadata: false,
         records: vec![Record {
             project: "demo".into(),
             source: project.to_string_lossy().into_owned(),
@@ -900,6 +915,7 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
         version: "0.2.2".into(),
         include_artifacts: false,
         always_archive: false,
+        exclude_git_metadata: false,
         records: vec![record("App"), record("app")],
     };
     fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
@@ -934,6 +950,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             version: "0.2.3".into(),
             include_artifacts: false,
             always_archive: false,
+            exclude_git_metadata: false,
             records: vec![Record {
                 project: project.into(),
                 source: original.join(project).to_string_lossy().into_owned(),
