@@ -1283,7 +1283,7 @@ tar -xzf <archive>
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive`；候选版 `--exclude-git-metadata` 未发布至 crates.io 0.2.5 |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
-| `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5` |
+| `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
 安装已发布 crate：

@@ -34,7 +34,7 @@ cargo install --locked proj-janitor --version 0.2.5
 
 从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
-需要使用尚未发布到 crates.io 的 main 功能（如 `verify`）时，可直接从 Git 安装：
+需要使用尚未发布到 crates.io 的 0.2.6 候选功能（如 `--exclude-git-metadata`）时，可直接从 Git 安装：
 
 ```bash
 cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor
@@ -44,7 +44,7 @@ cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branc
 
 main 当前候选 Cargo 版本号为 `0.2.6`；crates.io 稳定版仍为 `0.2.5`。从 Git 安装 main 时，具体行为仍可能随后续维护提交变化。
 
-当前 main 的 `--exclude-git-metadata` 正在准备作为 Rust `0.2.6` 候选发布；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
+Rust `0.2.6` 候选包含 `--exclude-git-metadata`；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
 
 Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复仍需本机安装 Git。
 
@@ -83,7 +83,7 @@ projjan backup ~/richard_plus/amp_zk ~/richard_plus/bos_dynamic --backup-dest ~/
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --dry-run
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --include-artifacts
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --always-archive
-# 当前 main：归档时排除 .git 元数据，恢复后不含 Git 历史
+# 0.2.6 候选：归档时排除 .git 元数据，恢复后不含 Git 历史
 projjan backup ~/richard_plus/bos_dynamic --backup-dest ~/backups/projects --always-archive --exclude-git-metadata
 ```
 
@@ -191,7 +191,7 @@ projjan restore <manifest> --dest ~/restored --project xtask_todo
 # 输出纯 JSON
 projjan restore <manifest> --dest ~/restored --dry-run --json
 
-# main 版：校验归档 SHA-256，并检查 Git 备份元数据（不联网）
+# Rust 0.2.5 及更新版本：校验归档 SHA-256，并检查 Git 备份元数据（不联网）
 projjan verify <manifest>
 
 # 只校验指定项目，并输出 JSON
