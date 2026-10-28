@@ -62,8 +62,27 @@ class ScannerTests(unittest.TestCase):
             hidden = root / ".hidden"
             hidden.mkdir()
             (hidden / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+            expected_markers = {
+                ".git",
+                ".hg",
+                ".svn",
+                "pyproject.toml",
+                "setup.py",
+                "setup.cfg",
+                "requirements.txt",
+                "package.json",
+                "Cargo.toml",
+                "go.mod",
+                "CMakeLists.txt",
+                "Makefile",
+                "meson.build",
+                "build.gradle",
+                "build.gradle.kts",
+                "pom.xml",
+            }
+            self.assertEqual(set(PROJECT_MARKERS), expected_markers)
             marker_projects = set()
-            for index, marker in enumerate(PROJECT_MARKERS):
+            for index, marker in enumerate(sorted(expected_markers)):
                 marked = root / f"marker-{index}"
                 marked.mkdir()
                 if marker == ".git":
