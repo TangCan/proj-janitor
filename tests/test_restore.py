@@ -3,10 +3,13 @@ from __future__ import annotations
 import io
 import json
 import os
+import shlex
 import shutil
 import stat
+import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -132,6 +135,55 @@ class RestoreTests(unittest.TestCase):
         ):
             restore_module._run_git(["status"])
         stop_git.assert_called_once_with(process)
+
+    def test_posix_git_timeout_kills_child_process_group(self) -> None:
+        if os.name != "posix":
+            self.skipTest("POSIX process groups are required")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            marker = root / "child-output"
+            child_code = (
+                "import pathlib,time; p=pathlib.Path(" + repr(str(marker)) + "); "
+                "exec(\"while True:\\n with p.open('a') as f: f.write('x')\\n "
+                "time.sleep(0.01)\")"
+            )
+            fake_git = bin_dir / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                f"{shlex.quote(sys.executable)} -c {shlex.quote(child_code)} &\n"
+                "wait\n",
+                encoding="utf-8",
+            )
+            fake_git.chmod(0o755)
+            real_popen = restore_module.subprocess.Popen
+            processes = []
+
+            def capture_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+
+            try:
+                with (
+                    mock.patch.object(restore_module.subprocess, "Popen", side_effect=capture_process),
+                    mock.patch.object(restore_module, "_GIT_TIMEOUT_SECONDS", 0.5),
+                    self.assertRaisesRegex(RestoreError, "timed out after"),
+                ):
+                    restore_module._run_git(
+                        ["status"],
+                        extra_env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
+                    )
+
+                self.assertIsNotNone(processes[0].poll())
+                self.assertTrue(marker.is_file())
+                size = marker.stat().st_size
+                time.sleep(0.1)
+                self.assertEqual(marker.stat().st_size, size)
+            finally:
+                if processes and processes[0].poll() is None:
+                    restore_module._stop_git_process(processes[0])
 
     def test_backup_and_restore_keep_parent_relative_internal_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
