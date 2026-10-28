@@ -185,6 +185,66 @@ class RestoreTests(unittest.TestCase):
                 if processes and processes[0].poll() is None:
                     restore_module._stop_git_process(processes[0])
 
+    def test_windows_git_timeout_kills_child_process_tree(self) -> None:
+        if os.name != "nt" or shutil.which("taskkill") is None:
+            self.skipTest("Windows taskkill is required")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "child-output"
+            pid_file = root / "child.pid"
+            child_code = (
+                "import pathlib,sys,time; p=pathlib.Path(sys.argv[1]); "
+                "exec(\"while True:\\n with p.open('a') as f: f.write('x')\\n "
+                "time.sleep(0.02)\")"
+            )
+            parent_code = (
+                "import pathlib,subprocess,sys,time; "
+                "child=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]], "
+                "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); "
+                "pathlib.Path(sys.argv[3]).write_text(str(child.pid)); "
+                "exec('while True: time.sleep(1)')"
+            )
+            parent = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    parent_code,
+                    child_code,
+                    str(marker),
+                    str(pid_file),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            child_pid = None
+            try:
+                deadline = time.monotonic() + 5
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(pid_file.is_file())
+                child_pid = int(pid_file.read_text(encoding="utf-8"))
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertGreater(marker.stat().st_size, 0)
+
+                restore_module._stop_git_process(parent)
+
+                self.assertIsNotNone(parent.poll())
+                size = marker.stat().st_size
+                time.sleep(0.15)
+                self.assertEqual(marker.stat().st_size, size)
+            finally:
+                if parent.poll() is None:
+                    restore_module._stop_git_process(parent)
+                if child_pid is not None:
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(child_pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=10,
+                    )
+
     def test_backup_and_restore_keep_parent_relative_internal_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
