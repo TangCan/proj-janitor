@@ -68,12 +68,15 @@ fn backup_cli_creates_an_archive_and_manifest() {
     let project = temp.project();
     fs::create_dir(project.join(".git")).unwrap();
     fs::write(project.join(".git/config"), "keep git history\n").unwrap();
+    let no_git_path = temp.0.join("no-git-path");
+    fs::create_dir(&no_git_path).unwrap();
     let backup_dest = temp.0.join("backups");
     let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("backup")
         .arg(&project)
         .arg("--backup-dest")
         .arg(&backup_dest)
+        .env("PATH", &no_git_path)
         .output()
         .unwrap();
     if !output.status.success() {
@@ -100,6 +103,11 @@ fn backup_cli_creates_an_archive_and_manifest() {
     let manifest_json: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(manifest_json["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(manifest_json["records"][0]["strategy"], "archive");
+    assert_eq!(
+        manifest_json["records"][0]["fallback_reason"],
+        "detached HEAD"
+    );
     let restored_dest = temp.0.join("default-restore");
     let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("restore")
