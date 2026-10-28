@@ -176,6 +176,45 @@ fn backup_can_archive_working_tree_without_git_metadata() {
 }
 
 #[test]
+fn backup_records_git_exclusion_option_when_project_has_no_git_metadata() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .arg("--always-archive")
+        .arg("--exclude-git-metadata")
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&backup.stdout).contains("Git metadata exclusion enabled"),
+        "stdout: {}",
+        String::from_utf8_lossy(&backup.stdout)
+    );
+
+    let manifest = fs::read_dir(backup_dest.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["exclude_git_metadata"], true);
+    assert!(!project.join(".git").exists());
+}
+
+#[test]
 fn verify_checks_archive_hash_without_restoring() {
     let temp = TestDir::new();
     let project = temp.project();

@@ -134,7 +134,7 @@ backups/
 - 同一秒内重复备份同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有文件。
 - 旧版本生成的 `backup-YYYYmmdd-HHMMSS/` 目录不会被自动迁移或删除。
 
-清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 只有在 archive 实际省略 `.git` 时才为 `true`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
+清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 在项目使用 archive 策略且启用了排除选项时为 `true`；它表示所选策略，不表示源项目一定含有 `.git`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
 
 ### 3. 清理
 

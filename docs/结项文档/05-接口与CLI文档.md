@@ -346,7 +346,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 说明：
 
 - `--include-artifacts` 和 `--always-archive` 都会跳过 Git 可恢复性检查。此时归档记录不会携带 `remote`、`remote_url`、`branch`、`commit`、`upstream` 或 `verified`。
-- `--exclude-git-metadata` 不改变源项目；归档中的 `.git` 目录或文件会被跳过，manifest 顶层记录 `exclude_git_metadata: true`。需要保留 Git 历史时不要启用此项。
+- `--exclude-git-metadata` 不改变源项目；归档中的 `.git` 目录或文件会被跳过；archive 策略启用此选项时，manifest 顶层记录 `exclude_git_metadata: true`，即使源项目没有 `.git`。需要保留 Git 历史时不要启用此项。
 - 该选项不强制 archive 策略；若最终选择 Git URL-only，则不会生成本地归档。
 - Git 策略记录本地 Git 引用证据（`verified: "local-ref"`）；存在本地 tag 时会联网查询远程 tag，但不抓取远程提交，也不证明远端仍存在该提交。
 - HTTPS GitHub URL 可内嵌 PAT；`remote_url` 在写入记录、manifest 和 CLI 输出前会去除用户名、密码/token、查询字符串和片段。
@@ -860,7 +860,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `version` | string | 当前工具版本，`"0.1.0"`。 |
 | `include_artifacts` | boolean | 本次运行是否使用 `--include-artifacts`。 |
 | `always_archive` | boolean | 本次运行是否使用 `--always-archive`。 |
-| `exclude_git_metadata` | boolean | 该项目实际使用 archive 且省略 `.git` 时为 `true`；旧 manifest 缺省时视为 `false`。 |
+| `exclude_git_metadata` | boolean | 该项目使用 archive 策略且启用排除选项时为 `true`；此值记录选项状态，不表示源项目一定含有 `.git`；旧 manifest 缺省时视为 `false`。 |
 | `records` | array[object] | 每个清单只包含当前项目的一条记录；批量运行按项目分别写清单。 |
 
 ### 11.2 记录字段

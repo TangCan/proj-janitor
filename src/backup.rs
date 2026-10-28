@@ -122,7 +122,7 @@ pub(crate) fn backup_cmd(
                     human(p.size_bytes),
                     archive_path.display(),
                     if exclude_git_metadata {
-                        " [Git metadata excluded; restore has no Git history]"
+                        " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                     } else {
                         ""
                     }
@@ -218,7 +218,7 @@ pub(crate) fn backup_cmd(
                         human(record.archive_bytes),
                         &record.sha256.as_deref().unwrap_or_default()[..12],
                         if exclude_git_metadata {
-                            " [Git metadata excluded; restore has no Git history]"
+                            " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                         } else {
                             ""
                         }

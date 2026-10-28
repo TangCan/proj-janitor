@@ -244,7 +244,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                     f"{human_size(plan.project.size_bytes)}"
                     f" -> {archive} ({plan.reason})"
                     + (
-                        " [Git metadata excluded; restore has no Git history]"
+                        " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                         if args.exclude_git_metadata
                         else ""
                     )
@@ -279,7 +279,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 f"{human_size(record.archive_bytes)}"
                 f"  sha256:{digest}  {record.archive}{reason}"
                 + (
-                    " [Git metadata excluded; restore has no Git history]"
+                    " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                     if args.exclude_git_metadata
                     else ""
                 )
