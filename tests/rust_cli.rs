@@ -413,6 +413,24 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
             .unwrap()
             .timestamp();
     assert_eq!(actual_modified, 1_700_000_000);
+
+    let applied = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("clean")
+        .arg(&temp.0)
+        .arg("--json")
+        .arg("--apply")
+        .arg("--yes")
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let actions: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(actions.as_array().unwrap().len(), 1);
+    assert!(applied.stderr.is_empty());
+    assert!(!project.join("target/cache").exists());
 }
 
 #[test]
