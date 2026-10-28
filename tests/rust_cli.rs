@@ -352,11 +352,15 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         "pom.xml",
     ];
     let latest_modified = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
-    fs::File::open(project.join("pyproject.toml"))
+    fs::OpenOptions::new()
+        .write(true)
+        .open(project.join("pyproject.toml"))
         .unwrap()
         .set_modified(UNIX_EPOCH + Duration::from_secs(1_600_000_000))
         .unwrap();
-    fs::File::open(project.join("target/cache"))
+    fs::OpenOptions::new()
+        .write(true)
+        .open(project.join("target/cache"))
         .unwrap()
         .set_modified(latest_modified)
         .unwrap();
