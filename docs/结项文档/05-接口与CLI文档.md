@@ -8,15 +8,15 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-28 清单对照修订 |
-| 源码提交 | `4412b46282b4344e633278cea1c60e9d4b5d46ac`（main 当前程序快照；`v0.2.4` 为已发布标签） |
-| 源码标签 | `v0.2.4` 为 Rust 已发布标签；main 有发布后维护修订，未另发版本 |
+| 源码提交 | `21f57a7a1fb09074acafd07a524be73330b6eacd`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码标签 | `v0.2.5` 为 Rust 已发布标签；main 有发布后维护修订，未另发版本 |
 | 文档日期 | 2026-10-28 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> **本次修订口径（2026-10-27）**：本文早期章节保留历史 Python 0.1.0 和旧源码快照的结项记录，其中的“当前”版本、测试数量及 CI 结果不代表最新 main。Rust 最新已发布版本为 0.2.4（`v0.2.4`），Python 包仍为 0.1.0；当前 main 快照和发布后维护状态见文末补充。正式验收、评审或签字只有在实际记录存在时才可认定；本次不补造此类记录。
+> **本次修订口径（2026-10-27）**：本文早期章节保留历史 Python 0.1.0 和旧源码快照的结项记录，其中的“当前”版本、测试数量及 CI 结果不代表最新 main。Rust 最新已发布版本为 0.2.5（`v0.2.5`），Python 包仍为 0.1.0；当前 main 快照和发布后维护状态见文末补充。正式验收、评审或签字只有在实际记录存在时才可认定；本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -1277,13 +1277,13 @@ tar -xzf <archive>
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive` |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--json` |
-| `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；尚未包含于已发布 `0.2.4` |
+| `verify` | `projjan verify MANIFEST`（当前 main） | 只校验归档 SHA-256；Git 项目只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5` |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
 安装已发布 crate：
 
 ```bash
-cargo install --locked proj-janitor --version 0.2.4
+cargo install --locked proj-janitor --version 0.2.5
 ```
 
 从仓库 main 编译安装后续修订：
@@ -1292,7 +1292,7 @@ cargo install --locked proj-janitor --version 0.2.4
 cargo install --locked --path .
 ```
 
-若要使用尚未发布到 crates.io 的 main 功能（如 `verify`），可在仓库根目录运行 `cargo install --locked --path .`，或直接运行 `cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor`。main 的版本字符串仍为 0.2.4；确认具体源码时应检查 Git commit。
+若要使用 main 中发布后新增的维护功能，可在仓库根目录运行 `cargo install --locked --path .`，或直接运行 `cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor`。main 的版本字符串为 0.2.5；确认具体源码时应检查 Git commit。
 
 ### 16.2 `verify` 子命令
 
@@ -1301,7 +1301,7 @@ projjan verify MANIFEST
 projjan verify MANIFEST --project NAME --json
 ```
 
-归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不会联网检查远程。命令不写入文件，也不检查恢复目标是否存在。当前命令位于 main，尚未进入 crates.io `0.2.4`。
+归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不会联网检查远程。命令不写入文件，也不检查恢复目标是否存在。该命令已包含在 crates.io `0.2.5`。
 
 ## 16.3 当前安全与文件接口
 
@@ -1312,9 +1312,9 @@ projjan verify MANIFEST --project NAME --json
 
 最新接口行为以 `src/main.rs`、`src/restore.rs`、Python `proj_janitor/cli.py` 和 CI 为准。内部函数、未发布 main 提交和格式化文本输出均不构成长期稳定 API 承诺。
 
-## 当前版本状态补充（2026-10-27）
+## Rust 0.2.4 发布时状态（2026-10-27）
 
-本节更新并优先于本文其他章节中的旧版“当前源码”“当前 Cargo 版本”描述。Rust crate `proj-janitor 0.2.4` 已发布至 crates.io，并创建 `v0.2.4` 标签和 GitHub Release；Python 包仍为 0.1.0。
+以下记录 Rust `0.2.4` 发布时的交付基线；最新版本和维护状态见文末“发布后 main 维护状态”。
 
 发布标签 `v0.2.4` 指向提交 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`；功能源码始于 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`。Python 123 项测试、Rust 26 项单元测试和 3 项 CLI 集成测试通过；`cargo fmt --check`、Clippy、打包、crates.io 发布及安装冒烟均通过。提交 CI run [40466700148](https://github.com/TangCan/proj-janitor/actions/runs/40466700148) 和 tag CI run [40467153200](https://github.com/TangCan/proj-janitor/actions/runs/40467153200) 均 11/11 个 job 成功。发布细节见 `docs/发布记录/0.2.4-Rust版.md`。
 
@@ -1322,10 +1322,10 @@ projjan verify MANIFEST --project NAME --json
 
 ### 发布后 main 维护状态（2026-10-28）
 
-- 当前程序源码快照：`4412b46282b4344e633278cea1c60e9d4b5d46ac`（`v0.2.4-24-g4412b46`）；Rust `0.2.4` 正式发布标签仍指向 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`。main 后续修订尚未重新发布为 crate 版本。
-- main 新增只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程；该命令尚未进入 crates.io `0.2.4`。
+- 当前发布功能源码提交：`21f57a7a1fb09074acafd07a524be73330b6eacd`；Rust crate `0.2.5` 已发布，发布标签为 `v0.2.5`；Python 包仍为 `0.1.0`。
+- Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
 - Python 127 项测试、Rust 26 项单元测试和 5 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40611430691](https://github.com/TangCan/proj-janitor/actions/runs/40611430691) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40611430476](https://github.com/TangCan/proj-janitor/actions/runs/40611430476) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- GitHub Actions run [40614392046](https://github.com/TangCan/proj-janitor/actions/runs/40614392046) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40614390538](https://github.com/TangCan/proj-janitor/actions/runs/40614390538) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
