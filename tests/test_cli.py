@@ -65,9 +65,9 @@ class CliTests(unittest.TestCase):
 
     def test_scan_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            make_project(Path(tmp))
+            project = make_project(Path(tmp))
 
-            code, out, _ = run_cli("scan", tmp, "--json")
+            code, out, _ = run_cli("scan", tmp, str(project), "--json")
 
             self.assertEqual(code, 0)
             payload = json.loads(out)
@@ -521,9 +521,9 @@ class CliTests(unittest.TestCase):
 
     def test_clean_json_is_pure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            make_project(Path(tmp))
+            project = make_project(Path(tmp))
 
-            code, out, err = run_cli("clean", tmp, "--json")
+            code, out, err = run_cli("clean", tmp, str(project), "--json")
 
             self.assertEqual(code, 0)
             payload = json.loads(out)

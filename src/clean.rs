@@ -1,5 +1,6 @@
 use globset::{Glob, GlobSetBuilder};
 use std::{
+    collections::HashSet,
     fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
@@ -47,10 +48,14 @@ pub(crate) fn clean_cmd(
     }
     let mut actions = Vec::new();
     let mut failed = false;
+    let mut seen = HashSet::new();
     for root in roots {
         match discover(root, false) {
             Ok(ps) => {
                 for p in ps {
+                    if !seen.insert(p.path.clone()) {
+                        continue;
+                    }
                     for entry in WalkDir::new(&p.path)
                         .follow_links(false)
                         .into_iter()

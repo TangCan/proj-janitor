@@ -269,9 +269,11 @@ fn verify_checks_archive_hash_without_restoring() {
 }
 
 #[test]
-fn backup_deduplicates_overlapping_roots() {
+fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
     let temp = TestDir::new();
     let project = temp.project();
+    fs::create_dir_all(project.join("target")).unwrap();
+    fs::write(project.join("target/cache"), "remove me\n").unwrap();
     let backup_dest = temp.0.join("backups");
     let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("backup")
@@ -298,6 +300,22 @@ fn backup_deduplicates_overlapping_roots() {
         2,
         "one archive and one manifest should be written"
     );
+
+    let clean = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("clean")
+        .arg(&temp.0)
+        .arg(&project)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        clean.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clean.stderr)
+    );
+    let plan: serde_json::Value = serde_json::from_slice(&clean.stdout).unwrap();
+    assert_eq!(plan.as_array().unwrap().len(), 1);
+    assert!(project.join("target/cache").is_file());
 }
 
 #[test]
