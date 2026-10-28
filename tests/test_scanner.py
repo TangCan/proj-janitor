@@ -60,16 +60,26 @@ class ScannerTests(unittest.TestCase):
             hidden = root / ".hidden"
             hidden.mkdir()
             (hidden / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
-            try:
-                (root / "linked-alpha").symlink_to(alpha, target_is_directory=True)
-            except OSError:
-                pass
 
             projects = discover_projects(root)
 
             self.assertEqual([project.name for project in projects], ["alpha"])
             self.assertEqual(projects[0].size_bytes, 10)
             self.assertIn("pyproject.toml", projects[0].markers)
+
+    def test_discovery_skips_symlink_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            try:
+                (root / "linked-app").symlink_to(project, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"cannot create directory symlink: {exc}")
+
+            projects = discover_projects(root)
+            self.assertEqual([item.path for item in projects], [project.resolve()])
 
     def test_include_unmarked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
