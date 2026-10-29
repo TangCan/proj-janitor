@@ -670,7 +670,10 @@ class GitCliTests(unittest.TestCase):
                 "--dry-run",
             )
             self.assertEqual(code, 1)
-            self.assertIn("[error] app: submodule URL contains credentials", out)
+            self.assertIn(
+                "[error] app: submodule URL contains credentials or query data",
+                out,
+            )
             self.assertNotIn("submodule-secret", out + err)
             self.assertNotIn(".tar.gz", out)
             self.assertNotIn("Manifests would be", out)
@@ -684,7 +687,7 @@ class GitCliTests(unittest.TestCase):
                 str(backup_dest),
             )
             self.assertEqual(code, 1)
-            self.assertIn("submodule URL contains credentials", err)
+            self.assertIn("submodule URL contains credentials or query data", err)
             self.assertNotIn("submodule-secret", out + err)
             self.assertFalse((backup_dest / "app").exists())
 

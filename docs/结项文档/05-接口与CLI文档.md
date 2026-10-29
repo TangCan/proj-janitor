@@ -1122,7 +1122,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
 | 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
-| 15 | 子模块 URL 含凭据 | `submodule URL contains credentials` |
+| 15 | 子模块 URL 含凭据或 query/fragment 数据 | `submodule URL contains credentials or query data` |
 | 16 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
 | 17 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |
 | 18 | Git LFS 未安装 | `Git LFS is not installed` |

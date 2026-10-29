@@ -244,7 +244,7 @@ fn backup_refuses_to_archive_credentialed_submodule_urls() {
     fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
     fs::write(
         project.join(".gitmodules"),
-        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://alice:submodule-secret@github.com/acme/private.git\n",
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://github.com/acme/private.git?token=query-secret\n",
     )
     .unwrap();
     git(&project, &["init", "-q", "-b", "main"]);
@@ -294,10 +294,10 @@ fn backup_refuses_to_archive_credentialed_submodule_urls() {
     );
     let stderr = String::from_utf8_lossy(&backup.stderr);
     assert!(
-        stderr.contains("submodule URL contains credentials"),
+        stderr.contains("submodule URL contains credentials or query data"),
         "{stderr}"
     );
-    assert!(!stderr.contains("submodule-secret"));
+    assert!(!stderr.contains("query-secret"));
     assert!(!backup_dest.join("app").exists());
 
     let dry_dest = temp.0.join("dry-backups");
@@ -310,8 +310,8 @@ fn backup_refuses_to_archive_credentialed_submodule_urls() {
         .unwrap();
     assert!(!dry_run.status.success());
     let stdout = String::from_utf8_lossy(&dry_run.stdout);
-    assert!(stdout.contains("[error] app: submodule URL contains credentials"));
-    assert!(!stdout.contains("submodule-secret"));
+    assert!(stdout.contains("[error] app: submodule URL contains credentials or query data"));
+    assert!(!stdout.contains("query-secret"));
     assert!(!stdout.contains(".tar.gz"));
     assert!(!dry_dest.exists());
 }

@@ -251,7 +251,9 @@ def is_supported_submodule_url(url: str) -> bool:
     return is_github_remote_url(url)
 
 
-def _submodule_url_has_credentials(url: str) -> bool:
+def _submodule_url_has_sensitive_data(url: str) -> bool:
+    if "?" in url or "#" in url:
+        return True
     if not url.startswith("https://"):
         return False
     try:
@@ -297,8 +299,8 @@ def _submodule_recovery_reason(
         lfs_reason = _git_lfs_recovery_reason(current)
         if lfs_reason is not None:
             return lfs_reason if not prefix else f"{lfs_reason}: {prefix.rstrip('/')}"
-        if any(_submodule_url_has_credentials(url) for _, url in modules):
-            return "submodule URL contains credentials"
+        if any(_submodule_url_has_sensitive_data(url) for _, url in modules):
+            return "submodule URL contains credentials or query data"
         if any(not is_supported_submodule_url(url) for _, url in modules):
             return "submodule URL is not a supported GitHub URL"
         result = _git_run(current, "-c", "core.quotePath=false", "submodule", "status")

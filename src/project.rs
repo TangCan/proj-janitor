@@ -335,7 +335,10 @@ pub(crate) fn submodule_url_supported(url: &str) -> bool {
     }
 }
 
-pub(crate) fn submodule_url_has_credentials(url: &str) -> bool {
+pub(crate) fn submodule_url_has_sensitive_data(url: &str) -> bool {
+    if url.contains(['?', '#']) {
+        return true;
+    }
     url.starts_with("https://")
         && Url::parse(url).is_ok_and(|parsed| {
             parsed.username() != "" || parsed.password().is_some() || parsed.as_str().contains('@')
@@ -391,9 +394,9 @@ pub(crate) fn inspect_submodules(path: &Path) -> Result<(), String> {
         }
         if configured
             .iter()
-            .any(|module| submodule_url_has_credentials(&module.url))
+            .any(|module| submodule_url_has_sensitive_data(&module.url))
         {
-            return Err("submodule URL contains credentials".into());
+            return Err("submodule URL contains credentials or query data".into());
         }
         if configured
             .iter()

@@ -557,7 +557,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(records, [])
             self.assertEqual(
                 failures,
-                [("app", "submodule URL contains credentials")],
+                [("app", "submodule URL contains credentials or query data")],
             )
             self.assertFalse((backup_dest / "app").exists())
 

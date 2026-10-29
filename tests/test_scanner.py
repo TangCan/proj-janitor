@@ -257,8 +257,33 @@ class GitRecoveryTests(unittest.TestCase):
             state = inspect_git_recoverability(scan_project(project))
 
             self.assertFalse(state.eligible)
-            self.assertEqual(state.reason, "submodule URL contains credentials")
+            self.assertEqual(
+                state.reason,
+                "submodule URL contains credentials or query data",
+            )
             self.assertNotIn("submodule-secret", state.reason)
+
+    def test_submodule_query_data_blocks_git_only_without_exposing_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            (project / ".gitmodules").write_text(
+                '[submodule "private"]\n'
+                "\tpath = vendor/private\n"
+                "\turl = https://github.com/acme/private.git?token=query-secret\n",
+                encoding="utf-8",
+            )
+            git(project, "add", ".gitmodules")
+            git(project, "commit", "-m", "configure submodule")
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "submodule URL contains credentials or query data",
+            )
+            self.assertNotIn("query-secret", state.reason)
 
     def test_pushed_repository_is_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
