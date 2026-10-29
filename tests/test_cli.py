@@ -543,6 +543,19 @@ class CliTests(unittest.TestCase):
             self.assertTrue((project / "node_modules").exists())
             self.assertTrue((project / "dist").exists())
 
+            code, _, err = run_cli(
+                "clean",
+                str(project),
+                "--rules",
+                "node",
+                "--apply",
+                "--yes",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertFalse((project / "node_modules").exists())
+            self.assertTrue((project / "dist").exists())
+
     def test_list_rules(self) -> None:
         code, out, _ = run_cli("clean", ".", "--list-rules")
 

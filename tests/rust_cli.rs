@@ -146,6 +146,23 @@ fn clean_filters_plans_by_selected_rules() {
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("unknown rule: unknown"));
     assert!(project.join("node_modules").is_dir());
     assert!(project.join("target").is_dir());
+
+    let applied = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("clean")
+        .arg(&project)
+        .arg("--rules")
+        .arg("node")
+        .arg("--apply")
+        .arg("--yes")
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert!(!project.join("node_modules").exists());
+    assert!(project.join("target").is_dir());
 }
 
 #[test]
