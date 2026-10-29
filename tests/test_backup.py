@@ -648,6 +648,32 @@ class GitStrategyBackupTests(unittest.TestCase):
                 manifest,
             )
 
+    def test_sensitive_unsupported_remote_never_falls_back_to_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(
+                project,
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/acme/app.git?token=remote-secret",
+            )
+            backup_dest = root / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                backup_dest,
+            )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(
+                failures,
+                [("app", "remote URL contains credentials or query data")],
+            )
+            self.assertFalse((backup_dest / "app").exists())
+
     def test_dirty_repo_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

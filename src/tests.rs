@@ -570,22 +570,20 @@ fn git_recovery_rejects_credentials_in_submodule_urls() {
         configured[0].url,
         "https://alice:submodule-secret@github.com/team/private.git"
     );
-    assert!(crate::project::submodule_url_has_sensitive_data(
-        &configured[0].url
-    ));
-    assert!(crate::project::submodule_url_has_sensitive_data(
+    assert!(crate::project::url_has_sensitive_data(&configured[0].url));
+    assert!(crate::project::url_has_sensitive_data(
         "https://github.com/team/private.git?token=secret"
     ));
-    assert!(crate::project::submodule_url_has_sensitive_data(
+    assert!(crate::project::url_has_sensitive_data(
         "ssh://git:secret@github.com/team/private.git"
     ));
-    assert!(crate::project::submodule_url_has_sensitive_data(
+    assert!(crate::project::url_has_sensitive_data(
         "http://token@github.com/team/private.git"
     ));
-    assert!(crate::project::submodule_url_has_sensitive_data(
+    assert!(crate::project::url_has_sensitive_data(
         "ssh://git@github.com:bad/team/private.git"
     ));
-    assert!(!crate::project::submodule_url_has_sensitive_data(
+    assert!(!crate::project::url_has_sensitive_data(
         "ssh://git@github.com/team/private.git"
     ));
     let project_info = inspect(&project).unwrap();
@@ -595,6 +593,37 @@ fn git_recovery_rejects_credentials_in_submodule_urls() {
     };
     assert_eq!(reason, "submodule URL contains credentials or query data");
     assert!(!reason.contains("submodule-secret"));
+}
+
+#[test]
+fn backup_rejects_sensitive_unsupported_remote_without_archiving() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping sensitive remote fixture");
+        return;
+    }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git?token=remote-secret"
+        ]
+    ));
+    let backup_dir = temp.0.join("backups");
+    let error = crate::backup::backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(!error.to_string().contains("remote-secret"));
+    assert!(!backup_dir.join("demo").exists());
 }
 
 #[test]

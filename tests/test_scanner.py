@@ -11,7 +11,7 @@ from unittest.mock import patch
 from proj_janitor.config import PROJECT_MARKERS
 from proj_janitor.scanner import (
     _remote_tag_refs,
-    _submodule_url_has_sensitive_data,
+    _url_has_sensitive_data,
     discover_projects,
     inspect_git_recoverability,
     is_github_remote_url,
@@ -266,7 +266,7 @@ class GitRecoveryTests(unittest.TestCase):
 
     def test_submodule_query_data_blocks_git_only_without_exposing_token(self) -> None:
         self.assertFalse(
-            _submodule_url_has_sensitive_data("ssh://git@github.com/acme/private.git")
+            _url_has_sensitive_data("ssh://git@github.com/acme/private.git")
         )
         urls = (
             "https://github.com/acme/private.git?token=query-secret",
@@ -296,7 +296,7 @@ class GitRecoveryTests(unittest.TestCase):
                 self.assertNotIn("secret", state.reason)
 
         self.assertTrue(
-            _submodule_url_has_sensitive_data("ssh://git@github.com:bad/acme/repo")
+            _url_has_sensitive_data("ssh://git@github.com:bad/acme/repo")
         )
 
     def test_pushed_repository_is_recoverable(self) -> None:
@@ -485,6 +485,26 @@ class GitRecoveryTests(unittest.TestCase):
                 state.reason,
                 "remote is not a supported GitHub URL",
             )
+
+    def test_sensitive_unsupported_remote_is_rejected_without_echoing_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(
+                project,
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/acme/app.git?token=remote-secret",
+            )
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "remote URL contains credentials or query data",
+            )
+            self.assertNotIn("remote-secret", state.reason)
 
     def _pushed_repo_with_ignored_dir(self, root: Path) -> Path:
         project = make_pushed_repo(root)

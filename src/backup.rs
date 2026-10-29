@@ -110,7 +110,8 @@ pub(crate) fn backup_cmd(
         let blocked = !include_artifacts
             && !always
             && fallback_reason.as_deref().is_some_and(|reason| {
-                reason.starts_with("submodule URL contains credentials or query data")
+                reason.starts_with("remote URL contains credentials or query data")
+                    || reason.starts_with("submodule URL contains credentials or query data")
             });
         if blocked {
             let reason = fallback_reason.as_deref().unwrap_or_default();

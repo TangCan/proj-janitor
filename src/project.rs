@@ -335,7 +335,7 @@ pub(crate) fn submodule_url_supported(url: &str) -> bool {
     }
 }
 
-pub(crate) fn submodule_url_has_sensitive_data(url: &str) -> bool {
+pub(crate) fn url_has_sensitive_data(url: &str) -> bool {
     if url.contains(['?', '#']) {
         return true;
     }
@@ -405,7 +405,7 @@ pub(crate) fn inspect_submodules(path: &Path) -> Result<(), String> {
         }
         if configured
             .iter()
-            .any(|module| submodule_url_has_sensitive_data(&module.url))
+            .any(|module| url_has_sensitive_data(&module.url))
         {
             return Err("submodule URL contains credentials or query data".into());
         }
@@ -575,6 +575,9 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     let raw_url = git_output(path, &["remote", "get-url", &remote])
         .filter(|s| !s.is_empty())
         .ok_or("remote URL is unavailable")?;
+    if url_has_sensitive_data(&raw_url) && github_url(&raw_url).is_none() {
+        return Err("remote URL contains credentials or query data".into());
+    }
     let remote_url = github_url(&raw_url).ok_or("remote is not a supported GitHub URL")?;
     let commit = git_output(path, &["rev-parse", "HEAD"]).ok_or("HEAD is unavailable")?;
     let ancestor = git_run(

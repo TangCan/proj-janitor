@@ -70,7 +70,10 @@ def prepare_backup(
                 strategy = "git"
                 reason = None
             elif recovery.reason and recovery.reason.startswith(
-                "submodule URL contains credentials or query data"
+                (
+                    "remote URL contains credentials or query data",
+                    "submodule URL contains credentials or query data",
+                )
             ):
                 strategy = "blocked"
                 reason = recovery.reason

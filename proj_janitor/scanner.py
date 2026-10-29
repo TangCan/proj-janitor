@@ -251,7 +251,7 @@ def is_supported_submodule_url(url: str) -> bool:
     return is_github_remote_url(url)
 
 
-def _submodule_url_has_sensitive_data(url: str) -> bool:
+def _url_has_sensitive_data(url: str) -> bool:
     if "?" in url or "#" in url:
         return True
     try:
@@ -308,7 +308,7 @@ def _submodule_recovery_reason(
         lfs_reason = _git_lfs_recovery_reason(current)
         if lfs_reason is not None:
             return lfs_reason if not prefix else f"{lfs_reason}: {prefix.rstrip('/')}"
-        if any(_submodule_url_has_sensitive_data(url) for _, url in modules):
+        if any(_url_has_sensitive_data(url) for _, url in modules):
             return "submodule URL contains credentials or query data"
         if any(not is_supported_submodule_url(url) for _, url in modules):
             return "submodule URL is not a supported GitHub URL"
@@ -451,6 +451,8 @@ def inspect_git_recoverability(
     remote_url = _git_output(path, "remote", "get-url", remote)
     if not remote_url:
         return GitRecovery(False, "remote URL is unavailable")
+    if _url_has_sensitive_data(remote_url) and not is_github_remote_url(remote_url):
+        return GitRecovery(False, "remote URL contains credentials or query data")
     if not is_github_remote_url(remote_url):
         return GitRecovery(False, "remote is not a supported GitHub URL")
     safe_remote_url = sanitize_remote_url(remote_url)
