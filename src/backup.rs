@@ -116,11 +116,16 @@ pub(crate) fn backup_cmd(
                     &git.commit[..12.min(git.commit.len())]
                 );
             } else {
+                let reason = fallback_reason
+                    .as_deref()
+                    .map(|reason| format!(" ({reason})"))
+                    .unwrap_or_default();
                 println!(
-                    "[archive] {}: {} -> {}{}",
+                    "[archive] {}: {} -> {}{}{}",
                     p.name,
                     human(p.size_bytes),
                     archive_path.display(),
+                    reason,
                     if exclude_git_metadata {
                         " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                     } else {
@@ -212,11 +217,17 @@ pub(crate) fn backup_cmd(
                             [..12.min(record.commit.as_deref().unwrap_or_default().len())]
                     );
                 } else {
+                    let reason = record
+                        .fallback_reason
+                        .as_deref()
+                        .map(|reason| format!(" ({reason})"))
+                        .unwrap_or_default();
                     println!(
-                        "[archive] {}: {} sha256:{}{}",
+                        "[archive] {}: {} sha256:{}{}{}",
                         record.project,
                         human(record.archive_bytes),
                         &record.sha256.as_deref().unwrap_or_default()[..12],
+                        reason,
                         if exclude_git_metadata {
                             " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                         } else {

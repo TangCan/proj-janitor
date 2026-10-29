@@ -191,6 +191,7 @@ fn backup_cli_creates_an_archive_and_manifest() {
             stderr.chars().take(256).collect::<String>()
         );
     }
+    assert!(String::from_utf8_lossy(&output.stdout).contains("(detached HEAD)"));
 
     let project_backup = backup_dest.join(project.file_name().unwrap());
     let entries: Vec<_> = fs::read_dir(&project_backup).unwrap().collect();
@@ -601,6 +602,7 @@ fn backup_reads_backup_dest_from_environment() {
         normalized_output(&output).contains(&destination_marker(&env_dest)),
         "unexpected dry-run output: {output}"
     );
+    assert!(output.contains("(detached HEAD)"));
 }
 
 #[test]
