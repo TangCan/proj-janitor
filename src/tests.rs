@@ -576,6 +576,12 @@ fn git_recovery_rejects_credentials_in_submodule_urls() {
     assert!(crate::project::submodule_url_has_sensitive_data(
         "https://github.com/team/private.git?token=secret"
     ));
+    assert!(crate::project::submodule_url_has_sensitive_data(
+        "ssh://git:secret@github.com/team/private.git"
+    ));
+    assert!(!crate::project::submodule_url_has_sensitive_data(
+        "ssh://git@github.com/team/private.git"
+    ));
     let project_info = inspect(&project).unwrap();
     let reason = match inspect_recovery(&project_info) {
         Ok(_) => panic!("credentialed submodule URL was accepted"),

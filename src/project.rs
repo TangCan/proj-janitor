@@ -339,10 +339,13 @@ pub(crate) fn submodule_url_has_sensitive_data(url: &str) -> bool {
     if url.contains(['?', '#']) {
         return true;
     }
-    url.starts_with("https://")
-        && Url::parse(url).is_ok_and(|parsed| {
+    Url::parse(url).is_ok_and(|parsed| match parsed.scheme() {
+        "https" => {
             parsed.username() != "" || parsed.password().is_some() || parsed.as_str().contains('@')
-        })
+        }
+        "ssh" | "file" => parsed.password().is_some(),
+        _ => false,
+    })
 }
 
 fn git_lfs_recovery_reason(path: &Path) -> Option<String> {

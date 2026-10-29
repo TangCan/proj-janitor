@@ -101,7 +101,7 @@ projjan backup ~/richard_plus
 - `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块会回退归档；子模块 URL 含凭据时，自动备份会失败且不写归档或 manifest。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 远程 URL 可以内嵌 HTTPS 凭据（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；URL-only 记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。
-- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。嵌入凭据的 URL 会让自动备份失败，不生成归档/manifest，避免令牌被二次保存或写入恢复仓库的 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
+- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。含凭据、query 或 fragment 的 URL 会让自动备份失败，不生成归档/manifest，避免敏感值被二次保存或写入恢复仓库的 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
 - Git LFS 内容与 Git 提交中的指针分开存放。恢复会在临时仓库配置本地 LFS filter 并执行 `git lfs pull`；LFS 对象缺失或不可访问时恢复失败，不创建目标目录。`.lfsconfig` 和自定义 LFS endpoint 暂不支持。
 - 归档会包含 `.git/config` 和项目跟踪文件（包括 `.gitmodules`）。如果其中内嵌凭据，归档也会包含该凭据。显式使用 `--always-archive` 或 `--include-artifacts` 时仍会按要求打包；执行前应清理凭据并限制归档访问。
 

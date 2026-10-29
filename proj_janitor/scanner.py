@@ -254,13 +254,13 @@ def is_supported_submodule_url(url: str) -> bool:
 def _submodule_url_has_sensitive_data(url: str) -> bool:
     if "?" in url or "#" in url:
         return True
-    if not url.startswith("https://"):
-        return False
     try:
         parsed = urlsplit(url)
     except ValueError:
         return False
-    return parsed.username is not None or parsed.password is not None
+    if parsed.scheme == "https":
+        return parsed.username is not None or parsed.password is not None
+    return parsed.scheme in {"ssh", "file"} and parsed.password is not None
 
 
 def _git_lfs_recovery_reason(path: Path) -> str | None:

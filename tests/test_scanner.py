@@ -11,6 +11,7 @@ from unittest.mock import patch
 from proj_janitor.config import PROJECT_MARKERS
 from proj_janitor.scanner import (
     _remote_tag_refs,
+    _submodule_url_has_sensitive_data,
     discover_projects,
     inspect_git_recoverability,
     is_github_remote_url,
@@ -264,26 +265,34 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertNotIn("submodule-secret", state.reason)
 
     def test_submodule_query_data_blocks_git_only_without_exposing_token(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            project = make_pushed_repo(Path(tmp))
-            (project / ".gitmodules").write_text(
-                '[submodule "private"]\n'
-                "\tpath = vendor/private\n"
-                "\turl = https://github.com/acme/private.git?token=query-secret\n",
-                encoding="utf-8",
-            )
-            git(project, "add", ".gitmodules")
-            git(project, "commit", "-m", "configure submodule")
-            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assertFalse(
+            _submodule_url_has_sensitive_data("ssh://git@github.com/acme/private.git")
+        )
+        urls = (
+            "https://github.com/acme/private.git?token=query-secret",
+            "ssh://git:ssh-secret@github.com/acme/private.git",
+        )
+        for url in urls:
+            with self.subTest(url=url), tempfile.TemporaryDirectory() as tmp:
+                project = make_pushed_repo(Path(tmp))
+                (project / ".gitmodules").write_text(
+                    '[submodule "private"]\n'
+                    "\tpath = vendor/private\n"
+                    f"\turl = {url}\n",
+                    encoding="utf-8",
+                )
+                git(project, "add", ".gitmodules")
+                git(project, "commit", "-m", "configure submodule")
+                git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
 
-            state = inspect_git_recoverability(scan_project(project))
+                state = inspect_git_recoverability(scan_project(project))
 
-            self.assertFalse(state.eligible)
-            self.assertEqual(
-                state.reason,
-                "submodule URL contains credentials or query data",
-            )
-            self.assertNotIn("query-secret", state.reason)
+                self.assertFalse(state.eligible)
+                self.assertEqual(
+                    state.reason,
+                    "submodule URL contains credentials or query data",
+                )
+                self.assertNotIn("secret", state.reason)
 
     def test_pushed_repository_is_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
