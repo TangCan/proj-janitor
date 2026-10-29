@@ -556,6 +556,29 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
 fn submodule_urls_have_sensitive_data(path: &Path) -> bool {
     let mut pending = vec![path.to_path_buf()];
     while let Some(current) = pending.pop() {
+        let gitmodules = current.join(".gitmodules");
+        if fs::symlink_metadata(&gitmodules)
+            .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+            && let Some(output) = git_run(
+                &current,
+                &[
+                    "config",
+                    "--file",
+                    ".gitmodules",
+                    "--get-regexp",
+                    r"^submodule\..*\.url$",
+                ],
+            )
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if line
+                    .split_once(' ')
+                    .is_some_and(|(_, url)| url_has_sensitive_data(url))
+                {
+                    return true;
+                }
+            }
+        }
         let Ok(modules) = submodule_config(&current) else {
             continue;
         };

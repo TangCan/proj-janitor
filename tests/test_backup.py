@@ -715,6 +715,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             (project / ".gitmodules").write_text(
                 '[submodule "private"]\n'
                 "\tpath = vendor/private\n"
+                "\turl = https://github.com/acme/private.git\n"
                 "\turl = https://token:module-secret@github.com/acme/private.git\n",
                 encoding="utf-8",
             )
@@ -742,6 +743,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             (project / ".gitmodules").write_text(
                 '[submodule "private"]\n'
                 "\tpath = vendor/private\n"
+                "\turl = https://github.com/acme/private.git\n"
                 "\turl = https://token:module-secret@github.com/acme/private.git\n",
                 encoding="utf-8",
             )

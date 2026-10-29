@@ -276,6 +276,21 @@ def _submodule_urls_have_sensitive_data(path: Path) -> bool:
     pending = [path]
     while pending:
         current = pending.pop()
+        gitmodules = current / ".gitmodules"
+        if gitmodules.is_file() and not gitmodules.is_symlink():
+            result = _git_run(
+                current,
+                "config",
+                "--file",
+                ".gitmodules",
+                "--get-regexp",
+                r"^submodule\..*\.url$",
+            )
+            if result is not None:
+                for line in result.stdout.splitlines():
+                    _, separator, url = line.partition(" ")
+                    if separator and _url_has_sensitive_data(url.strip()):
+                        return True
         modules = submodule_config(current)
         if modules is None:
             continue

@@ -709,7 +709,7 @@ fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
     ));
     fs::write(
         project.join(".gitmodules"),
-        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://token:module-secret@github.com/team/private.git\n",
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://github.com/team/private.git\n\turl = https://token:module-secret@github.com/team/private.git\n",
     )
     .unwrap();
     let backup_dir = temp.0.join("backups");
@@ -739,7 +739,7 @@ fn backup_rejects_non_git_projects_with_submodule_credentials() {
     fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
     fs::write(
         project.join(".gitmodules"),
-        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://token:module-secret@github.com/team/private.git\n",
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://github.com/team/private.git\n\turl = https://token:module-secret@github.com/team/private.git\n",
     )
     .unwrap();
     let backup_dir = temp.0.join("backups");
