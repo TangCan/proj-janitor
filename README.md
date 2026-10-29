@@ -98,12 +98,12 @@ projjan backup ~/richard_plus
 备份策略按项目自动选择：
 
 - `git`：工作区干净（包含子模块）、无 stash，所有本地分支和本地 tag 均已推送，且远程及子模块远程受支持时，仅记录 Git 远程、分支、上游和提交 SHA，不生成归档。未初始化（目录内无额外文件）或已初始化且干净的子模块均支持；恢复时按主仓库记录的 gitlink 提交递归克隆子模块。含 Git LFS 属性的仓库也支持，但备份与恢复都要求安装 `git-lfs`，并使用默认 GitHub LFS endpoint。
-- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块也会回退归档。
+- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块会回退归档；子模块 URL 含凭据时，自动备份会失败且不写归档或 manifest。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 远程 URL 可以内嵌 HTTPS 凭据（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；URL-only 记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。
-- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。嵌入凭据的 URL 会回退归档，避免恢复时把令牌写入 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
+- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。嵌入凭据的 URL 会让自动备份失败，不生成归档/manifest，避免令牌被二次保存或写入恢复仓库的 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
 - Git LFS 内容与 Git 提交中的指针分开存放。恢复会在临时仓库配置本地 LFS filter 并执行 `git lfs pull`；LFS 对象缺失或不可访问时恢复失败，不创建目标目录。`.lfsconfig` 和自定义 LFS endpoint 暂不支持。
-- 归档会包含 `.git/config` 和项目跟踪文件（包括 `.gitmodules`）。如果其中内嵌凭据，归档也会包含该凭据；备份前应清理凭据或确认归档访问权限。
+- 归档会包含 `.git/config` 和项目跟踪文件（包括 `.gitmodules`）。如果其中内嵌凭据，归档也会包含该凭据。显式使用 `--always-archive` 或 `--include-artifacts` 时仍会按要求打包；执行前应清理凭据并限制归档访问。
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
@@ -256,7 +256,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-29）：Python 共 138 项（Linux 本地 137 项通过、1 项 Windows 专用测试跳过）；Rust stable 和 MSRV 1.88 均通过 27 项单元测试及 13 项 CLI 集成测试。GitHub Actions [run `40843041384`](https://github.com/TangCan/proj-janitor/actions/runs/40843041384) 的 13 个 job 全部通过；CodeQL [run `40843041264`](https://github.com/TangCan/proj-janitor/actions/runs/40843041264) 的 Actions/Python/Rust 分析通过。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地验证（2026-10-29）：Python 共 140 项（Linux 本地 139 项通过、1 项 Windows 专用测试跳过）；Rust stable 和 MSRV 1.88 均通过 27 项单元测试及 14 项 CLI 集成测试。GitHub Actions [run `40846252487`](https://github.com/TangCan/proj-janitor/actions/runs/40846252487) 的 13 个 job 全部通过；CodeQL [run `40846252393`](https://github.com/TangCan/proj-janitor/actions/runs/40846252393) 的 Actions/Python/Rust 分析通过。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：

@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-29 清理确认路径回归补充 |
-| 源码提交 | `8d02678a13cc958159992bdb0ce517c5f59ce938`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `c2bc93a40975792ffd9e765c02cf955e05842b3d`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-29 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -1122,30 +1122,31 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
 | 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
-| 15 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
-| 16 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |
-| 17 | Git LFS 未安装 | `Git LFS is not installed` |
-| 18 | 存在 `.lfsconfig` 或自定义 LFS endpoint | `Git LFS is not supported` / `custom Git LFS endpoints are not supported` |
-| 19 | Git LFS endpoint 配置无法检查 | `cannot inspect Git LFS configuration` |
-| 19 | 忽略文件列举失败 | `cannot inspect ignored files` |
-| 20 | 某忽略路径不属于允许的 artifact 模式 | `ignored path is not an artifact: {path}` |
-| 21 | 本地分支列举失败 | `cannot list local branches` |
-| 22 | 远程跟踪引用列举失败 | `cannot list remote-tracking refs` |
-| 23 | 没有远程跟踪引用 | `no remote-tracking refs` |
-| 24 | 某本地分支比较失败 | `cannot inspect local branch: {branch}` |
-| 25 | 某本地分支未完全推送 | `local branch is not fully pushed: {branch}` |
-| 26 | 本地 tag 列举失败 | `cannot list tags` |
-| 27 | 本地 tag 未推送到远程 | `local tag is not pushed: {name}` |
-| 28 | 本地 tag 与远程同名 tag 对象不一致 | `local tag differs from remote: {name}` |
-| 29 | 远程 tag 查询失败 | `cannot verify local tags on remote` |
+| 15 | 子模块 URL 含凭据 | `submodule URL contains credentials` |
+| 16 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
+| 17 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |
+| 18 | Git LFS 未安装 | `Git LFS is not installed` |
+| 19 | 存在 `.lfsconfig` 或自定义 LFS endpoint | `Git LFS is not supported` / `custom Git LFS endpoints are not supported` |
+| 20 | Git LFS endpoint 配置无法检查 | `cannot inspect Git LFS configuration` |
+| 21 | 忽略文件列举失败 | `cannot inspect ignored files` |
+| 22 | 某忽略路径不属于允许的 artifact 模式/生成路径 | `ignored path is not an artifact: {path}` |
+| 23 | 本地分支列举失败 | `cannot list local branches` |
+| 24 | 远程跟踪引用列举失败 | `cannot list remote-tracking refs` |
+| 25 | 没有远程跟踪引用 | `no remote-tracking refs` |
+| 26 | 某本地分支比较失败 | `cannot inspect local branch: {branch}` |
+| 27 | 某本地分支未完全推送 | `local branch is not fully pushed: {branch}` |
+| 28 | 本地 tag 列举失败 | `cannot list tags` |
+| 29 | 本地 tag 未推送到远程 | `local tag is not pushed: {name}` |
+| 30 | 本地 tag 与远程同名 tag 对象不一致 | `local tag differs from remote: {name}` |
+| 31 | 远程 tag 查询失败 | `cannot verify local tags on remote` |
 
 补充：
 
-- 检查 20 的允许模式来自本次备份的 `artifact_patterns()`；默认排除构建产物，`--include-artifacts` 传入空模式，因此任何忽略文件都会阻止 URL-only。
-- 检查 17 的 LFS 探测使用 `git grep -l filter=lfs -- *.gitattributes`；返回码非 `0`/`1` 视为检查失败。
-- 检查 20 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
-- 检查 21/22 使用 `for-each-ref`；检查 23 要求至少存在一个 `refs/remotes/{remote}/` 引用。
-- 检查 26 使用 `git for-each-ref refs/tags` 读取本地 tag；检查 27/28/29 通过 `git ls-remote --tags --refs` 比较远程 tag 的原始对象 ID。没有本地 tag 时不发起远程查询。
+- 检查 22 的允许模式来自本次备份的 `artifact_patterns()` 与固定生成路径规则；默认排除构建产物，`--include-artifacts` 传入空模式，因此任何忽略文件都会阻止 URL-only。
+- 检查 18 的 LFS 探测使用 `git grep -l filter=lfs -- *.gitattributes`；返回码非 `0`/`1` 视为检查失败。
+- 检查 21 使用 `git -c core.quotePath=false ls-files --others --ignored --exclude-standard --directory -z`。
+- 检查 23/24 使用 `for-each-ref`；检查 25 要求至少存在一个 `refs/remotes/{remote}/` 引用。
+- 检查 28 使用 `git for-each-ref refs/tags` 读取本地 tag；检查 29/30/31 通过 `git ls-remote --tags --refs` 比较远程 tag 的原始对象 ID。没有本地 tag 时不发起远程查询。
 - 扫描/备份中的 Git 检查调用超时为 10 秒；恢复 Git 子进程每步超时为 600 秒。超时会尝试终止 Git 进程树；超时或无法启动 Git 会映射为对应失败原因或 `None` 字段。
 
 ### 13.4 处理策略
@@ -1323,7 +1324,7 @@ projjan verify MANIFEST --project NAME --json
 
 以下记录 Rust `0.2.4` 发布时的交付基线；最新版本和维护状态见文末“发布后 main 维护状态”。
 
-发布标签 `v0.2.4` 指向提交 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`；功能源码始于 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`。Python 123 项测试、Rust 27 项单元测试和 3 项 CLI 集成测试通过；`cargo fmt --check`、Clippy、打包、crates.io 发布及安装冒烟均通过。提交 CI run [40466700148](https://github.com/TangCan/proj-janitor/actions/runs/40466700148) 和 tag CI run [40467153200](https://github.com/TangCan/proj-janitor/actions/runs/40467153200) 均 11/11 个 job 成功。发布细节见 `docs/发布记录/0.2.4-Rust版.md`。
+发布标签 `v0.2.4` 指向提交 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`；功能源码始于 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`。Python 123 项测试、Rust 26 项单元测试和 3 项 CLI 集成测试通过；`cargo fmt --check`、Clippy、打包、crates.io 发布及安装冒烟均通过。提交 CI run [40466700148](https://github.com/TangCan/proj-janitor/actions/runs/40466700148) 和 tag CI run [40467153200](https://github.com/TangCan/proj-janitor/actions/runs/40467153200) 均 11/11 个 job 成功。发布细节见 `docs/发布记录/0.2.4-Rust版.md`。
 
 正式验收和签字仍由实际负责人/接收人完成；开源发布、CI 通过和交付材料齐备不代替接收人确认。
 
@@ -1333,7 +1334,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 138 项测试、Rust 27 项单元测试和 13 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40843041384](https://github.com/TangCan/proj-janitor/actions/runs/40843041384) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40843041264](https://github.com/TangCan/proj-janitor/actions/runs/40843041264) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- Python 140 项测试、Rust 27 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
+- GitHub Actions run [40846252487](https://github.com/TangCan/proj-janitor/actions/runs/40846252487) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40846252393](https://github.com/TangCan/proj-janitor/actions/runs/40846252393) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
