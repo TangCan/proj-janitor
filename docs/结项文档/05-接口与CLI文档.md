@@ -1125,6 +1125,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 14a | 需要归档但主 remote URL 含凭据或 query/fragment 数据 | `remote URL contains credentials or query data` |
 | 14b | 需要归档但本地 Git 配置含 HTTP Authorization header | `Git config contains HTTP extraHeader` |
 | 14c | 无法读取本地 Git 凭据配置 | `cannot safely inspect Git config for credentials` |
+| 14d | 本地 Git 配置含 credential password | `Git config contains credential passwords` |
+| 14e | 本地 Git 配置含内联 credential helper | `Git config contains an inline credential helper` |
 | 15 | 子模块 URL 含凭据或 query/fragment 数据 | `submodule URL contains credentials or query data` |
 | 16 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
 | 17 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |

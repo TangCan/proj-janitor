@@ -566,23 +566,41 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
     if !path.join(".git").exists() {
         return None;
     }
-    let output = git_run(
-        path,
-        &[
-            "config",
-            "--local",
-            "--name-only",
-            "--get-regexp",
+    for (pattern, reason) in [
+        (
             r"^http\..*extraheader$",
-        ],
+            "Git config contains HTTP extraHeader",
+        ),
+        (
+            r"^credential\..*password$",
+            "Git config contains credential passwords",
+        ),
+    ] {
+        let output = git_run(
+            path,
+            &["config", "--local", "--name-only", "--get-regexp", pattern],
+        )?;
+        if output.status.success() && !output.stdout.is_empty() {
+            return Some(reason);
+        }
+        if output.status.code() != Some(1) || !output.stdout.is_empty() {
+            return Some("cannot safely inspect Git config for credentials");
+        }
+    }
+    let helpers = git_run(
+        path,
+        &["config", "--local", "--get-all", "credential.helper"],
     )?;
-    if output.status.success() && !output.stdout.is_empty() {
-        return Some("Git config contains HTTP extraHeader");
+    if !helpers.status.success() && helpers.status.code() != Some(1) {
+        return Some("cannot safely inspect Git config for credentials");
     }
-    if output.status.code() == Some(1) && output.stdout.is_empty() {
-        return None;
+    if String::from_utf8_lossy(&helpers.stdout)
+        .lines()
+        .any(|helper| helper.trim_start().starts_with('!'))
+    {
+        return Some("Git config contains an inline credential helper");
     }
-    Some("cannot safely inspect Git config for credentials")
+    None
 }
 
 fn submodule_urls_have_sensitive_data(path: &Path) -> bool {

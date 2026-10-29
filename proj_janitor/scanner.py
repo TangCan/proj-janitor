@@ -306,18 +306,27 @@ def _submodule_urls_have_sensitive_data(path: Path) -> bool:
 def _git_config_archive_reason(path: Path) -> str | None:
     if not (path / ".git").exists():
         return None
-    result = _git_run(
-        path,
-        "config",
-        "--local",
-        "--name-only",
-        "--get-regexp",
-        r"^http\..*extraheader$",
-    )
-    if result is None or result.returncode not in (0, 1):
+    for pattern, reason in (
+        (r"^http\..*extraheader$", "Git config contains HTTP extraHeader"),
+        (r"^credential\..*password$", "Git config contains credential passwords"),
+    ):
+        result = _git_run(
+            path,
+            "config",
+            "--local",
+            "--name-only",
+            "--get-regexp",
+            pattern,
+        )
+        if result is None or result.returncode not in (0, 1):
+            return "cannot safely inspect Git config for credentials"
+        if result.returncode == 0 and result.stdout.strip():
+            return reason
+    helpers = _git_run(path, "config", "--local", "--get-all", "credential.helper")
+    if helpers is None or helpers.returncode not in (0, 1):
         return "cannot safely inspect Git config for credentials"
-    if result.returncode == 0 and result.stdout.strip():
-        return "Git config contains HTTP extraHeader"
+    if any(helper.strip().startswith("!") for helper in helpers.stdout.splitlines()):
+        return "Git config contains an inline credential helper"
     return None
 
 

@@ -738,49 +738,64 @@ fn backup_rejects_archiving_with_a_credentialed_push_url() {
 }
 
 #[test]
-fn backup_rejects_archiving_with_http_extra_header() {
-    let temp = TestDir::new();
-    let project = temp.0.join("demo");
-    if !pushed_github_fixture(&project) {
-        eprintln!("git unavailable; skipping HTTP extraHeader fixture");
-        return;
-    }
-    assert!(local_git(
-        &project,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "https://github.com/team/demo.git"
-        ]
-    ));
-    assert!(local_git(
-        &project,
-        &[
-            "config",
+fn backup_rejects_archiving_with_sensitive_git_auth_config() {
+    let settings = [
+        (
             "http.https://github.com/.extraheader",
-            "Authorization: Basic extra-secret"
-        ]
-    ));
-    fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
-    let project_info = inspect(&project).unwrap();
-    let reason = match crate::project::inspect_recovery(&project_info) {
-        Ok(_) => panic!("HTTP extraHeader was allowed to fall back to archive"),
-        Err(reason) => reason,
-    };
-    assert_eq!(reason, "Git config contains HTTP extraHeader");
-    let backup_dir = temp.0.join("backups");
-    let error = crate::backup::backup_cmd(
-        std::slice::from_ref(&project),
-        Some(backup_dir.clone()),
-        false,
-        false,
-        false,
-        false,
-    )
-    .unwrap_err();
-    assert!(!error.to_string().contains("extra-secret"));
-    assert!(!backup_dir.join("demo").exists());
+            "Authorization: Basic extra-secret",
+            "Git config contains HTTP extraHeader",
+            "extra-secret",
+        ),
+        (
+            "credential.password",
+            "config-secret",
+            "Git config contains credential passwords",
+            "config-secret",
+        ),
+        (
+            "credential.helper",
+            "!echo helper-secret",
+            "Git config contains an inline credential helper",
+            "helper-secret",
+        ),
+    ];
+    for (key, value, expected_reason, secret) in settings {
+        let temp = TestDir::new();
+        let project = temp.0.join("demo");
+        if !pushed_github_fixture(&project) {
+            eprintln!("git unavailable; skipping Git authentication config fixture");
+            return;
+        }
+        assert!(local_git(
+            &project,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/team/demo.git"
+            ]
+        ));
+        assert!(local_git(&project, &["config", key, value]));
+        fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
+        let project_info = inspect(&project).unwrap();
+        let reason = match crate::project::inspect_recovery(&project_info) {
+            Ok(_) => panic!("sensitive Git authentication config was accepted"),
+            Err(reason) => reason,
+        };
+        assert_eq!(reason, expected_reason);
+        let backup_dir = temp.0.join("backups");
+        let error = crate::backup::backup_cmd(
+            std::slice::from_ref(&project),
+            Some(backup_dir.clone()),
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(!error.to_string().contains(secret));
+        assert!(!backup_dir.join("demo").exists());
+    }
 }
 
 #[test]

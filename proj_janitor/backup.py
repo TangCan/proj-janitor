@@ -74,6 +74,8 @@ def prepare_backup(
                     "remote URL contains credentials or query data",
                     "submodule URL contains credentials or query data",
                     "Git config contains HTTP extraHeader",
+                    "Git config contains credential passwords",
+                    "Git config contains an inline credential helper",
                     "cannot safely inspect Git config for credentials",
                 )
             ):
