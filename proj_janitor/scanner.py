@@ -257,10 +257,19 @@ def _submodule_url_has_sensitive_data(url: str) -> bool:
     try:
         parsed = urlsplit(url)
     except ValueError:
+        return "://" in url and "@" in url.split("://", 1)[1].split("/", 1)[0]
+    if parsed.username is None and parsed.password is None:
         return False
-    if parsed.scheme == "https":
-        return parsed.username is not None or parsed.password is not None
-    return parsed.scheme in {"ssh", "file"} and parsed.password is not None
+    try:
+        return not (
+            parsed.scheme == "ssh"
+            and parsed.username == "git"
+            and parsed.password is None
+            and parsed.hostname == "github.com"
+            and parsed.port in (None, 22)
+        )
+    except ValueError:
+        return True
 
 
 def _git_lfs_recovery_reason(path: Path) -> str | None:

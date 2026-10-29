@@ -271,6 +271,7 @@ class GitRecoveryTests(unittest.TestCase):
         urls = (
             "https://github.com/acme/private.git?token=query-secret",
             "ssh://git:ssh-secret@github.com/acme/private.git",
+            "http://token@github.com/acme/private.git",
         )
         for url in urls:
             with self.subTest(url=url), tempfile.TemporaryDirectory() as tmp:
@@ -293,6 +294,10 @@ class GitRecoveryTests(unittest.TestCase):
                     "submodule URL contains credentials or query data",
                 )
                 self.assertNotIn("secret", state.reason)
+
+        self.assertTrue(
+            _submodule_url_has_sensitive_data("ssh://git@github.com:bad/acme/repo")
+        )
 
     def test_pushed_repository_is_recoverable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

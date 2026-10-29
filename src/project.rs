@@ -339,13 +339,21 @@ pub(crate) fn submodule_url_has_sensitive_data(url: &str) -> bool {
     if url.contains(['?', '#']) {
         return true;
     }
-    Url::parse(url).is_ok_and(|parsed| match parsed.scheme() {
-        "https" => {
-            parsed.username() != "" || parsed.password().is_some() || parsed.as_str().contains('@')
-        }
-        "ssh" | "file" => parsed.password().is_some(),
-        _ => false,
-    })
+    let Some((scheme, remainder)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = remainder.split('/').next().unwrap_or(remainder);
+    if !authority.contains('@') {
+        return false;
+    }
+    let Ok(parsed) = Url::parse(url) else {
+        return true;
+    };
+    !(scheme == "ssh"
+        && parsed.username() == "git"
+        && parsed.password().is_none()
+        && parsed.host_str() == Some("github.com")
+        && parsed.port().is_none_or(|port| port == 22))
 }
 
 fn git_lfs_recovery_reason(path: &Path) -> Option<String> {
