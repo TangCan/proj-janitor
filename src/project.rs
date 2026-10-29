@@ -578,7 +578,14 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
     ] {
         let output = git_run(
             path,
-            &["config", "--local", "--name-only", "--get-regexp", pattern],
+            &[
+                "config",
+                "--local",
+                "--includes",
+                "--name-only",
+                "--get-regexp",
+                pattern,
+            ],
         )?;
         if output.status.success() && !output.stdout.is_empty() {
             return Some(reason);
@@ -589,7 +596,13 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
     }
     let helpers = git_run(
         path,
-        &["config", "--local", "--get-all", "credential.helper"],
+        &[
+            "config",
+            "--local",
+            "--includes",
+            "--get-all",
+            "credential.helper",
+        ],
     )?;
     if !helpers.status.success() && helpers.status.code() != Some(1) {
         return Some("cannot safely inspect Git config for credentials");

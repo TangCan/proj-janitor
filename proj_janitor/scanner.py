@@ -314,6 +314,7 @@ def _git_config_archive_reason(path: Path) -> str | None:
             path,
             "config",
             "--local",
+            "--includes",
             "--name-only",
             "--get-regexp",
             pattern,
@@ -322,7 +323,14 @@ def _git_config_archive_reason(path: Path) -> str | None:
             return "cannot safely inspect Git config for credentials"
         if result.returncode == 0 and result.stdout.strip():
             return reason
-    helpers = _git_run(path, "config", "--local", "--get-all", "credential.helper")
+    helpers = _git_run(
+        path,
+        "config",
+        "--local",
+        "--includes",
+        "--get-all",
+        "credential.helper",
+    )
     if helpers is None or helpers.returncode not in (0, 1):
         return "cannot safely inspect Git config for credentials"
     if any(helper.strip().startswith("!") for helper in helpers.stdout.splitlines()):

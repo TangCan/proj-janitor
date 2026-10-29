@@ -740,26 +740,34 @@ class GitStrategyBackupTests(unittest.TestCase):
     def test_sensitive_git_auth_config_never_falls_back_to_archive(self) -> None:
         settings = (
             (
-                "http.https://github.com/.extraheader",
-                "Authorization: Basic extra-secret",
+                "include.path",
+                "credentials.inc",
                 "Git config contains HTTP extraHeader",
+                "Authorization: Basic extra-secret",
             ),
             (
                 "credential.password",
                 "config-secret",
                 "Git config contains credential passwords",
+                "config-secret",
             ),
             (
                 "credential.helper",
                 "!echo helper-secret",
                 "Git config contains an inline credential helper",
+                "helper-secret",
             ),
         )
-        for key, value, reason in settings:
+        for key, value, reason, secret in settings:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 project = make_pushed_repo(root)
                 git(project, "remote", "set-url", "origin", "https://github.com/acme/app.git")
+                if key == "include.path":
+                    (project / ".git" / value).write_text(
+                        f"[http]\n\textraHeader = {secret}\n",
+                        encoding="utf-8",
+                    )
                 git(project, "config", key, value)
                 (project / "local-change.txt").write_text("dirty\n", encoding="utf-8")
                 backup_dest = root / "backups"

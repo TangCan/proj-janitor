@@ -741,8 +741,8 @@ fn backup_rejects_archiving_with_a_credentialed_push_url() {
 fn backup_rejects_archiving_with_sensitive_git_auth_config() {
     let settings = [
         (
-            "http.https://github.com/.extraheader",
-            "Authorization: Basic extra-secret",
+            "include.path",
+            "credentials.inc",
             "Git config contains HTTP extraHeader",
             "extra-secret",
         ),
@@ -775,6 +775,13 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
                 "https://github.com/team/demo.git"
             ]
         ));
+        if key == "include.path" {
+            fs::write(
+                project.join(".git/credentials.inc"),
+                "[http]\n\textraHeader = Authorization: Basic extra-secret\n",
+            )
+            .unwrap();
+        }
         assert!(local_git(&project, &["config", key, value]));
         fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
         let project_info = inspect(&project).unwrap();
