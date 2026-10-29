@@ -98,7 +98,7 @@ projjan backup ~/richard_plus
 备份策略按项目自动选择：
 
 - `git`：工作区干净，无 stash、submodule、LFS，所有本地分支和本地 tag 均已推送，且远程是 GitHub URL 时，仅记录远程 URL、分支、上游和提交 SHA，不再生成归档。
-- `archive`：其余情况回退为 `tar.gz`，并在清单中记录回退原因（例如 `working tree is not clean`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。
+- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`submodules are not supported`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 远程 URL 可以内嵌 HTTPS 凭据（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；URL-only 记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。
 - 归档会包含 `.git/config`。如果远程 URL 内嵌凭据，归档也会包含该凭据；对这类项目执行归档前应先清理远程 URL，或确认归档的访问权限。
