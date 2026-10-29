@@ -713,7 +713,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     second_record.archive_bytes = fs::metadata(&second_archive).unwrap().len();
     second_record.source_bytes = tree_size(&second_source).unwrap();
     second_record.sha256 = Some(sha256(&second_archive).unwrap());
-    let manifest = Manifest {
+    let mut manifest = Manifest {
         schema_version: 2,
         created_at: "2026-10-24T00:00:00+00:00".into(),
         tool: "proj-janitor".into(),
@@ -745,13 +745,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         "restore me\n"
     );
 
-    use std::io::Write;
-    fs::OpenOptions::new()
-        .append(true)
-        .open(&second_archive)
-        .unwrap()
-        .write_all(b"corruption")
-        .unwrap();
+    fs::write(&second_archive, b"not a gzip archive").unwrap();
     let failed_restore_root = temp.0.join("failed-restore");
     let error = restore_cmd(
         &manifest_path,
@@ -765,6 +759,29 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     .unwrap_err();
     assert!(error.to_string().contains("sha256 mismatch"));
     assert!(!failed_restore_root.exists());
+
+    manifest.records[1].sha256 = Some(sha256(&second_archive).unwrap());
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let error = restore_cmd(
+        &manifest_path,
+        Some(failed_restore_root.clone()),
+        &[],
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("already restored: demo ->"));
+    assert_eq!(
+        fs::read_to_string(failed_restore_root.join("demo/data.txt")).unwrap(),
+        "restore me\n"
+    );
+    assert!(!failed_restore_root.join("second").exists());
 }
 
 #[test]

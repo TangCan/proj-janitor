@@ -308,6 +308,15 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse(restored.exists())
 
+            archive.write_bytes(b"not a gzip archive")
+            second_record["sha256"] = sha256_file(archive)
+            write_manifest(root / "manifest.json", [first_record, second_record])
+            with self.assertRaisesRegex(RestoreError, "already restored: first"):
+                restore_from_manifest(manifest, restored)
+
+            self.assertTrue((restored / "first" / "src" / "main.py").is_file())
+            self.assertFalse((restored / "second").exists())
+
     def test_restore_rejects_non_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
