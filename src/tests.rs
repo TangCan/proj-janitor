@@ -701,6 +701,18 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         verified: None,
         fallback_reason: Some("fixture".into()),
     };
+    let second_source = temp.0.join("second");
+    fs::create_dir_all(&second_source).unwrap();
+    fs::write(second_source.join("data.txt"), "second project\n").unwrap();
+    let second_archive = backup_dir.join("second.tar.gz");
+    create_archive(&second_source, &second_archive, true, false).unwrap();
+    let mut second_record = record.clone();
+    second_record.project = "second".into();
+    second_record.source = second_source.to_string_lossy().into_owned();
+    second_record.archive = Some(second_archive.to_string_lossy().into_owned());
+    second_record.archive_bytes = fs::metadata(&second_archive).unwrap().len();
+    second_record.source_bytes = tree_size(&second_source).unwrap();
+    second_record.sha256 = Some(sha256(&second_archive).unwrap());
     let manifest = Manifest {
         schema_version: 2,
         created_at: "2026-10-24T00:00:00+00:00".into(),
@@ -709,7 +721,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         include_artifacts: false,
         always_archive: false,
         exclude_git_metadata: false,
-        records: vec![record],
+        records: vec![record, second_record],
     };
     let manifest_path = backup_dir.join("manifest.json");
     fs::write(
@@ -732,6 +744,27 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         fs::read_to_string(restore_root.join("demo/data.txt")).unwrap(),
         "restore me\n"
     );
+
+    use std::io::Write;
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&second_archive)
+        .unwrap()
+        .write_all(b"corruption")
+        .unwrap();
+    let failed_restore_root = temp.0.join("failed-restore");
+    let error = restore_cmd(
+        &manifest_path,
+        Some(failed_restore_root.clone()),
+        &[],
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("sha256 mismatch"));
+    assert!(!failed_restore_root.exists());
 }
 
 #[test]

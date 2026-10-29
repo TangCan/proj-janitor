@@ -293,8 +293,12 @@ class RestoreTests(unittest.TestCase):
     def test_restore_archive_rejects_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _, manifest, record = archive_backup(root)
-            archive = Path(record["archive"])
+            _, _, first_record = archive_backup(root / "first", "first")
+            _, _, second_record = archive_backup(root / "second", "second")
+            manifest = write_manifest(
+                root / "manifest.json", [first_record, second_record]
+            )
+            archive = Path(second_record["archive"])
             with archive.open("ab") as handle:
                 handle.write(b"corruption")
             restored = root / "restored"
@@ -302,7 +306,7 @@ class RestoreTests(unittest.TestCase):
             with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
                 restore_from_manifest(manifest, restored)
 
-            self.assertFalse((restored / "app").exists())
+            self.assertFalse(restored.exists())
 
     def test_restore_rejects_non_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
