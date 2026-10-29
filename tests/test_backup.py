@@ -701,6 +701,31 @@ class GitStrategyBackupTests(unittest.TestCase):
             )
             self.assertFalse((backup_dest / "app").exists())
 
+    def test_dirty_project_with_credentialed_submodule_never_falls_back_to_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            (project / ".gitmodules").write_text(
+                '[submodule "private"]\n'
+                "\tpath = vendor/private\n"
+                "\turl = https://token:module-secret@github.com/acme/private.git\n",
+                encoding="utf-8",
+            )
+            backup_dest = root / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                backup_dest,
+            )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(
+                failures,
+                [("app", "submodule URL contains credentials or query data")],
+            )
+            self.assertFalse((backup_dest / "app").exists())
+
     def test_dirty_repo_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

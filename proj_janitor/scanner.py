@@ -272,6 +272,22 @@ def _url_has_sensitive_data(url: str) -> bool:
         return True
 
 
+def _submodule_urls_have_sensitive_data(path: Path) -> bool:
+    pending = [path]
+    while pending:
+        current = pending.pop()
+        modules = submodule_config(current)
+        if modules is None:
+            continue
+        for relative, url in modules:
+            if _url_has_sensitive_data(url):
+                return True
+            child = current.joinpath(*relative.parts)
+            if not child.is_symlink() and child.is_dir():
+                pending.append(child)
+    return False
+
+
 def _git_lfs_recovery_reason(path: Path) -> str | None:
     lfsconfig = path / ".lfsconfig"
     if lfsconfig.exists() or lfsconfig.is_symlink():
@@ -415,6 +431,8 @@ def inspect_git_recoverability(
         remote_url = _git_output(project.path, "remote", "get-url", remote)
         if remote_url and _url_has_sensitive_data(remote_url):
             return GitRecovery(False, "remote URL contains credentials or query data")
+    if _submodule_urls_have_sensitive_data(project.path):
+        return GitRecovery(False, "submodule URL contains credentials or query data")
     return recovery
 
 

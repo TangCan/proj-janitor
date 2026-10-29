@@ -547,7 +547,29 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
             }
         }
     }
+    if submodule_urls_have_sensitive_data(&project.path) {
+        return Err("submodule URL contains credentials or query data".into());
+    }
     recovery
+}
+
+fn submodule_urls_have_sensitive_data(path: &Path) -> bool {
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let Ok(modules) = submodule_config(&current) else {
+            continue;
+        };
+        for module in modules {
+            if url_has_sensitive_data(&module.url) {
+                return true;
+            }
+            let child = current.join(module.path);
+            if fs::symlink_metadata(&child).is_ok_and(|metadata| metadata.is_dir()) {
+                pending.push(child);
+            }
+        }
+    }
+    false
 }
 
 fn inspect_recovery_inner(project: &Project) -> Result<Recovery, String> {
