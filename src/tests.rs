@@ -714,6 +714,36 @@ fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
 }
 
 #[test]
+fn backup_rejects_non_git_projects_with_submodule_credentials() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(
+        project.join(".gitmodules"),
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://token:module-secret@github.com/team/private.git\n",
+    )
+    .unwrap();
+    let backup_dir = temp.0.join("backups");
+    let error = crate::backup::backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("one or more backup operations failed")
+    );
+    assert!(!error.to_string().contains("module-secret"));
+    assert!(!backup_dir.join("demo").exists());
+}
+
+#[test]
 fn backup_rejects_destination_inside_source_project_before_writing() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");
