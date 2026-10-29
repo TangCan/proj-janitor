@@ -107,6 +107,21 @@ pub(crate) fn backup_cmd(
                 Err(reason) => (None, Some(reason)),
             }
         };
+        let blocked = !include_artifacts
+            && !always
+            && fallback_reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("submodule URL contains credentials"));
+        if blocked {
+            let reason = fallback_reason.as_deref().unwrap_or_default();
+            if dry {
+                println!("[error] {}: {reason}", p.name);
+            } else {
+                eprintln!("error: {}: {reason}", p.name);
+            }
+            failed = true;
+            continue;
+        }
         if dry {
             if let Some(git) = &recovery {
                 println!(

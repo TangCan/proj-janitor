@@ -533,6 +533,44 @@ class BackupTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitStrategyBackupTests(unittest.TestCase):
+    def test_credentialed_submodule_url_never_falls_back_to_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            (project / ".gitmodules").write_text(
+                '[submodule "private"]\n'
+                "\tpath = vendor/private\n"
+                "\turl = https://alice:submodule-secret@github.com/acme/private.git\n",
+                encoding="utf-8",
+            )
+            git(project, "add", ".gitmodules")
+            git(project, "commit", "-m", "configure submodule")
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+            backup_dest = root / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                backup_dest,
+            )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(
+                failures,
+                [("app", "submodule URL contains credentials")],
+            )
+            self.assertFalse((backup_dest / "app").exists())
+
+            dry_manifests, dry_records, dry_failures = run_backup(
+                [scan_project(project)],
+                root / "dry-backups",
+                dry_run=True,
+            )
+            self.assertEqual(len(dry_manifests), 1)
+            self.assertEqual(dry_records, [])
+            self.assertEqual(dry_failures, failures)
+            self.assertFalse((root / "dry-backups").exists())
+
     def test_pushed_repo_is_recorded_without_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

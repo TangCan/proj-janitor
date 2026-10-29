@@ -647,6 +647,47 @@ class CliTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitCliTests(unittest.TestCase):
+    def test_credentialed_submodule_url_blocks_automatic_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            (project / ".gitmodules").write_text(
+                '[submodule "private"]\n'
+                "\tpath = vendor/private\n"
+                "\turl = https://alice:submodule-secret@github.com/acme/private.git\n",
+                encoding="utf-8",
+            )
+            git(project, "add", ".gitmodules")
+            git(project, "commit", "-m", "configure submodule")
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            dry_dest = root / "dry-backups"
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dry_dest),
+                "--dry-run",
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("[error] app: submodule URL contains credentials", out)
+            self.assertNotIn("submodule-secret", out + err)
+            self.assertNotIn(".tar.gz", out)
+            self.assertNotIn("Manifests would be", out)
+            self.assertFalse(dry_dest.exists())
+
+            backup_dest = root / "backups"
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("submodule URL contains credentials", err)
+            self.assertNotIn("submodule-secret", out + err)
+            self.assertFalse((backup_dest / "app").exists())
+
     def test_backup_dry_run_shows_git_strategy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

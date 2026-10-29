@@ -241,7 +241,7 @@ class GithubUrlTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRecoveryTests(unittest.TestCase):
-    def test_submodule_https_credentials_fall_back_without_exposing_token(self) -> None:
+    def test_submodule_https_credentials_block_git_only_without_exposing_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_pushed_repo(Path(tmp))
             (project / ".gitmodules").write_text(
@@ -257,7 +257,7 @@ class GitRecoveryTests(unittest.TestCase):
             state = inspect_git_recoverability(scan_project(project))
 
             self.assertFalse(state.eligible)
-            self.assertIn("submodule URL is not a supported GitHub URL", state.reason)
+            self.assertEqual(state.reason, "submodule URL contains credentials")
             self.assertNotIn("submodule-secret", state.reason)
 
     def test_pushed_repository_is_recoverable(self) -> None:

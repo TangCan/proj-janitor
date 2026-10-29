@@ -69,6 +69,11 @@ def prepare_backup(
             if recovery.eligible:
                 strategy = "git"
                 reason = None
+            elif recovery.reason and recovery.reason.startswith(
+                "submodule URL contains credentials"
+            ):
+                strategy = "blocked"
+                reason = recovery.reason
             else:
                 strategy = "archive"
                 reason = recovery.reason or "not recoverable from GitHub"
@@ -109,7 +114,12 @@ def run_backup(
         always_archive=always_archive,
     )
     if dry_run:
-        return manifest_paths, [], []
+        failures = [
+            (plan.project.name, plan.reason or "unsafe to archive")
+            for plan in plans
+            if plan.strategy == "blocked"
+        ]
+        return manifest_paths, [], failures
 
     if manifest_paths and not backup_dest.exists():
         backup_dest.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -119,6 +129,11 @@ def run_backup(
     failures: list[tuple[str, str]] = []
     created_at = datetime.now(timezone.utc).isoformat()
     for manifest_path, plan in zip(manifest_paths, plans, strict=True):
+        if plan.strategy == "blocked":
+            failures.append(
+                (plan.project.name, plan.reason or "unsafe to archive")
+            )
+            continue
         manifest_reserved = False
         try:
             manifest_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

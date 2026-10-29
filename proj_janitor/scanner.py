@@ -251,6 +251,16 @@ def is_supported_submodule_url(url: str) -> bool:
     return is_github_remote_url(url)
 
 
+def _submodule_url_has_credentials(url: str) -> bool:
+    if not url.startswith("https://"):
+        return False
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    return parsed.username is not None or parsed.password is not None
+
+
 def _git_lfs_recovery_reason(path: Path) -> str | None:
     lfsconfig = path / ".lfsconfig"
     if lfsconfig.exists() or lfsconfig.is_symlink():
@@ -287,6 +297,8 @@ def _submodule_recovery_reason(
         lfs_reason = _git_lfs_recovery_reason(current)
         if lfs_reason is not None:
             return lfs_reason if not prefix else f"{lfs_reason}: {prefix.rstrip('/')}"
+        if any(_submodule_url_has_credentials(url) for _, url in modules):
+            return "submodule URL contains credentials"
         if any(not is_supported_submodule_url(url) for _, url in modules):
             return "submodule URL is not a supported GitHub URL"
         result = _git_run(current, "-c", "core.quotePath=false", "submodule", "status")

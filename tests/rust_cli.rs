@@ -162,7 +162,6 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
             "https://github.com/acme/lfs-app.git",
         ],
     );
-
     let backup_dest = temp.0.join("backups");
     let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["backup"])
@@ -235,6 +234,86 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
         .unwrap();
     assert!(!failed_restore.status.success());
     assert!(!failed_dest.join("lfs-app").exists());
+}
+
+#[test]
+fn backup_refuses_to_archive_credentialed_submodule_urls() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(
+        project.join(".gitmodules"),
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://alice:submodule-secret@github.com/acme/private.git\n",
+    )
+    .unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(
+        &project,
+        &["commit", "-q", "-m", "credentialed submodule URL"],
+    );
+
+    let remote = temp.0.join("app-remote.git");
+    let output = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/app.git",
+        ],
+    );
+
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        !backup.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&backup.stdout),
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&backup.stderr);
+    assert!(
+        stderr.contains("submodule URL contains credentials"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("submodule-secret"));
+    assert!(!backup_dest.join("app").exists());
+
+    let dry_dest = temp.0.join("dry-backups");
+    let dry_run = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run"])
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&dry_dest)
+        .output()
+        .unwrap();
+    assert!(!dry_run.status.success());
+    let stdout = String::from_utf8_lossy(&dry_run.stdout);
+    assert!(stdout.contains("[error] app: submodule URL contains credentials"));
+    assert!(!stdout.contains("submodule-secret"));
+    assert!(!stdout.contains(".tar.gz"));
+    assert!(!dry_dest.exists());
 }
 
 #[test]

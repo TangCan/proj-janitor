@@ -565,12 +565,20 @@ fn git_recovery_rejects_credentials_in_submodule_urls() {
         &["update-ref", "refs/remotes/origin/main", "HEAD"]
     ));
 
+    let configured = crate::project::submodule_config(&project).unwrap();
+    assert_eq!(
+        configured[0].url,
+        "https://alice:submodule-secret@github.com/team/private.git"
+    );
+    assert!(crate::project::submodule_url_has_credentials(
+        &configured[0].url
+    ));
     let project_info = inspect(&project).unwrap();
     let reason = match inspect_recovery(&project_info) {
         Ok(_) => panic!("credentialed submodule URL was accepted"),
         Err(reason) => reason,
     };
-    assert!(reason.contains("submodule URL is not a supported GitHub URL"));
+    assert_eq!(reason, "submodule URL contains credentials");
     assert!(!reason.contains("submodule-secret"));
 }
 

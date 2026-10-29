@@ -335,6 +335,13 @@ pub(crate) fn submodule_url_supported(url: &str) -> bool {
     }
 }
 
+pub(crate) fn submodule_url_has_credentials(url: &str) -> bool {
+    url.starts_with("https://")
+        && Url::parse(url).is_ok_and(|parsed| {
+            parsed.username() != "" || parsed.password().is_some() || parsed.as_str().contains('@')
+        })
+}
+
 fn git_lfs_recovery_reason(path: &Path) -> Option<String> {
     let lfsconfig = path.join(".lfsconfig");
     if lfsconfig.exists() || lfsconfig.is_symlink() {
@@ -381,6 +388,12 @@ pub(crate) fn inspect_submodules(path: &Path) -> Result<(), String> {
             } else {
                 format!("{reason}: {}", prefix.trim_end_matches('/'))
             });
+        }
+        if configured
+            .iter()
+            .any(|module| submodule_url_has_credentials(&module.url))
+        {
+            return Err("submodule URL contains credentials".into());
         }
         if configured
             .iter()

@@ -229,13 +229,22 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        _print_dry_run_manifests(manifest_paths)
+        safe_manifest_paths = [
+            manifest_path
+            for manifest_path, plan in zip(manifest_paths, plans, strict=True)
+            if plan.strategy != "blocked"
+        ]
+        _print_dry_run_manifests(safe_manifest_paths)
+        blocked = False
         for manifest_path, plan in zip(manifest_paths, plans, strict=True):
             if plan.strategy == "git":
                 recovery = plan.recovery
                 url = recovery.remote_url if recovery else "-"
                 commit = recovery.commit[:12] if recovery and recovery.commit else "-"
                 print(f"  [git] {plan.project.name}: {url} @ {commit}")
+            elif plan.strategy == "blocked":
+                print(f"  [error] {plan.project.name}: {plan.reason}")
+                blocked = True
             else:
                 archive_name = plan.archive_name or f"{plan.project.name}.tar.gz"
                 archive = manifest_path.parent / archive_name
@@ -249,7 +258,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         else ""
                     )
                 )
-        return 1 if failures else 0
+        return 1 if failures or blocked else 0
 
     try:
         manifest_paths, records, backup_failures = run_backup(
@@ -292,6 +301,8 @@ def _cmd_backup(args: argparse.Namespace) -> int:
 
 
 def _print_dry_run_manifests(manifest_paths: Sequence[Path]) -> None:
+    if not manifest_paths:
+        return
     if len(manifest_paths) == 1:
         print(f"Dry run. Manifest would be: {manifest_paths[0]}")
         return
