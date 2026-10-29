@@ -250,7 +250,9 @@ fn backup_and_restore_uninitialized_submodule_with_git_strategy() {
     );
     let restored_child = restored_dest.join("app/vendor/child");
     assert_eq!(
-        fs::read_to_string(restored_child.join("main.py")).unwrap(),
+        fs::read_to_string(restored_child.join("main.py"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "print('child')\n"
     );
     assert_eq!(git(&restored_child, &["rev-parse", "HEAD"]), child_commit);
