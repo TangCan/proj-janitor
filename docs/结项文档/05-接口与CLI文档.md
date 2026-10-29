@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-29 清理确认路径回归补充 |
-| 源码提交 | `5f268f38ff6c0aae52e28308dc1e710cf9c6f152`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `c9a020cbf1de0eb4e1ced895e369ebf9762ecc8e`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-29 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -1333,6 +1333,6 @@ projjan verify MANIFEST --project NAME --json
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
 - Python 133 项测试、Rust 26 项单元测试和 8 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40799675069](https://github.com/TangCan/proj-janitor/actions/runs/40799675069) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40799674177](https://github.com/TangCan/proj-janitor/actions/runs/40799674177) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- GitHub Actions run [40806404927](https://github.com/TangCan/proj-janitor/actions/runs/40806404927) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40806404671](https://github.com/TangCan/proj-janitor/actions/runs/40806404671) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
