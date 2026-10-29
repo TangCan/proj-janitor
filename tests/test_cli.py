@@ -91,8 +91,25 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             payload = json.loads(out)
             self.assertEqual(len(payload), 1)
-            self.assertEqual(payload[0]["name"], "app")
-            self.assertGreater(payload[0]["size_bytes"], 0)
+            record = payload[0]
+            self.assertEqual(
+                set(record),
+                {"name", "path", "size_bytes", "last_modified", "markers", "git"},
+            )
+            self.assertEqual(record["name"], "app")
+            self.assertEqual(record["path"], str(project.resolve()))
+            self.assertGreater(record["size_bytes"], 0)
+            self.assertIsInstance(record["last_modified"], str)
+            self.assertEqual(record["markers"], ["pyproject.toml"])
+            self.assertIsNone(record["git"])
+
+            (project / ".git").mkdir()
+            code, out, err = run_cli("scan", str(project), "--json")
+
+            self.assertEqual(code, 0, err)
+            git_record = json.loads(out)[0]
+            self.assertEqual(git_record["markers"], [".git", "pyproject.toml"])
+            self.assertEqual(git_record["git"], {"branch": None, "dirty": None})
 
             code, out, err = run_cli("scan", tmp, str(project))
 

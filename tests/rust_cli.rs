@@ -504,12 +504,32 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         .iter()
         .find(|project| project["name"] == "marker-0")
         .unwrap();
+    let empty_git_fields = empty_git_project["git"].as_object().unwrap();
+    assert_eq!(empty_git_fields.len(), 2);
+    assert!(empty_git_fields.contains_key("branch"));
+    assert!(empty_git_fields.contains_key("dirty"));
+    assert!(empty_git_project["git"]["branch"].is_null());
+    assert!(empty_git_project["git"]["dirty"].is_null());
     assert_eq!(empty_git_project["size_bytes"], 0);
     assert!(empty_git_project["last_modified"].is_null());
     let demo = projects
         .iter()
         .find(|project| project["name"] == "demo")
         .unwrap();
+    for field in [
+        "name",
+        "path",
+        "size_bytes",
+        "last_modified",
+        "markers",
+        "git",
+    ] {
+        assert!(demo.get(field).is_some(), "missing scan JSON field {field}");
+    }
+    assert_eq!(demo.as_object().unwrap().len(), 6);
+    assert_eq!(demo["path"], project.to_string_lossy().as_ref());
+    assert_eq!(demo["markers"], serde_json::json!(["pyproject.toml"]));
+    assert!(demo["git"].is_null());
     let actual_modified =
         chrono::DateTime::parse_from_rfc3339(demo["last_modified"].as_str().unwrap())
             .unwrap()
