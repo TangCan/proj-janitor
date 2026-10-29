@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-29 清理确认路径回归补充 |
-| 源码提交 | `4fc82833e1121dc5c9600ec0e7e9d7cba35f0206`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `68f262bd68f084e3bf4aa278ae0a291ed05429f1`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-29 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -1171,7 +1171,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | Python | `>=3.10`；开发和自测使用 Python 3.12.3。 |
 | 依赖 | 仅 Python 标准库；无第三方运行时依赖。 |
 | 构建 | `setuptools>=77`；`pyproject.toml` 声明项目元数据。 |
-| 外部命令 | Git 状态和可恢复性检查需要本机 `git`；清理不需要 Git。 |
+| 外部命令 | Git 状态和可恢复性检查需要本机 `git`；含 Git LFS 属性的仓库还需 `git-lfs`；清理不需要 Git。 |
 | 操作系统 | 正式自测环境为 Linux；Windows/macOS 未做正式验证。 |
 | 终端 | 交互确认依赖 `sys.stdin.isatty()`；非交互环境必须 `--yes`。 |
 | 编码 | manifest 固定 UTF-8；终端输出受 locale 影响。 |
@@ -1334,6 +1334,6 @@ projjan verify MANIFEST --project NAME --json
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
 - Python 137 项测试、Rust 26 项单元测试和 13 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40817401802](https://github.com/TangCan/proj-janitor/actions/runs/40817401802) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40817402109](https://github.com/TangCan/proj-janitor/actions/runs/40817402109) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- GitHub Actions run [40836556615](https://github.com/TangCan/proj-janitor/actions/runs/40836556615) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40836556585](https://github.com/TangCan/proj-janitor/actions/runs/40836556585) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
