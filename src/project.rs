@@ -534,6 +534,23 @@ pub(crate) fn inspect_submodules(path: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
+    let recovery = inspect_recovery_inner(project);
+    if recovery.is_ok() {
+        return recovery;
+    }
+    if let Some(remotes) = git_output(&project.path, &["remote"]) {
+        for remote in remotes.lines().filter(|remote| !remote.is_empty()) {
+            if git_output(&project.path, &["remote", "get-url", remote])
+                .is_some_and(|url| url_has_sensitive_data(&url))
+            {
+                return Err("remote URL contains credentials or query data".into());
+            }
+        }
+    }
+    recovery
+}
+
+fn inspect_recovery_inner(project: &Project) -> Result<Recovery, String> {
     let path = &project.path;
     let branch = git_output(path, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .filter(|s| !s.is_empty())

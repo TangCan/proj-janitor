@@ -512,6 +512,15 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
     );
     assert!(!serde_json::to_string(&manifest).unwrap().contains("token"));
 
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
     fs::write(project.join("tracked.txt"), "modified\n").unwrap();
     backup_cmd(
         &[project],
@@ -550,6 +559,15 @@ fn git_recovery_rejects_credentials_in_submodule_urls() {
         eprintln!("git unavailable; skipping Git submodule URL fixture");
         return;
     }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
     fs::write(
         project.join(".gitmodules"),
         "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://alice:submodule-secret@github.com/team/private.git\n",
@@ -623,6 +641,34 @@ fn backup_rejects_sensitive_unsupported_remote_without_archiving() {
     )
     .unwrap_err();
     assert!(!error.to_string().contains("remote-secret"));
+    assert!(!backup_dir.join("demo").exists());
+}
+
+#[test]
+fn backup_rejects_archiving_a_dirty_project_with_remote_credentials() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping credentialed dirty remote fixture");
+        return;
+    }
+    fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
+    let backup_dir = temp.0.join("backups");
+    let error = crate::backup::backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("one or more backup operations failed")
+    );
+    assert!(!error.to_string().contains("token"));
     assert!(!backup_dir.join("demo").exists());
 }
 

@@ -407,6 +407,21 @@ def inspect_git_recoverability(
     project: Project,
     patterns: Iterable[str] = (),
 ) -> GitRecovery:
+    recovery = _inspect_git_recoverability(project, patterns)
+    if recovery.eligible or not (project.path / ".git").exists():
+        return recovery
+    remotes = _git_output(project.path, "remote")
+    for remote in (remotes or "").splitlines():
+        remote_url = _git_output(project.path, "remote", "get-url", remote)
+        if remote_url and _url_has_sensitive_data(remote_url):
+            return GitRecovery(False, "remote URL contains credentials or query data")
+    return recovery
+
+
+def _inspect_git_recoverability(
+    project: Project,
+    patterns: Iterable[str] = (),
+) -> GitRecovery:
     path = project.path
     allowed_patterns = tuple(patterns)
     if not (path / ".git").exists():
