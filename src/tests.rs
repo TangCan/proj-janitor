@@ -738,6 +738,52 @@ fn backup_rejects_archiving_with_a_credentialed_push_url() {
 }
 
 #[test]
+fn backup_rejects_archiving_with_http_extra_header() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping HTTP extraHeader fixture");
+        return;
+    }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
+    assert!(local_git(
+        &project,
+        &[
+            "config",
+            "http.https://github.com/.extraheader",
+            "Authorization: Basic extra-secret"
+        ]
+    ));
+    fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
+    let project_info = inspect(&project).unwrap();
+    let reason = match crate::project::inspect_recovery(&project_info) {
+        Ok(_) => panic!("HTTP extraHeader was allowed to fall back to archive"),
+        Err(reason) => reason,
+    };
+    assert_eq!(reason, "Git config contains HTTP extraHeader");
+    let backup_dir = temp.0.join("backups");
+    let error = crate::backup::backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(!error.to_string().contains("extra-secret"));
+    assert!(!backup_dir.join("demo").exists());
+}
+
+#[test]
 fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

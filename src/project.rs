@@ -553,10 +553,36 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
             }
         }
     }
+    if let Some(reason) = git_config_archive_reason(&project.path) {
+        return Err(reason.into());
+    }
     if submodule_urls_have_sensitive_data(&project.path) {
         return Err("submodule URL contains credentials or query data".into());
     }
     recovery
+}
+
+fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
+    if !path.join(".git").exists() {
+        return None;
+    }
+    let output = git_run(
+        path,
+        &[
+            "config",
+            "--local",
+            "--name-only",
+            "--get-regexp",
+            r"^http\..*extraheader$",
+        ],
+    )?;
+    if output.status.success() && !output.stdout.is_empty() {
+        return Some("Git config contains HTTP extraHeader");
+    }
+    if output.status.code() == Some(1) && output.stdout.is_empty() {
+        return None;
+    }
+    Some("cannot safely inspect Git config for credentials")
 }
 
 fn submodule_urls_have_sensitive_data(path: &Path) -> bool {

@@ -303,6 +303,24 @@ def _submodule_urls_have_sensitive_data(path: Path) -> bool:
     return False
 
 
+def _git_config_archive_reason(path: Path) -> str | None:
+    if not (path / ".git").exists():
+        return None
+    result = _git_run(
+        path,
+        "config",
+        "--local",
+        "--name-only",
+        "--get-regexp",
+        r"^http\..*extraheader$",
+    )
+    if result is None or result.returncode not in (0, 1):
+        return "cannot safely inspect Git config for credentials"
+    if result.returncode == 0 and result.stdout.strip():
+        return "Git config contains HTTP extraHeader"
+    return None
+
+
 def _git_lfs_recovery_reason(path: Path) -> str | None:
     lfsconfig = path / ".lfsconfig"
     if lfsconfig.exists() or lfsconfig.is_symlink():
@@ -457,6 +475,9 @@ def inspect_git_recoverability(
                     for url in (remote_urls or "").splitlines()
                 ):
                     return GitRecovery(False, "remote URL contains credentials or query data")
+    config_reason = _git_config_archive_reason(project.path)
+    if config_reason is not None:
+        return GitRecovery(False, config_reason)
     if _submodule_urls_have_sensitive_data(project.path):
         return GitRecovery(False, "submodule URL contains credentials or query data")
     return recovery

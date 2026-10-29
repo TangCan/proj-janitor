@@ -73,6 +73,8 @@ def prepare_backup(
                 (
                     "remote URL contains credentials or query data",
                     "submodule URL contains credentials or query data",
+                    "Git config contains HTTP extraHeader",
+                    "cannot safely inspect Git config for credentials",
                 )
             ):
                 strategy = "blocked"

@@ -112,6 +112,8 @@ pub(crate) fn backup_cmd(
             && fallback_reason.as_deref().is_some_and(|reason| {
                 reason.starts_with("remote URL contains credentials or query data")
                     || reason.starts_with("submodule URL contains credentials or query data")
+                    || reason.starts_with("Git config contains HTTP extraHeader")
+                    || reason.starts_with("cannot safely inspect Git config for credentials")
             });
         if blocked {
             let reason = fallback_reason.as_deref().unwrap_or_default();
