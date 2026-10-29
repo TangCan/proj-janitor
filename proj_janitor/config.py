@@ -50,6 +50,7 @@ ARTIFACT_RULES: dict[str, tuple[str, ...]] = {
     "build": (
         "build",
         "dist",
+        "dist-standalone",
         "out",
         "target",
         "CMakeFiles",

@@ -48,7 +48,15 @@ pub(crate) const RULES: &[(&str, &[&str])] = &[
     ),
     (
         "build",
-        &["build", "dist", "out", "target", "CMakeFiles", ".gradle"],
+        &[
+            "build",
+            "dist",
+            "dist-standalone",
+            "out",
+            "target",
+            "CMakeFiles",
+            ".gradle",
+        ],
     ),
     ("editor", &[".cache", ".DS_Store", "Thumbs.db"]),
 ];

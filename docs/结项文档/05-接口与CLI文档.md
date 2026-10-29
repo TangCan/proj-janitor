@@ -70,7 +70,7 @@
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
 - 自定义清理规则文件、配置文件或每项目排除文件；
-- Git LFS、tag、detached HEAD 的完整备份；submodule 在工作区干净且 GitHub URL（或相对 GitHub 主仓库 URL）受支持时可按 gitlink 轻量备份，恢复需子模块远端和固定提交仍可用；
+- tag、detached HEAD 的完整备份；干净仓库可轻量备份 Git LFS 指针及受支持子模块，需安装 Git LFS，且恢复时默认 GitHub endpoint、LFS 对象和子模块固定提交仍可访问；
 - GitHub API 认证、远端提交存在性预检或自动恢复演练；
 - 归档内容秘密扫描；
 - Windows/macOS 的正式兼容性承诺。
@@ -1124,8 +1124,9 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
 | 15 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
 | 16 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |
-| 17 | 存在 `.lfsconfig` 或 `.gitattributes` 命中 LFS | `Git LFS is not supported` |
-| 18 | LFS 属性检查失败 | `cannot inspect Git LFS attributes` |
+| 17 | Git LFS 未安装 | `Git LFS is not installed` |
+| 18 | 存在 `.lfsconfig` 或自定义 LFS endpoint | `Git LFS is not supported` / `custom Git LFS endpoints are not supported` |
+| 19 | Git LFS endpoint 配置无法检查 | `cannot inspect Git LFS configuration` |
 | 19 | 忽略文件列举失败 | `cannot inspect ignored files` |
 | 20 | 某忽略路径不属于允许的 artifact 模式 | `ignored path is not an artifact: {path}` |
 | 21 | 本地分支列举失败 | `cannot list local branches` |
@@ -1332,7 +1333,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 135 项测试、Rust 26 项单元测试和 11 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
+- Python 137 项测试、Rust 26 项单元测试和 13 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
 - GitHub Actions run [40817401802](https://github.com/TangCan/proj-janitor/actions/runs/40817401802) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
 - CodeQL run [40817402109](https://github.com/TangCan/proj-janitor/actions/runs/40817402109) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。

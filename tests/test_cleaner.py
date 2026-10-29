@@ -26,6 +26,8 @@ def make_project(root: Path) -> Path:
     (project / "src" / "__pycache__" / "main.pyc").write_bytes(b"\x00" * 8)
     (project / "dist").mkdir()
     (project / "dist" / "bundle.js").write_text("x" * 16, encoding="utf-8")
+    (project / "dist-standalone").mkdir()
+    (project / "dist-standalone" / "bundle.js").write_text("x" * 16, encoding="utf-8")
     (project / ".git").mkdir()
     (project / ".git" / "config").write_text("[core]\n", encoding="utf-8")
     return project
@@ -57,7 +59,10 @@ class CleanerTests(unittest.TestCase):
             plan = build_cleanup_plan(project)
             matched = {action.path.name for action in plan}
 
-            self.assertEqual(matched, {"node_modules", "__pycache__", "dist"})
+            self.assertEqual(
+                matched,
+                {"node_modules", "__pycache__", "dist", "dist-standalone"},
+            )
             self.assertNotIn(".git", matched)
             self.assertNotIn("main.py", matched)
             self.assertTrue(all(action.project == project.resolve() for action in plan))
@@ -69,11 +74,12 @@ class CleanerTests(unittest.TestCase):
 
             result = apply_cleanup(plan)
 
-            self.assertEqual(result.removed, 3)
+            self.assertEqual(result.removed, 4)
             self.assertGreater(result.freed_bytes, 0)
             self.assertEqual(result.errors, ())
             self.assertFalse((project / "node_modules").exists())
             self.assertFalse((project / "dist").exists())
+            self.assertFalse((project / "dist-standalone").exists())
             self.assertFalse((project / "src" / "__pycache__").exists())
             self.assertTrue((project / "src" / "main.py").exists())
             self.assertTrue((project / ".git" / "config").exists())

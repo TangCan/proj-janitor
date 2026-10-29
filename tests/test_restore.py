@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import shlex
@@ -18,9 +19,12 @@ from unittest import mock
 
 from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
+import proj_janitor.scanner as scanner_module
 from proj_janitor.restore import RestoreError, restore_from_manifest, verify_manifest
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, init_repo, make_pushed_repo
+
+GIT_LFS_AVAILABLE = shutil.which("git-lfs") is not None
 
 
 def remove_readonly(function, path: str, error_info) -> None:
@@ -696,6 +700,108 @@ class RestoreTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRestoreTests(unittest.TestCase):
+    @unittest.skipUnless(
+        GIT_LFS_AVAILABLE and os.name != "nt",
+        "git-lfs or a local-file LFS endpoint is not available",
+    )
+    def test_backup_and_restore_git_lfs_objects_with_git_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "lfs-app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            init_repo(project)
+            (project / ".gitignore").write_text(".husky/_/\n", encoding="utf-8")
+            (project / ".husky" / "_").mkdir(parents=True)
+            (project / ".husky" / "pre-commit").write_text(
+                "npm test\n",
+                encoding="utf-8",
+            )
+            (project / ".husky" / "_" / "husky.sh").write_text(
+                "# generated hook helper\n",
+                encoding="utf-8",
+            )
+            git(project, "lfs", "install", "--local")
+            git(project, "lfs", "track", "*.bin")
+            payload = b"a tracked Git LFS payload\n"
+            (project / "payload.bin").write_bytes(payload)
+            git(project, "add", ".")
+            git(project, "commit", "-m", "LFS project")
+            commit = git(project, "rev-parse", "HEAD")
+
+            remote = root / "lfs-app-remote.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(remote)],
+                check=True,
+                capture_output=True,
+            )
+            git(project, "remote", "add", "origin", str(remote))
+            git(project, "push", "-u", "origin", "main")
+            git(project, "remote", "set-url", "origin", "https://github.com/acme/lfs-app.git")
+
+            git_run = scanner_module._git_run
+
+            def without_git_lfs(path: Path, *args: str):
+                if args == ("lfs", "version"):
+                    return subprocess.CompletedProcess(
+                        ["git", *args], 1, "", "git-lfs is unavailable"
+                    )
+                return git_run(path, *args)
+
+            with mock.patch.object(
+                scanner_module,
+                "_git_run",
+                side_effect=without_git_lfs,
+            ):
+                _, fallback_records, fallback_failures = run_backup(
+                    [scan_project(project)], root / "without-lfs"
+                )
+            self.assertFalse(fallback_failures)
+            self.assertEqual(fallback_records[0].strategy, "archive")
+            self.assertEqual(
+                fallback_records[0].fallback_reason,
+                "Git LFS is not installed",
+            )
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups"
+            )
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git", records[0].fallback_reason)
+            self.assertIsNone(records[0].archive)
+
+            restored_dest = root / "restored"
+            remote_url = remote.resolve().as_uri()
+            git_config = {
+                "GIT_CONFIG_COUNT": "2",
+                "GIT_CONFIG_KEY_0": f"url.{remote_url}.insteadOf",
+                "GIT_CONFIG_VALUE_0": "https://github.com/acme/lfs-app.git",
+                "GIT_CONFIG_KEY_1": "protocol.file.allow",
+                "GIT_CONFIG_VALUE_1": "always",
+            }
+            with mock.patch.dict(os.environ, git_config):
+                _, results = restore_from_manifest(manifests[0], restored_dest)
+
+            self.assertEqual(results[0].strategy, "git")
+            self.assertEqual(
+                (restored_dest / "lfs-app" / "payload.bin").read_bytes(), payload
+            )
+            object_hash = hashlib.sha256(payload).hexdigest()
+            lfs_object = (
+                remote
+                / "lfs"
+                / "objects"
+                / object_hash[:2]
+                / object_hash[2:4]
+                / object_hash
+            )
+            lfs_object.unlink()
+            failed_dest = root / "missing-lfs-restore"
+            with mock.patch.dict(os.environ, git_config):
+                with self.assertRaises(RestoreError):
+                    restore_from_manifest(manifests[0], failed_dest)
+            self.assertFalse((failed_dest / "lfs-app").exists())
+
     def test_backup_and_restore_uninitialized_submodule_with_git_strategy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

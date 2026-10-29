@@ -440,6 +440,7 @@ def _restore_submodules(repo: Path, project: str) -> None:
         current, depth = pending.pop()
         if depth > 32:
             raise RestoreError(f"submodule nesting is too deep for {project}")
+        _restore_lfs(current, project)
         modules = submodule_config(current)
         if modules is None:
             raise RestoreError(f"invalid submodule metadata for {project}")
@@ -468,6 +469,7 @@ def _restore_submodules(repo: Path, project: str) -> None:
                 "--",
                 *paths,
             ],
+            extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
             check=False,
         )
         if updated.returncode:
@@ -489,6 +491,43 @@ def _restore_submodules(repo: Path, project: str) -> None:
             if len(commit) < 7:
                 raise RestoreError(f"cannot verify restored submodule for {project}")
             pending.append((target, depth + 1))
+
+
+def _restore_lfs(repo: Path, project: str) -> None:
+    lfsconfig = repo / ".lfsconfig"
+    if lfsconfig.exists() or lfsconfig.is_symlink():
+        raise RestoreError(f"unsupported Git LFS configuration for {project}")
+    attributes = _run_git(
+        ["-C", str(repo), "grep", "-l", "filter=lfs", "--", "*.gitattributes"],
+        check=False,
+    )
+    if attributes.returncode == 1:
+        return
+    if attributes.returncode:
+        raise RestoreError(f"cannot inspect Git LFS attributes for {project}")
+    endpoint = _run_git(
+        [
+            "-C",
+            str(repo),
+            "config",
+            "--get-regexp",
+            r"^(lfs\..*\.url|remote\..*\.lfsurl)$",
+        ],
+        check=False,
+    )
+    if endpoint.returncode == 0 and endpoint.stdout.strip():
+        raise RestoreError(f"custom Git LFS endpoints are not supported for {project}")
+    if endpoint.returncode not in (0, 1):
+        raise RestoreError(f"cannot inspect Git LFS configuration for {project}")
+    version = _run_git(["-C", str(repo), "lfs", "version"], check=False)
+    if version.returncode:
+        raise RestoreError(f"Git LFS is required to restore {project}")
+    installed = _run_git(["-C", str(repo), "lfs", "install", "--local"], check=False)
+    if installed.returncode:
+        raise RestoreError(f"cannot configure Git LFS for {project}")
+    pulled = _run_git(["-C", str(repo), "lfs", "pull"], check=False)
+    if pulled.returncode:
+        raise RestoreError(f"cannot restore Git LFS objects for {project}")
 
 
 def _restore_git(plan: RestorePlan) -> None:
@@ -560,7 +599,10 @@ def _restore_git(plan: RestorePlan) -> None:
             ["-C", str(repo), "config", "--local", "--remove-section", f"remote.{fetch_remote}"]
         )
         _run_git(["-C", str(repo), "remote", "add", "origin", safe_remote])
-        _run_git(["-C", str(repo), "checkout", "--detach", plan.commit])
+        _run_git(
+            ["-C", str(repo), "checkout", "--detach", plan.commit],
+            extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
+        )
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
         if not head.lower().startswith(plan.commit.lower()):
             raise RestoreError(

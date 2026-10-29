@@ -18,6 +18,7 @@ fn artifact_matching_uses_cleanup_rules() {
     assert!(is_artifact("node_modules"));
     assert!(is_artifact("bundle.pyc"));
     assert!(is_artifact(".venv"));
+    assert!(is_artifact("dist-standalone"));
     assert!(!is_artifact("src"));
     assert!(!is_artifact(".git"));
     assert_eq!(is_artifact("NODE_MODULES"), cfg!(windows));

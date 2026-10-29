@@ -46,7 +46,7 @@ main 当前候选 Cargo 版本号为 `0.2.6`；crates.io 稳定版仍为 `0.2.5`
 
 Rust `0.2.6` 候选包含 `--exclude-git-metadata`；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
 
-Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复仍需本机安装 Git。
+Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复需本机安装 Git；Git LFS 项目还需将 `git-lfs` 命令安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
@@ -97,11 +97,12 @@ projjan backup ~/richard_plus
 
 备份策略按项目自动选择：
 
-- `git`：工作区干净（包含子模块）、无 stash/LFS，所有本地分支和本地 tag 均已推送，且远程及子模块远程受支持时，仅记录 Git 远程、分支、上游和提交 SHA，不生成归档。未初始化（目录内无额外文件）或已初始化且干净的子模块均支持；恢复时按主仓库记录的 gitlink 提交递归克隆子模块。
-- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块也会回退归档。
+- `git`：工作区干净（包含子模块）、无 stash，所有本地分支和本地 tag 均已推送，且远程及子模块远程受支持时，仅记录 Git 远程、分支、上游和提交 SHA，不生成归档。未初始化（目录内无额外文件）或已初始化且干净的子模块均支持；恢复时按主仓库记录的 gitlink 提交递归克隆子模块。含 Git LFS 属性的仓库也支持，但备份与恢复都要求安装 `git-lfs`，并使用默认 GitHub LFS endpoint。
+- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块也会回退归档。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 远程 URL 可以内嵌 HTTPS 凭据（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；URL-only 记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。
 - 子模块 URL 支持 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
+- Git LFS 内容与 Git 提交中的指针分开存放。恢复会在临时仓库配置本地 LFS filter 并执行 `git lfs pull`；LFS 对象缺失或不可访问时恢复失败，不创建目标目录。`.lfsconfig` 和自定义 LFS endpoint 暂不支持。
 - 归档会包含 `.git/config`。如果远程 URL 内嵌凭据，归档也会包含该凭据；对这类项目执行归档前应先清理远程 URL，或确认归档的访问权限。
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
@@ -255,7 +256,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-29）：Python 共 136 项（Linux 本地 135 项通过、1 项 Windows 专用测试跳过）；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 12 项 CLI 集成测试。GitHub Actions [run `40831146479`](https://github.com/TangCan/proj-janitor/actions/runs/40831146479) 的 13 个 job 全部通过；CodeQL [run `40831146862`](https://github.com/TangCan/proj-janitor/actions/runs/40831146862) 的 Actions/Python/Rust 分析全部通过。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地验证（2026-10-29）：Python 共 137 项（Linux 本地 136 项通过、1 项 Windows 专用测试跳过）；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 13 项 CLI 集成测试。GitHub Actions 和 CodeQL 状态见本次候选验证记录。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：

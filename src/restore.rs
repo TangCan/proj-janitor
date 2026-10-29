@@ -493,6 +493,7 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
     let mut pending = vec![(repo.to_path_buf(), 0usize)];
     while let Some((parent, depth)) = pending.pop() {
         anyhow::ensure!(depth <= 32, "submodule nesting is too deep for {project}");
+        restore_lfs(&parent, project)?;
         let modules = submodule_config(&parent)
             .map_err(|_| anyhow::anyhow!("invalid submodule metadata for {project}"))?;
         if modules.is_empty() {
@@ -521,6 +522,7 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
         let mut update = Command::new("git");
         update
             .args(["-c", "submodule.recurse=false"])
+            .env("GIT_LFS_SKIP_SMUDGE", "1")
             .arg("-C")
             .arg(&parent)
             .args([
@@ -558,6 +560,70 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
             pending.push((target, depth + 1));
         }
     }
+    Ok(())
+}
+
+fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
+    let lfsconfig = repo.join(".lfsconfig");
+    let has_lfsconfig = match fs::symlink_metadata(&lfsconfig) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    };
+    anyhow::ensure!(
+        !has_lfsconfig,
+        "unsupported Git LFS configuration for {project}"
+    );
+    let attributes = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["grep", "-l", "filter=lfs", "--", "*.gitattributes"])
+        .output()?;
+    if attributes.status.code() == Some(1) {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        attributes.status.success(),
+        "cannot inspect Git LFS attributes for {project}"
+    );
+    let endpoint = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args([
+            "config",
+            "--get-regexp",
+            r"^(lfs\..*\.url|remote\..*\.lfsurl)$",
+        ])
+        .output()?;
+    if endpoint.status.success() && !endpoint.stdout.is_empty() {
+        anyhow::bail!("custom Git LFS endpoints are not supported for {project}");
+    }
+    anyhow::ensure!(
+        endpoint.status.success() || endpoint.status.code() == Some(1),
+        "cannot inspect Git LFS configuration for {project}"
+    );
+    anyhow::ensure!(
+        git_output(repo, &["lfs", "version"]).is_some(),
+        "Git LFS is required to restore {project}"
+    );
+    let mut install = Command::new("git");
+    install
+        .arg("-C")
+        .arg(repo)
+        .args(["lfs", "install", "--local"])
+        .stdout(Stdio::null());
+    anyhow::ensure!(
+        run_git_with_timeout(&mut install, project, "Git LFS install")?.success(),
+        "cannot configure Git LFS for {project}"
+    );
+    let mut pull = Command::new("git");
+    pull.arg("-C")
+        .arg(repo)
+        .args(["lfs", "pull"])
+        .stdout(Stdio::null());
+    anyhow::ensure!(
+        run_git_with_timeout(&mut pull, project, "Git LFS pull")?.success(),
+        "cannot restore Git LFS objects for {project}"
+    );
     Ok(())
 }
 
@@ -683,6 +749,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             .arg("-C")
             .arg(&repo)
             .args(["checkout", "--detach", commit])
+            .env("GIT_LFS_SKIP_SMUDGE", "1")
             .stdout(Stdio::null());
         anyhow::ensure!(
             run_git_with_timeout(&mut checkout, project, "checkout")?.success(),

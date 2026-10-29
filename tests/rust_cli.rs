@@ -106,6 +106,138 @@ fn cli_help_and_version_are_available_without_subcommands() {
 }
 
 #[test]
+fn backup_and_restore_git_lfs_objects_with_git_strategy() {
+    if cfg!(windows) {
+        eprintln!("skipping local-file Git LFS integration on Windows");
+        return;
+    }
+    let version = Command::new("git")
+        .args(["lfs", "version"])
+        .output()
+        .unwrap();
+    if !version.status.success() {
+        eprintln!("skipping Git LFS integration: git-lfs is unavailable");
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.0.join("lfs-app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join(".gitignore"), ".husky/_/\n").unwrap();
+    fs::create_dir_all(project.join(".husky/_")).unwrap();
+    fs::write(project.join(".husky/pre-commit"), "npm test\n").unwrap();
+    fs::write(
+        project.join(".husky/_/husky.sh"),
+        "# generated hook helper\n",
+    )
+    .unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["lfs", "install", "--local"]);
+    git(&project, &["lfs", "track", "*.bin"]);
+    let payload = b"a tracked Git LFS payload\n";
+    fs::write(project.join("payload.bin"), payload).unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "LFS project"]);
+
+    let remote = temp.0.join("lfs-app-remote.git");
+    let output = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/lfs-app.git",
+        ],
+    );
+
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backup_dest.join("lfs-app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["records"][0]["strategy"], "git");
+    assert!(manifest_json["records"][0]["archive"].is_null());
+
+    let restored_dest = temp.0.join("restored");
+    let remote_url = git_file_url(&remote);
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert_eq!(
+        fs::read(restored_dest.join("lfs-app/payload.bin")).unwrap(),
+        payload
+    );
+
+    let object_hash = format!("{:x}", Sha256::digest(payload));
+    let lfs_object = remote
+        .join("lfs/objects")
+        .join(&object_hash[..2])
+        .join(&object_hash[2..4])
+        .join(&object_hash);
+    fs::remove_file(lfs_object).unwrap();
+    let failed_dest = temp.0.join("missing-lfs-restore");
+    let failed_restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&failed_dest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(!failed_restore.status.success());
+    assert!(!failed_dest.join("lfs-app").exists());
+}
+
+#[test]
 fn backup_and_restore_uninitialized_submodule_with_git_strategy() {
     let temp = TestDir::new();
     let child = temp.0.join("child");
