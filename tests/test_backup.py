@@ -674,7 +674,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             )
             self.assertFalse((backup_dest / "app").exists())
 
-    def test_credentialed_remote_with_dirty_worktree_never_falls_back_to_archive(self) -> None:
+    def test_multi_url_credentialed_remote_never_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = make_pushed_repo(root)
@@ -683,6 +683,13 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "remote",
                 "set-url",
                 "origin",
+                "https://github.com/acme/app.git",
+            )
+            git(
+                project,
+                "config",
+                "--add",
+                "remote.origin.url",
                 "https://user:remote-secret@github.com/acme/app.git",
             )
             (project / "local-change.txt").write_text("dirty\n", encoding="utf-8")

@@ -645,13 +645,31 @@ fn backup_rejects_sensitive_unsupported_remote_without_archiving() {
 }
 
 #[test]
-fn backup_rejects_archiving_a_dirty_project_with_remote_credentials() {
+fn backup_rejects_archiving_with_a_sensitive_secondary_remote_url() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");
     if !pushed_github_fixture(&project) {
         eprintln!("git unavailable; skipping credentialed dirty remote fixture");
         return;
     }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
+    assert!(local_git(
+        &project,
+        &[
+            "config",
+            "--add",
+            "remote.origin.url",
+            "https://user:token@github.com/team/demo.git"
+        ]
+    ));
     fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
     let backup_dir = temp.0.join("backups");
     let error = crate::backup::backup_cmd(
