@@ -87,6 +87,21 @@ fn cli_help_and_version_are_available_without_subcommands() {
 }
 
 #[test]
+fn clean_can_list_rules_without_roots() {
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["clean", "--list-rules"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("node:"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn backup_cli_creates_an_archive_and_manifest() {
     let temp = TestDir::new();
     let project = temp.project();
