@@ -254,7 +254,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次验证（2026-10-29）：Python 共 135 项；本地 Linux 134 项通过，1 项 Windows 专用测试跳过，Windows CI 通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 11 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。Python/Rust 扫描 JSON 与文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次验证（2026-10-29）：Python 共 135 项；本地 Linux 134 项通过，1 项 Windows 专用测试跳过，Windows CI 通过；Rust stable 和 MSRV 1.88 均通过 26 项单元测试及 11 项 CLI 集成测试。GitHub Actions 13 个 job 全部通过，覆盖 Python/Rust 跨平台测试、Python/Rust 依赖安全审计、归档兼容和 actionlint。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：
