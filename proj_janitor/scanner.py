@@ -444,18 +444,19 @@ def inspect_git_recoverability(
     if (project.path / ".git").exists():
         remotes = _git_output(project.path, "remote")
         for remote in (remotes or "").splitlines():
-            remote_urls = _git_output(
-                project.path,
-                "remote",
-                "get-url",
-                "--all",
-                remote,
-            )
-            if any(
-                _url_has_sensitive_data(url)
-                for url in (remote_urls or "").splitlines()
-            ):
-                return GitRecovery(False, "remote URL contains credentials or query data")
+            for options in (("--all",), ("--push", "--all")):
+                remote_urls = _git_output(
+                    project.path,
+                    "remote",
+                    "get-url",
+                    *options,
+                    remote,
+                )
+                if any(
+                    _url_has_sensitive_data(url)
+                    for url in (remote_urls or "").splitlines()
+                ):
+                    return GitRecovery(False, "remote URL contains credentials or query data")
     if _submodule_urls_have_sensitive_data(project.path):
         return GitRecovery(False, "submodule URL contains credentials or query data")
     return recovery

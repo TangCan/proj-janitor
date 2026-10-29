@@ -691,6 +691,53 @@ fn backup_rejects_archiving_with_a_sensitive_secondary_remote_url() {
 }
 
 #[test]
+fn backup_rejects_archiving_with_a_credentialed_push_url() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping credentialed push URL fixture");
+        return;
+    }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "--push",
+            "origin",
+            "https://token:push-secret@github.com/team/demo.git"
+        ]
+    ));
+    fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
+    let backup_dir = temp.0.join("backups");
+    let error = crate::backup::backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("one or more backup operations failed")
+    );
+    assert!(!error.to_string().contains("push-secret"));
+    assert!(!backup_dir.join("demo").exists());
+}
+
+#[test]
 fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

@@ -540,9 +540,15 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     }
     if let Some(remotes) = git_output(&project.path, &["remote"]) {
         for remote in remotes.lines().filter(|remote| !remote.is_empty()) {
-            if git_output(&project.path, &["remote", "get-url", "--all", remote])
-                .is_some_and(|urls| urls.lines().any(url_has_sensitive_data))
-            {
+            let sensitive_fetch_urls =
+                git_output(&project.path, &["remote", "get-url", "--all", remote])
+                    .is_some_and(|urls| urls.lines().any(url_has_sensitive_data));
+            let sensitive_push_urls = git_output(
+                &project.path,
+                &["remote", "get-url", "--push", "--all", remote],
+            )
+            .is_some_and(|urls| urls.lines().any(url_has_sensitive_data));
+            if sensitive_fetch_urls || sensitive_push_urls {
                 return Err("remote URL contains credentials or query data".into());
             }
         }
