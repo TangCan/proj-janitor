@@ -757,6 +757,12 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "Git config contains an inline credential helper",
                 "helper-secret",
             ),
+            (
+                "credential.helper",
+                "store --file=.git-credentials",
+                "Git config points to a credential file inside the project",
+                "store-secret",
+            ),
         )
         for key, value, reason, secret in settings:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
@@ -766,6 +772,11 @@ class GitStrategyBackupTests(unittest.TestCase):
                 if key == "include.path":
                     (project / ".git" / value).write_text(
                         f"[http]\n\textraHeader = {secret}\n",
+                        encoding="utf-8",
+                    )
+                if value.startswith("store --file="):
+                    (project / ".git-credentials").write_text(
+                        f"https://user:{secret}@github.com\n",
                         encoding="utf-8",
                     )
                 git(project, "config", key, value)

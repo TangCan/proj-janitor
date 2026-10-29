@@ -613,6 +613,33 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
     {
         return Some("Git config contains an inline credential helper");
     }
+    for helper in String::from_utf8_lossy(&helpers.stdout).lines() {
+        let arguments: Vec<_> = helper.split_whitespace().collect();
+        for (index, argument) in arguments.iter().enumerate() {
+            let raw_path = if let Some(path) = argument.strip_prefix("--file=") {
+                Some(path)
+            } else if *argument == "--file" {
+                arguments.get(index + 1).copied()
+            } else {
+                None
+            };
+            let Some(raw_path) = raw_path else {
+                continue;
+            };
+            let credential_file = Path::new(raw_path.trim_matches(|c| c == '"' || c == '\''));
+            let credential_file = if credential_file.is_absolute() {
+                credential_file.to_path_buf()
+            } else {
+                path.join(credential_file)
+            };
+            let Ok(root) = fs::canonicalize(path) else {
+                return Some("cannot safely inspect Git config for credentials");
+            };
+            if fs::canonicalize(&credential_file).is_ok_and(|file| file.starts_with(&root)) {
+                return Some("Git config points to a credential file inside the project");
+            }
+        }
+    }
     None
 }
 

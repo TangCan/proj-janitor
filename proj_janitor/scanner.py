@@ -333,8 +333,27 @@ def _git_config_archive_reason(path: Path) -> str | None:
     )
     if helpers is None or helpers.returncode not in (0, 1):
         return "cannot safely inspect Git config for credentials"
-    if any(helper.strip().startswith("!") for helper in helpers.stdout.splitlines()):
-        return "Git config contains an inline credential helper"
+    for helper in helpers.stdout.splitlines():
+        if helper.strip().startswith("!"):
+            return "Git config contains an inline credential helper"
+        arguments = helper.split()
+        for index, argument in enumerate(arguments):
+            if argument.startswith("--file="):
+                raw_path = argument.partition("=")[2]
+            elif argument == "--file" and index + 1 < len(arguments):
+                raw_path = arguments[index + 1]
+            else:
+                continue
+            credential_file = Path(raw_path.strip("\"' ")).expanduser()
+            if not credential_file.is_absolute():
+                credential_file = path / credential_file
+            if not credential_file.exists():
+                continue
+            try:
+                if credential_file.resolve().is_relative_to(path.resolve()):
+                    return "Git config points to a credential file inside the project"
+            except OSError:
+                return "cannot safely inspect Git config for credentials"
     return None
 
 

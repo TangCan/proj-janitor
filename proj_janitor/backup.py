@@ -76,6 +76,7 @@ def prepare_backup(
                     "Git config contains HTTP extraHeader",
                     "Git config contains credential passwords",
                     "Git config contains an inline credential helper",
+                    "Git config points to a credential file inside the project",
                     "cannot safely inspect Git config for credentials",
                 )
             ):

@@ -758,6 +758,12 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "Git config contains an inline credential helper",
             "helper-secret",
         ),
+        (
+            "credential.helper",
+            "store --file=.git-credentials",
+            "Git config points to a credential file inside the project",
+            "store-secret",
+        ),
     ];
     for (key, value, expected_reason, secret) in settings {
         let temp = TestDir::new();
@@ -779,6 +785,13 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             fs::write(
                 project.join(".git/credentials.inc"),
                 "[http]\n\textraHeader = Authorization: Basic extra-secret\n",
+            )
+            .unwrap();
+        }
+        if value.starts_with("store --file=") {
+            fs::write(
+                project.join(".git-credentials"),
+                format!("https://user:{secret}@github.com\n"),
             )
             .unwrap();
         }
