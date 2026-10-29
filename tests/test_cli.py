@@ -82,7 +82,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(json.loads(out)["projects"][0]["status"], "verified")
             self.assertTrue(project.exists())
 
-    def test_scan_json(self) -> None:
+    def test_scan_json_and_text_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))
 
@@ -93,6 +93,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(len(payload), 1)
             self.assertEqual(payload[0]["name"], "app")
             self.assertGreater(payload[0]["size_bytes"], 0)
+
+            code, out, err = run_cli("scan", tmp, str(project))
+
+            self.assertEqual(code, 0, err)
+            for column in ("PROJECT", "SIZE", "BRANCH", "STATE", "MARKERS", "MODIFIED"):
+                self.assertIn(column, out)
+            self.assertIn("app", out)
 
     def test_backup_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

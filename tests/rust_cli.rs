@@ -516,6 +516,23 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
             .timestamp();
     assert_eq!(actual_modified, 1_700_000_000);
 
+    let text_scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("scan")
+        .arg(&temp.0)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        text_scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text_scan.stderr)
+    );
+    let text = String::from_utf8_lossy(&text_scan.stdout);
+    for column in ["PROJECT", "SIZE", "BRANCH", "STATE", "MARKERS", "MODIFIED"] {
+        assert!(text.contains(column));
+    }
+    assert!(text.contains("demo"));
+
     let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("clean")
         .arg(&temp.0)
