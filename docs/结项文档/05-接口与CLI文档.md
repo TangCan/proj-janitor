@@ -70,7 +70,7 @@
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
 - 自定义清理规则文件、配置文件或每项目排除文件；
-- Git LFS、submodule、tag、detached HEAD 的完整备份；
+- Git LFS、tag、detached HEAD 的完整备份；submodule 在工作区干净且 GitHub URL（或相对 GitHub 主仓库 URL）受支持时可按 gitlink 轻量备份，恢复需子模块远端和固定提交仍可用；
 - GitHub API 认证、远端提交存在性预检或自动恢复演练；
 - 归档内容秘密扫描；
 - Windows/macOS 的正式兼容性承诺。
@@ -1122,8 +1122,8 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
 | 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
-| 15 | 存在 `.gitmodules` 或 `git submodule status` 非空 | `submodules are not supported` |
-| 16 | `git submodule status` 失败 | `cannot inspect submodules` |
+| 15 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |
+| 16 | 子模块状态或配置无法检查 | `cannot inspect submodules` / `cannot inspect submodule configuration` |
 | 17 | 存在 `.lfsconfig` 或 `.gitattributes` 命中 LFS | `Git LFS is not supported` |
 | 18 | LFS 属性检查失败 | `cannot inspect Git LFS attributes` |
 | 19 | 忽略文件列举失败 | `cannot inspect ignored files` |

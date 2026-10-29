@@ -20,7 +20,7 @@ from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
 from proj_janitor.restore import RestoreError, restore_from_manifest, verify_manifest
 from proj_janitor.scanner import scan_project
-from tests.support import GIT_AVAILABLE, git, make_pushed_repo
+from tests.support import GIT_AVAILABLE, git, init_repo, make_pushed_repo
 
 
 def remove_readonly(function, path: str, error_info) -> None:
@@ -696,6 +696,107 @@ class RestoreTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRestoreTests(unittest.TestCase):
+    def test_backup_and_restore_uninitialized_submodule_with_git_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = make_pushed_repo(root, "child")
+            child_commit = git(child, "rev-parse", "HEAD")
+            child_remote = root / "child-remote.git"
+
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            (project / ".gitmodules").write_text(
+                '[submodule "vendor/child"]\n'
+                "\tpath = vendor/child\n"
+                "\turl = https://github.com/acme/child.git\n",
+                encoding="utf-8",
+            )
+            init_repo(project)
+            git(project, "add", ".")
+            git(project, "commit", "-m", "parent")
+            git(
+                project,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{child_commit},vendor/child",
+            )
+            git(project, "commit", "-m", "add submodule")
+            (project / "vendor" / "child").mkdir(parents=True)
+            stray = project / "vendor" / "child" / "local-data.txt"
+            stray.write_text("keep me\n", encoding="utf-8")
+
+            parent_remote = root / "app-remote.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(parent_remote)],
+                check=True,
+                capture_output=True,
+            )
+            git(project, "remote", "add", "origin", str(parent_remote))
+            git(project, "push", "-u", "origin", "main")
+            git(project, "remote", "set-url", "origin", "https://github.com/acme/app.git")
+
+            backup_dir = root / "backups"
+            stray_manifests, stray_records, stray_failures = run_backup(
+                [scan_project(project)], root / "stray-backups"
+            )
+            self.assertFalse(stray_failures)
+            self.assertEqual(stray_records[0].strategy, "archive")
+            self.assertIn("uninitialized submodule path is not empty", stray_records[0].fallback_reason)
+            stray.unlink()
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], backup_dir
+            )
+
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git", records[0].fallback_reason)
+            self.assertIsNone(records[0].archive)
+            self.assertEqual(len(list((backup_dir / "app").glob("manifest-*.json"))), 1)
+
+            restore_dest = root / "restored"
+            submodule_remote = child_remote.resolve().as_uri()
+            parent_url = parent_remote.resolve().as_uri()
+            git_config = {
+                "GIT_CONFIG_COUNT": "3",
+                "GIT_CONFIG_KEY_0": f"url.{parent_url}.insteadOf",
+                "GIT_CONFIG_VALUE_0": "https://github.com/acme/app.git",
+                "GIT_CONFIG_KEY_1": f"url.{submodule_remote}.insteadOf",
+                "GIT_CONFIG_VALUE_1": "https://github.com/acme/child.git",
+                "GIT_CONFIG_KEY_2": "protocol.file.allow",
+                "GIT_CONFIG_VALUE_2": "always",
+            }
+            with mock.patch.dict(os.environ, git_config):
+                plans, results = restore_from_manifest(manifests[0], restore_dest)
+
+            restored = restore_dest / "app"
+            restored_child = restored / "vendor" / "child"
+            self.assertEqual(plans[0].strategy, "git")
+            self.assertEqual(results[0].strategy, "git")
+            self.assertTrue((restored / "pyproject.toml").is_file())
+            self.assertEqual(
+                (restored_child / "main.py").read_text(encoding="utf-8"),
+                "print('hi')\n",
+            )
+            self.assertEqual(git(restored_child, "rev-parse", "HEAD"), child_commit)
+            git(restored, "switch", "--track", "-c", "main", "origin/main")
+            initialized_backups, initialized_records, initialized_failures = run_backup(
+                [scan_project(restored)], root / "initialized-backups"
+            )
+            self.assertFalse(initialized_failures)
+            self.assertEqual(initialized_records[0].strategy, "git", initialized_records[0].fallback_reason)
+            self.assertIsNone(initialized_records[0].fallback_reason)
+
+            failed_dest = root / "failed-restore"
+            broken_config = git_config | {
+                "GIT_CONFIG_VALUE_1": (root / "missing-child.git").as_uri()
+            }
+            with mock.patch.dict(os.environ, broken_config):
+                with self.assertRaises(RestoreError):
+                    restore_from_manifest(manifests[0], failed_dest)
+            self.assertFalse((failed_dest / "app").exists())
+
     def test_restore_git_clones_and_checks_out_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,9 +1,10 @@
 use chrono::{DateTime, Local, Utc};
 use serde::Serialize;
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     io::Read,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
@@ -51,6 +52,11 @@ pub(crate) struct Recovery {
     pub(crate) branch: String,
     pub(crate) commit: String,
     pub(crate) upstream: String,
+}
+
+pub(crate) struct Submodule {
+    pub(crate) path: PathBuf,
+    pub(crate) url: String,
 }
 fn is_project(path: &Path) -> bool {
     MARKERS.iter().any(|m| path.join(m).exists())
@@ -138,7 +144,7 @@ pub(crate) fn metadata_if_present(path: &Path) -> std::io::Result<Option<fs::Met
     }
 }
 
-fn git_output(path: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git_output(path: &Path, args: &[&str]) -> Option<String> {
     git_run(path, args)
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -235,13 +241,238 @@ fn valid_github_path(path: &str) -> bool {
         && parts.next().is_none()
 }
 
+pub(crate) fn submodule_config(path: &Path) -> Result<Vec<Submodule>, String> {
+    let gitmodules = path.join(".gitmodules");
+    match fs::symlink_metadata(&gitmodules) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err("cannot inspect .gitmodules".into()),
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            return Err("invalid .gitmodules file".into());
+        }
+        Ok(_) => {}
+    }
+    let output = git_run(
+        path,
+        &[
+            "config",
+            "--file",
+            ".gitmodules",
+            "--get-regexp",
+            r"^submodule\..*\.(path|url)$",
+        ],
+    )
+    .ok_or("cannot inspect .gitmodules")?;
+    if !(output.status.success() || output.status.code() == Some(1) && output.stdout.is_empty()) {
+        return Err("cannot inspect .gitmodules".into());
+    }
+    let mut entries: HashMap<String, (Option<PathBuf>, Option<String>)> = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Some((key, value)) = line.split_once(' ') else {
+            return Err("invalid .gitmodules entry".into());
+        };
+        let (name, is_path) = if let Some(name) = key
+            .strip_prefix("submodule.")
+            .and_then(|key| key.strip_suffix(".path"))
+        {
+            (name, true)
+        } else if let Some(name) = key
+            .strip_prefix("submodule.")
+            .and_then(|key| key.strip_suffix(".url"))
+        {
+            (name, false)
+        } else {
+            return Err("invalid .gitmodules entry".into());
+        };
+        if name.is_empty() || value.is_empty() || value.contains('\0') {
+            return Err("invalid .gitmodules entry".into());
+        }
+        let entry = entries.entry(name.to_owned()).or_default();
+        if is_path {
+            let submodule_path = PathBuf::from(value);
+            if value.contains('\\')
+                || submodule_path.is_absolute()
+                || submodule_path.components().any(|component| {
+                    matches!(
+                        component,
+                        Component::ParentDir
+                            | Component::CurDir
+                            | Component::RootDir
+                            | Component::Prefix(_)
+                    )
+                })
+                || submodule_path.as_os_str().is_empty()
+            {
+                return Err("unsafe submodule path".into());
+            }
+            if entry.0.replace(submodule_path).is_some() {
+                return Err("duplicate submodule path".into());
+            }
+        } else if entry.1.replace(value.to_owned()).is_some() {
+            return Err("duplicate submodule URL".into());
+        }
+    }
+    let mut paths = HashSet::new();
+    entries
+        .into_values()
+        .map(|(path, url)| match (path, url) {
+            (Some(path), Some(url)) if paths.insert(path.clone()) => Ok(Submodule { path, url }),
+            (Some(_), Some(_)) => Err("duplicate submodule path".into()),
+            _ => Err("incomplete .gitmodules entry".into()),
+        })
+        .collect()
+}
+
+pub(crate) fn submodule_url_supported(url: &str) -> bool {
+    if url.starts_with("./") || url.starts_with("../") {
+        !url.chars()
+            .any(|character| character.is_whitespace() || "\\?#:".contains(character))
+    } else {
+        github_url(url).is_some()
+    }
+}
+
+pub(crate) fn inspect_submodules(path: &Path) -> Result<(), String> {
+    let mut pending = vec![(path.to_path_buf(), submodule_config(path)?, String::new())];
+    while let Some((current, configured, prefix)) = pending.pop() {
+        if configured
+            .iter()
+            .any(|module| !submodule_url_supported(&module.url))
+        {
+            return Err("submodule URL is not a supported GitHub URL".into());
+        }
+        let output = git_run(
+            &current,
+            &["-c", "core.quotePath=false", "submodule", "status"],
+        )
+        .filter(|output| output.status.success())
+        .ok_or("cannot inspect submodules")?;
+        let mut status_paths = HashSet::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Some(marker) = line.chars().next() else {
+                return Err("cannot parse submodule status".into());
+            };
+            let Some((_, display_path)) = line[marker.len_utf8()..].trim_start().split_once(' ')
+            else {
+                return Err("cannot parse submodule status".into());
+            };
+            let module = configured
+                .iter()
+                .filter(|module| {
+                    let configured_path = module.path.to_string_lossy();
+                    display_path == configured_path
+                        || (display_path.starts_with(&format!("{configured_path} ("))
+                            && display_path.ends_with(')'))
+                })
+                .max_by_key(|module| module.path.as_os_str().len())
+                .ok_or("cannot match configured submodules to Git links")?;
+            let relative = &module.path;
+            let raw_path = format!("{prefix}{}", relative.display());
+            status_paths.insert(relative.clone());
+            match marker {
+                '-' => {
+                    let uninitialized = current.join(relative);
+                    match fs::symlink_metadata(&uninitialized) {
+                        Ok(metadata) => {
+                            if !metadata.is_dir()
+                                || metadata.file_type().is_symlink()
+                                || fs::read_dir(&uninitialized)
+                                    .map_err(|_| "cannot inspect uninitialized submodule")?
+                                    .next()
+                                    .is_some()
+                            {
+                                return Err(format!(
+                                    "uninitialized submodule path is not empty: {raw_path}"
+                                ));
+                            }
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(_) => return Err("cannot inspect uninitialized submodule".into()),
+                    }
+                    continue;
+                }
+                '+' => {
+                    return Err(format!(
+                        "submodule is not at its recorded commit: {raw_path}"
+                    ));
+                }
+                'U' => return Err(format!("submodule has merge conflicts: {raw_path}")),
+                ' ' => {}
+                _ => return Err("cannot parse submodule status".into()),
+            }
+            let submodule_path = fs::canonicalize(current.join(relative))
+                .map_err(|_| format!("cannot inspect submodule working tree: {raw_path}"))?;
+            if !submodule_path.starts_with(&current) {
+                return Err(format!("submodule path escapes project: {raw_path}"));
+            }
+            let status = git_output(
+                &submodule_path,
+                &[
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                    "--ignore-submodules=none",
+                ],
+            )
+            .ok_or_else(|| format!("cannot inspect submodule working tree: {raw_path}"))?;
+            if !status.is_empty() {
+                return Err(format!("submodule working tree is not clean: {raw_path}"));
+            }
+            let nested = submodule_config(&submodule_path)
+                .map_err(|_| format!("cannot inspect nested submodules: {raw_path}"))?;
+            pending.push((submodule_path.clone(), nested, raw_path.clone() + "/"));
+            let ignored = git_run(
+                &submodule_path,
+                &[
+                    "-c",
+                    "core.quotePath=false",
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "--directory",
+                    "-z",
+                ],
+            )
+            .filter(|output| output.status.success())
+            .ok_or_else(|| format!("cannot inspect ignored submodule files: {raw_path}"))?;
+            for raw in ignored
+                .stdout
+                .split(|byte| *byte == 0)
+                .filter(|s| !s.is_empty())
+            {
+                let ignored_path = String::from_utf8_lossy(raw)
+                    .trim_end_matches('/')
+                    .to_owned();
+                if !ignored_is_artifact(&submodule_path, Path::new(&ignored_path)) {
+                    return Err(format!(
+                        "ignored submodule path is not an artifact: {raw_path}/{ignored_path}"
+                    ));
+                }
+            }
+        }
+        let configured_paths: HashSet<_> = configured.into_iter().map(|item| item.path).collect();
+        if !configured_paths.is_subset(&status_paths) {
+            return Err("cannot match configured submodules to Git links".into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     let path = &project.path;
     let branch = git_output(path, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .filter(|s| !s.is_empty())
         .ok_or("detached HEAD")?;
-    let status = git_output(path, &["status", "--porcelain", "--untracked-files=all"])
-        .ok_or("git status failed")?;
+    let status = git_output(
+        path,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+    )
+    .ok_or("git status failed")?;
     if !status.is_empty() {
         return Err("working tree is not clean".into());
     }
@@ -285,14 +516,7 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     if ahead != 0 {
         return Err("HEAD is ahead of upstream".into());
     }
-    if path.join(".gitmodules").exists() {
-        return Err("submodules are not supported".into());
-    }
-    let submodules =
-        git_output(path, &["submodule", "status"]).ok_or("cannot inspect submodules")?;
-    if !submodules.is_empty() {
-        return Err("submodules are not supported".into());
-    }
+    inspect_submodules(path)?;
     if path.join(".lfsconfig").exists() {
         return Err("Git LFS is not supported".into());
     }

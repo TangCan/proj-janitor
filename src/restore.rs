@@ -25,7 +25,9 @@ use crate::{
     archive::{
         create_restore_temp_dir, extract_archive, portable_path_key, safe_windows_component, sha256,
     },
-    expand, resolve_for_creation,
+    expand,
+    project::{git_output, submodule_config, submodule_url_supported},
+    resolve_for_creation,
 };
 
 pub(crate) fn validate_git_restore(remote: &str, commit: &str) -> anyhow::Result<()> {
@@ -487,6 +489,78 @@ pub(crate) fn restore_cmd(
     Ok(())
 }
 
+fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
+    let mut pending = vec![(repo.to_path_buf(), 0usize)];
+    while let Some((parent, depth)) = pending.pop() {
+        anyhow::ensure!(depth <= 32, "submodule nesting is too deep for {project}");
+        let modules = submodule_config(&parent)
+            .map_err(|_| anyhow::anyhow!("invalid submodule metadata for {project}"))?;
+        if modules.is_empty() {
+            continue;
+        }
+        anyhow::ensure!(
+            modules
+                .iter()
+                .all(|module| submodule_url_supported(&module.url)),
+            "unsupported submodule URL for {project}"
+        );
+        let paths: Vec<_> = modules
+            .iter()
+            .map(|module| module.path.to_string_lossy().into_owned())
+            .collect();
+        let mut init = Command::new("git");
+        init.arg("-C")
+            .arg(&parent)
+            .args(["submodule", "--quiet", "init", "--"])
+            .args(&paths)
+            .stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut init, project, "submodule init")?.success(),
+            "cannot initialize submodules for {project}"
+        );
+        let mut update = Command::new("git");
+        update
+            .args(["-c", "submodule.recurse=false"])
+            .arg("-C")
+            .arg(&parent)
+            .args([
+                "submodule",
+                "--quiet",
+                "update",
+                "--init",
+                "--checkout",
+                "--",
+            ])
+            .args(&paths)
+            .stdout(Stdio::null());
+        anyhow::ensure!(
+            run_git_with_timeout(&mut update, project, "submodule update")?.success(),
+            "cannot restore submodules for {project}"
+        );
+
+        let parent = fs::canonicalize(parent)?;
+        for module in modules {
+            let target = parent.join(module.path);
+            let metadata = fs::symlink_metadata(&target)?;
+            anyhow::ensure!(
+                !metadata.file_type().is_symlink() && metadata.is_dir(),
+                "invalid restored submodule for {project}"
+            );
+            let target = fs::canonicalize(target)?;
+            anyhow::ensure!(
+                target.starts_with(&parent),
+                "submodule escapes restore target for {project}"
+            );
+            let commit = git_output(&target, &["rev-parse", "HEAD"])
+                .filter(|commit| !commit.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("cannot verify restored submodule for {project}"))?;
+            anyhow::ensure!(commit.len() >= 7, "invalid submodule commit for {project}");
+            pending.push((target, depth + 1));
+        }
+    }
+    Ok(())
+}
+
 fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !target.exists() && !target.is_symlink(),
@@ -632,6 +706,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
                 .starts_with(&commit.to_ascii_lowercase()),
             "restored commit does not match manifest for {project}"
         );
+        restore_submodules(&repo, project)?;
         anyhow::ensure!(
             !target.exists() && !target.is_symlink(),
             "restore target already exists: {}",

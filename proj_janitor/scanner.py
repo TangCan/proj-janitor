@@ -6,7 +6,7 @@ import stat
 import subprocess
 from datetime import datetime, timezone
 from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -177,11 +177,180 @@ def _valid_github_path(path: str) -> bool:
     return owner not in (".", "..") and repository not in (".", "..")
 
 
+def submodule_config(
+    path: Path,
+) -> list[tuple[PurePosixPath, str]] | None:
+    gitmodules = path / ".gitmodules"
+    if not gitmodules.exists():
+        return []
+    if gitmodules.is_symlink() or not gitmodules.is_file():
+        return None
+    result = _git_run(
+        path,
+        "config",
+        "--file",
+        ".gitmodules",
+        "--get-regexp",
+        r"^submodule\..*\.(path|url)$",
+    )
+    if result is None or result.returncode not in (0, 1):
+        return None
+    entries: dict[str, dict[str, str]] = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition(" ")
+        if not separator or not key.startswith("submodule."):
+            return None
+        attribute = next(
+            (name for name in ("path", "url") if key.endswith(f".{name}")),
+            None,
+        )
+        if attribute is None:
+            return None
+        name = key[len("submodule.") : -len(attribute) - 1]
+        if not name or attribute in entries.setdefault(name, {}):
+            return None
+        entries[name][attribute] = value.strip()
+    if any(set(entry) != {"path", "url"} for entry in entries.values()):
+        return None
+
+    submodules = []
+    paths: set[PurePosixPath] = set()
+    for entry in entries.values():
+        raw_path, url = entry["path"], entry["url"]
+        relative = PurePosixPath(raw_path)
+        if (
+            not raw_path
+            or "\x00" in raw_path
+            or "\\" in raw_path
+            or relative.is_absolute()
+            or not relative.parts
+            or ".." in relative.parts
+            or not url
+        ):
+            return None
+        if relative in paths:
+            return None
+        paths.add(relative)
+        submodules.append((relative, url))
+    return submodules
+
+
+def is_supported_submodule_url(url: str) -> bool:
+    if url.startswith(("./", "../")):
+        return not any(
+            character.isspace() or character in "\\?#:"
+            for character in url
+        )
+    return is_github_remote_url(url)
+
+
+def _submodule_recovery_reason(
+    project: Path,
+    configured: list[tuple[PurePosixPath, str]],
+    patterns: tuple[str, ...],
+) -> str | None:
+    pending = [(project, configured, "")]
+    while pending:
+        current, modules, prefix = pending.pop()
+        if any(not is_supported_submodule_url(url) for _, url in modules):
+            return "submodule URL is not a supported GitHub URL"
+        result = _git_run(current, "-c", "core.quotePath=false", "submodule", "status")
+        if result is None or result.returncode != 0:
+            return "cannot inspect submodules"
+        found: set[PurePosixPath] = set()
+        for line in result.stdout.splitlines():
+            if not line:
+                return "cannot parse submodule status"
+            marker = line[0]
+            fields = line[1:].strip().split(None, 1)
+            if len(fields) != 2:
+                return "cannot parse submodule status"
+            _, display_path = fields
+            matches = [
+                path
+                for path, _ in modules
+                if display_path == path.as_posix()
+                or (
+                    display_path.startswith(path.as_posix() + " (")
+                    and display_path.endswith(")")
+                )
+            ]
+            if not matches:
+                return "cannot match configured submodules to Git links"
+            relative = max(matches, key=lambda path: len(path.as_posix()))
+            found.add(relative)
+            raw_path = f"{prefix}{relative.as_posix()}"
+            if marker == "-":
+                uninitialized = current.joinpath(*relative.parts)
+                try:
+                    occupied = uninitialized.is_symlink() or (
+                        uninitialized.exists()
+                        and (
+                            not uninitialized.is_dir()
+                            or next(uninitialized.iterdir(), None) is not None
+                        )
+                    )
+                except OSError:
+                    return f"cannot inspect uninitialized submodule: {raw_path}"
+                if occupied:
+                    return f"uninitialized submodule path is not empty: {raw_path}"
+                continue
+            if marker == "+":
+                return f"submodule is not at its recorded commit: {raw_path}"
+            if marker == "U":
+                return f"submodule has merge conflicts: {raw_path}"
+            if marker != " ":
+                return "cannot parse submodule status"
+            submodule_path = (current / Path(*relative.parts)).resolve()
+            if not submodule_path.is_relative_to(current.resolve()):
+                return "submodule path escapes project"
+            status = _git_output(
+                submodule_path,
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+            )
+            if status is None:
+                return f"cannot inspect submodule working tree: {raw_path}"
+            if status:
+                return f"submodule working tree is not clean: {raw_path}"
+            nested = submodule_config(submodule_path)
+            if nested is None:
+                return f"unsupported nested submodule configuration: {raw_path}"
+            pending.append((submodule_path, nested, raw_path + "/"))
+            ignored = _git_run(
+                submodule_path,
+                "-c",
+                "core.quotePath=false",
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+                "-z",
+            )
+            if ignored is None or ignored.returncode != 0:
+                return f"cannot inspect ignored submodule files: {raw_path}"
+            for entry in ignored.stdout.split("\0"):
+                ignored_path = entry.rstrip("/")
+                if ignored_path and not _ignored_path_is_artifact(
+                    submodule_path,
+                    ignored_path,
+                    patterns,
+                ):
+                    return f"ignored submodule path is not an artifact: {raw_path}/{ignored_path}"
+        if not {path for path, _ in modules}.issubset(found):
+            return "cannot match configured submodules to Git links"
+    return None
+
+
 def inspect_git_recoverability(
     project: Project,
     patterns: Iterable[str] = (),
 ) -> GitRecovery:
     path = project.path
+    allowed_patterns = tuple(patterns)
     if not (path / ".git").exists():
         return GitRecovery(False, "not a git repository")
 
@@ -194,6 +363,7 @@ def inspect_git_recoverability(
         "status",
         "--porcelain",
         "--untracked-files=all",
+        "--ignore-submodules=none",
     )
     if status is None:
         return GitRecovery(False, "git status failed")
@@ -239,13 +409,16 @@ def inspect_git_recoverability(
     if ahead != 0:
         return GitRecovery(False, "HEAD is ahead of upstream")
 
-    if (path / ".gitmodules").exists():
-        return GitRecovery(False, "submodules are not supported")
-    submodules = _git_output(path, "submodule", "status")
+    submodules = submodule_config(path)
     if submodules is None:
-        return GitRecovery(False, "cannot inspect submodules")
-    if submodules:
-        return GitRecovery(False, "submodules are not supported")
+        return GitRecovery(False, "cannot inspect submodule configuration")
+    submodule_reason = _submodule_recovery_reason(
+        path,
+        submodules,
+        allowed_patterns,
+    )
+    if submodule_reason is not None:
+        return GitRecovery(False, submodule_reason)
 
     if (path / ".lfsconfig").exists():
         return GitRecovery(False, "Git LFS is not supported")
@@ -275,7 +448,6 @@ def inspect_git_recoverability(
     )
     if ignored is None or ignored.returncode != 0:
         return GitRecovery(False, "cannot inspect ignored files")
-    allowed_patterns = tuple(patterns)
     for entry in ignored.stdout.split("\0"):
         ignored_path = entry.rstrip("/")
         if not ignored_path:

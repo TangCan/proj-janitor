@@ -22,6 +22,7 @@ from proj_janitor.backup import (
     sha256_file,
 )
 from proj_janitor.models import RestorePlan, RestoreResult
+from proj_janitor.scanner import is_supported_submodule_url, submodule_config
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
 _GIT_TIMEOUT_SECONDS = 600
@@ -433,6 +434,63 @@ def _restore_one(plan: RestorePlan) -> RestoreResult:
     )
 
 
+def _restore_submodules(repo: Path, project: str) -> None:
+    pending = [(repo, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if depth > 32:
+            raise RestoreError(f"submodule nesting is too deep for {project}")
+        modules = submodule_config(current)
+        if modules is None:
+            raise RestoreError(f"invalid submodule metadata for {project}")
+        if not modules:
+            continue
+        if any(not is_supported_submodule_url(url) for _, url in modules):
+            raise RestoreError(f"unsupported submodule URL for {project}")
+        paths = [path.as_posix() for path, _ in modules]
+        initialized = _run_git(
+            ["-C", str(current), "submodule", "--quiet", "init", "--", *paths],
+            check=False,
+        )
+        if initialized.returncode:
+            raise RestoreError(f"cannot initialize submodules for {project}")
+        updated = _run_git(
+            [
+                "-c",
+                "submodule.recurse=false",
+                "-C",
+                str(current),
+                "submodule",
+                "--quiet",
+                "update",
+                "--init",
+                "--checkout",
+                "--",
+                *paths,
+            ],
+            check=False,
+        )
+        if updated.returncode:
+            raise RestoreError(f"cannot restore submodules for {project}")
+        for relative, _ in modules:
+            target = current.joinpath(*relative.parts)
+            if target.is_symlink() or not target.is_dir():
+                raise RestoreError(f"invalid restored submodule for {project}")
+            target = target.resolve()
+            if not target.is_relative_to(current.resolve()):
+                raise RestoreError(f"submodule escapes restore target for {project}")
+            result = _run_git(
+                ["-C", str(target), "rev-parse", "HEAD"],
+                check=False,
+            )
+            if result.returncode:
+                raise RestoreError(f"cannot verify restored submodule for {project}")
+            commit = result.stdout.strip().lower()
+            if len(commit) < 7:
+                raise RestoreError(f"cannot verify restored submodule for {project}")
+            pending.append((target, depth + 1))
+
+
 def _restore_git(plan: RestorePlan) -> None:
     if plan.remote_url is None or plan.commit is None:
         raise RestoreError(f"incomplete git restore plan for {plan.project}")
@@ -508,6 +566,7 @@ def _restore_git(plan: RestorePlan) -> None:
             raise RestoreError(
                 f"restored HEAD {head} does not match {plan.commit}"
             )
+        _restore_submodules(repo, plan.project)
         if plan.target.exists() or plan.target.is_symlink():
             raise RestoreError(f"restore target already exists: {plan.target}")
         repo.rename(plan.target)

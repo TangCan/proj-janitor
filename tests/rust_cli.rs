@@ -63,6 +63,25 @@ fn normalized_output(output: &str) -> String {
     output.replace('\\', "/")
 }
 
+fn git(path: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn git_file_url(path: &Path) -> String {
+    url::Url::from_file_path(path).unwrap().to_string()
+}
+
 #[test]
 fn cli_help_and_version_are_available_without_subcommands() {
     for (argument, expected) in [
@@ -84,6 +103,207 @@ fn cli_help_and_version_are_available_without_subcommands() {
         assert!(String::from_utf8_lossy(&output.stdout).contains(&expected));
         assert!(output.stderr.is_empty());
     }
+}
+
+#[test]
+fn backup_and_restore_uninitialized_submodule_with_git_strategy() {
+    let temp = TestDir::new();
+    let child = temp.0.join("child");
+    fs::create_dir_all(&child).unwrap();
+    fs::write(child.join("main.py"), "print('child')\n").unwrap();
+    git(&child, &["init", "-q", "-b", "main"]);
+    git(&child, &["config", "user.email", "test@example.com"]);
+    git(&child, &["config", "user.name", "Test User"]);
+    git(&child, &["add", "."]);
+    git(&child, &["commit", "-q", "-m", "child"]);
+    let child_commit = git(&child, &["rev-parse", "HEAD"]);
+    let child_remote = temp.0.join("child-remote.git");
+    let output = Command::new("git")
+        .args(["clone", "-q", "--bare"])
+        .arg(&child)
+        .arg(&child_remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(
+        project.join(".gitmodules"),
+        "[submodule \"vendor/child\"]\n\tpath = vendor/child\n\turl = https://github.com/acme/child.git\n",
+    )
+    .unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "parent"]);
+    git(
+        &project,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{child_commit},vendor/child"),
+        ],
+    );
+    git(&project, &["commit", "-q", "-m", "add submodule"]);
+    fs::create_dir_all(project.join("vendor/child")).unwrap();
+    let local_submodule_data = project.join("vendor/child/local-data.txt");
+    fs::write(&local_submodule_data, "keep me\n").unwrap();
+    let parent_remote = temp.0.join("app-remote.git");
+    let output = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&parent_remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", parent_remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/app.git",
+        ],
+    );
+
+    let stray_backup_dest = temp.0.join("stray-backups");
+    let stray_backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&stray_backup_dest)
+        .output()
+        .unwrap();
+    assert!(stray_backup.status.success());
+    let stray_manifest = fs::read_dir(stray_backup_dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let stray_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(stray_manifest).unwrap()).unwrap();
+    assert_eq!(stray_json["records"][0]["strategy"], "archive");
+    assert_eq!(
+        stray_json["records"][0]["fallback_reason"],
+        "uninitialized submodule path is not empty: vendor/child"
+    );
+    fs::remove_file(local_submodule_data).unwrap();
+
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backup_dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["records"][0]["strategy"], "git");
+    assert!(manifest_json["records"][0]["archive"].is_null());
+
+    let restored_dest = temp.0.join("restored");
+    let parent_url = git_file_url(&parent_remote);
+    let child_url = git_file_url(&child_remote);
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env("GIT_CONFIG_KEY_1", format!("url.{child_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    let restored_child = restored_dest.join("app/vendor/child");
+    assert_eq!(
+        fs::read_to_string(restored_child.join("main.py")).unwrap(),
+        "print('child')\n"
+    );
+    assert_eq!(git(&restored_child, &["rev-parse", "HEAD"]), child_commit);
+    git(
+        &restored_dest.join("app"),
+        &["switch", "--track", "-c", "main", "origin/main"],
+    );
+
+    let initialized_backup_dest = temp.0.join("initialized-backups");
+    let initialized_backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(restored_dest.join("app"))
+        .arg("--backup-dest")
+        .arg(&initialized_backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        initialized_backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized_backup.stderr)
+    );
+    let initialized_manifest = fs::read_dir(initialized_backup_dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let initialized_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(initialized_manifest).unwrap()).unwrap();
+    assert_eq!(initialized_json["records"][0]["strategy"], "git");
+
+    let failed_dest = temp.0.join("failed-restore");
+    let failed_restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&failed_dest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env(
+            "GIT_CONFIG_KEY_1",
+            "url.file:///missing-child.git.insteadOf",
+        )
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(!failed_restore.status.success());
+    assert!(!failed_dest.join("app").exists());
 }
 
 #[test]
