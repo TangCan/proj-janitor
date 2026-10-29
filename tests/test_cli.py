@@ -517,6 +517,32 @@ class CliTests(unittest.TestCase):
             self.assertIn("Dry run", out)
             self.assertTrue((project / "node_modules").exists())
 
+    def test_clean_rules_selection_and_unknown_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            (project / "dist").mkdir()
+            (project / "dist" / "bundle.js").write_text("x", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "clean", str(project), "--rules", "node,build", "--json"
+            )
+
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertEqual({item["rule"] for item in payload}, {"node", "build"})
+            self.assertTrue((project / "node_modules").exists())
+            self.assertTrue((project / "dist").exists())
+
+            code, out, err = run_cli(
+                "clean", str(project), "--rules", "unknown", "--json"
+            )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(out), [])
+            self.assertIn("unknown rule", err)
+            self.assertTrue((project / "node_modules").exists())
+            self.assertTrue((project / "dist").exists())
+
     def test_list_rules(self) -> None:
         code, out, _ = run_cli("clean", ".", "--list-rules")
 

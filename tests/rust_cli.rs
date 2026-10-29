@@ -102,6 +102,53 @@ fn clean_can_list_rules_without_roots() {
 }
 
 #[test]
+fn clean_filters_plans_by_selected_rules() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::create_dir_all(project.join("node_modules/pkg")).unwrap();
+    fs::write(project.join("node_modules/pkg/index.js"), "x").unwrap();
+    fs::create_dir_all(project.join("target/debug")).unwrap();
+    fs::write(project.join("target/debug/cache"), "x").unwrap();
+
+    let selected = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("clean")
+        .arg(&project)
+        .arg("--rules")
+        .arg("node,build")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+    let actions: serde_json::Value = serde_json::from_slice(&selected.stdout).unwrap();
+    let rules: BTreeSet<_> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| action["rule"].as_str().unwrap())
+        .collect();
+    assert_eq!(rules, BTreeSet::from(["build", "node"]));
+    assert!(project.join("node_modules").is_dir());
+    assert!(project.join("target").is_dir());
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("clean")
+        .arg(&project)
+        .arg("--rules")
+        .arg("unknown")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("unknown rule: unknown"));
+    assert!(project.join("node_modules").is_dir());
+    assert!(project.join("target").is_dir());
+}
+
+#[test]
 fn backup_cli_creates_an_archive_and_manifest() {
     let temp = TestDir::new();
     let project = temp.project();
