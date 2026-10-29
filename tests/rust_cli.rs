@@ -64,6 +64,29 @@ fn normalized_output(output: &str) -> String {
 }
 
 #[test]
+fn cli_help_and_version_are_available_without_subcommands() {
+    for (argument, expected) in [
+        ("--help", "Usage: projjan".to_owned()),
+        (
+            "--version",
+            format!("projjan {}", env!("CARGO_PKG_VERSION")),
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+            .arg(argument)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains(&expected));
+        assert!(output.stderr.is_empty());
+    }
+}
+
+#[test]
 fn backup_cli_creates_an_archive_and_manifest() {
     let temp = TestDir::new();
     let project = temp.project();

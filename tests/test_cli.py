@@ -9,6 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from proj_janitor import __version__
 from proj_janitor import backup as backup_module
 from proj_janitor.cleaner import build_cleanup_plan
 from proj_janitor.cli import build_parser, main
@@ -42,6 +43,24 @@ class Tty(io.StringIO):
 
 
 class CliTests(unittest.TestCase):
+    def test_help_and_version(self) -> None:
+        for argv, expected in (
+            (["--help"], "usage: projjan"),
+            (["--version"], f"projjan {__version__}"),
+        ):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                build_parser().parse_args(argv)
+
+            self.assertEqual(raised.exception.code, 0)
+            self.assertIn(expected, stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
+
     def test_verify_archive_manifest_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
