@@ -241,6 +241,13 @@ def is_supported_submodule_url(url: str) -> bool:
             character.isspace() or character in "\\?#:"
             for character in url
         )
+    if url.startswith("https://"):
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
     return is_github_remote_url(url)
 
 

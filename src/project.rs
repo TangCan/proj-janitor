@@ -326,6 +326,10 @@ pub(crate) fn submodule_url_supported(url: &str) -> bool {
     if url.starts_with("./") || url.starts_with("../") {
         !url.chars()
             .any(|character| character.is_whitespace() || "\\?#:".contains(character))
+    } else if url.starts_with("https://") {
+        Url::parse(url).is_ok_and(|url| {
+            url.username().is_empty() && url.password().is_none() && !url.as_str().contains('@')
+        }) && github_url(url).is_some()
     } else {
         github_url(url).is_some()
     }

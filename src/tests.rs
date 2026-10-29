@@ -543,6 +543,38 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
 }
 
 #[test]
+fn git_recovery_rejects_credentials_in_submodule_urls() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping Git submodule URL fixture");
+        return;
+    }
+    fs::write(
+        project.join(".gitmodules"),
+        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://alice:submodule-secret@github.com/team/private.git\n",
+    )
+    .unwrap();
+    assert!(local_git(&project, &["add", ".gitmodules"]));
+    assert!(local_git(
+        &project,
+        &["commit", "-m", "configure submodule"]
+    ));
+    assert!(local_git(
+        &project,
+        &["update-ref", "refs/remotes/origin/main", "HEAD"]
+    ));
+
+    let project_info = inspect(&project).unwrap();
+    let reason = match inspect_recovery(&project_info) {
+        Ok(_) => panic!("credentialed submodule URL was accepted"),
+        Err(reason) => reason,
+    };
+    assert!(reason.contains("submodule URL is not a supported GitHub URL"));
+    assert!(!reason.contains("submodule-secret"));
+}
+
+#[test]
 fn backup_rejects_destination_inside_source_project_before_writing() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");
