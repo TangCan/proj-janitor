@@ -527,7 +527,13 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         assert!(demo.get(field).is_some(), "missing scan JSON field {field}");
     }
     assert_eq!(demo.as_object().unwrap().len(), 6);
-    assert_eq!(demo["path"], project.to_string_lossy().as_ref());
+    assert_eq!(
+        demo["path"],
+        fs::canonicalize(&project)
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
     assert_eq!(demo["markers"], serde_json::json!(["pyproject.toml"]));
     assert!(demo["git"].is_null());
     let actual_modified =
