@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-29 清理确认路径回归补充 |
-| 源码提交 | `68f262bd68f084e3bf4aa278ae0a291ed05429f1`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `8d02678a13cc958159992bdb0ce517c5f59ce938`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-29 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -400,7 +400,7 @@ Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 - 同一秒内重复备份同一项目时，清单和归档文件名追加 `-2`、`-3` 等后缀，不覆盖已有文件。
 - 归档使用 `tar.add(project.path, arcname=project.name)`，因此归档内顶层目录是项目名。
 - 未使用 `--include-artifacts` 时，按 `artifact_patterns()` 排除构建产物和依赖缓存；匹配的是路径中的任一段名称。
-- 归档会包含 `.git` 目录；该行为不等同于 `git bundle`，也不保证恢复完整 Git 历史的所有边界情况。若远程 URL 内嵌 PAT，`.git/config` 也可能保留该凭据。
+- 归档会包含 `.git` 目录；该行为不等同于 `git bundle`，也不保证恢复完整 Git 历史的所有边界情况。若远程 URL 或 `.gitmodules` 内嵌凭据，归档也会保留；备份前应清理或限制归档访问。
 
 ### 6.6 退出码与错误
 
@@ -948,7 +948,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - Git 记录的 `verified: "local-ref"` 只表示本地引用检查通过；存在本地 tag 时会查询远程 tag，但不表示已联网确认远端存在该提交。
 - 归档记录不保存 Git 可恢复性检查的详细字段；只保存 `fallback_reason`。
 - 每个项目处理完成后写入自己的 manifest；如果中途异常，可能只有部分归档或部分 manifest（DEF-003）。
-- manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档可能包含敏感文件，且 `.git/config` 可能保留内嵌 PAT。工具不加密、不做秘密扫描。
+- manifest 可能包含本地绝对路径、Git URL、分支和提交信息；归档包含项目跟踪文件和 `.git/config`，其中可能有敏感内容或凭据（包括 `.gitmodules`）。工具不加密、不做秘密扫描。
 - `restore` 读取 schema v2 manifest；Git 策略在临时仓库 fetch heads/tags 后检出指定提交，归档策略校验 SHA-256 后安全解压。指定 `--dest` 时恢复到 `DIR/<项目名>/`；省略时使用记录中的 `source` 作为目标，因此 manifest 可影响写入位置，必须来自可信来源。恢复不覆盖已有目标，也不会回滚部分完成的批量恢复。
 
 ## 12. Python 内部 API
@@ -1323,7 +1323,7 @@ projjan verify MANIFEST --project NAME --json
 
 以下记录 Rust `0.2.4` 发布时的交付基线；最新版本和维护状态见文末“发布后 main 维护状态”。
 
-发布标签 `v0.2.4` 指向提交 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`；功能源码始于 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`。Python 123 项测试、Rust 26 项单元测试和 3 项 CLI 集成测试通过；`cargo fmt --check`、Clippy、打包、crates.io 发布及安装冒烟均通过。提交 CI run [40466700148](https://github.com/TangCan/proj-janitor/actions/runs/40466700148) 和 tag CI run [40467153200](https://github.com/TangCan/proj-janitor/actions/runs/40467153200) 均 11/11 个 job 成功。发布细节见 `docs/发布记录/0.2.4-Rust版.md`。
+发布标签 `v0.2.4` 指向提交 `4ac7f788992eca87ed6111cd45ac75df0a52c95b`；功能源码始于 `98d43abd77f2bf7948d64f3569dda0d3bb4c4070`。Python 123 项测试、Rust 27 项单元测试和 3 项 CLI 集成测试通过；`cargo fmt --check`、Clippy、打包、crates.io 发布及安装冒烟均通过。提交 CI run [40466700148](https://github.com/TangCan/proj-janitor/actions/runs/40466700148) 和 tag CI run [40467153200](https://github.com/TangCan/proj-janitor/actions/runs/40467153200) 均 11/11 个 job 成功。发布细节见 `docs/发布记录/0.2.4-Rust版.md`。
 
 正式验收和签字仍由实际负责人/接收人完成；开源发布、CI 通过和交付材料齐备不代替接收人确认。
 
@@ -1333,7 +1333,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 137 项测试、Rust 26 项单元测试和 13 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40836556615](https://github.com/TangCan/proj-janitor/actions/runs/40836556615) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40836556585](https://github.com/TangCan/proj-janitor/actions/runs/40836556585) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- Python 138 项测试、Rust 27 项单元测试和 13 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
+- GitHub Actions run [40843041384](https://github.com/TangCan/proj-janitor/actions/runs/40843041384) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [40843041264](https://github.com/TangCan/proj-janitor/actions/runs/40843041264) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
