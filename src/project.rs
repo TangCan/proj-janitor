@@ -675,7 +675,7 @@ fn service_url_archive_reason(path: &Path) -> Option<&'static str> {
                 "--file",
                 ".lfsconfig",
                 "--get-regexp",
-                r"^lfs\.url$|^lfs\..*\.url$",
+                r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$",
             ],
         ) else {
             return Some("cannot safely inspect LFS config for credentials");

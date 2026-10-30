@@ -782,6 +782,12 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "LFS config contains credentials or query data",
             "file-secret",
         ),
+        (
+            ".lfsconfig.proxy",
+            "http://proxy-user:lfs-proxy-secret@proxy.example:8080",
+            "LFS config contains credentials or query data",
+            "lfs-proxy-secret",
+        ),
     ];
     for (key, value, expected_reason, secret) in settings {
         let temp = TestDir::new();
@@ -808,6 +814,12 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
         }
         if key == ".lfsconfig" {
             fs::write(project.join(key), format!("[lfs]\n\turl = {value}\n")).unwrap();
+        } else if key == ".lfsconfig.proxy" {
+            fs::write(
+                project.join(".lfsconfig"),
+                format!("[http]\n\tproxy = {value}\n"),
+            )
+            .unwrap();
         }
         if value.starts_with("store --file=") {
             fs::write(
@@ -816,7 +828,7 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             )
             .unwrap();
         }
-        if key != ".lfsconfig" {
+        if !key.starts_with(".lfsconfig") {
             assert!(local_git(&project, &["config", key, value]));
         }
         fs::write(project.join("tracked.txt"), "dirty\n").unwrap();

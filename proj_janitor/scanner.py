@@ -383,7 +383,7 @@ def _service_url_archive_reason(path: Path) -> str | None:
             "--file",
             ".lfsconfig",
             "--get-regexp",
-            r"^lfs\.url$|^lfs\..*\.url$",
+            r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$",
         )
         if result is None or result.returncode not in (0, 1):
             return "cannot safely inspect LFS config for credentials"
