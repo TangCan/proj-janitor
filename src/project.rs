@@ -559,8 +559,8 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     if let Some(reason) = service_url_archive_reason(&project.path) {
         return Err(reason.into());
     }
-    if submodule_urls_have_sensitive_data(&project.path) {
-        return Err("submodule URL contains credentials or query data".into());
+    if let Some(reason) = submodule_url_archive_reason(&project.path) {
+        return Err(reason.into());
     }
     recovery
 }
@@ -753,38 +753,47 @@ fn service_url_archive_reason(path: &Path) -> Option<&'static str> {
     None
 }
 
-fn submodule_urls_have_sensitive_data(path: &Path) -> bool {
+fn submodule_url_archive_reason(path: &Path) -> Option<&'static str> {
     let mut pending = vec![path.to_path_buf()];
     while let Some(current) = pending.pop() {
         let gitmodules = current.join(".gitmodules");
-        if fs::symlink_metadata(&gitmodules)
-            .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
-            && let Some(output) = git_run(
-                &current,
-                &[
-                    "config",
-                    "--file",
-                    ".gitmodules",
-                    "--get-regexp",
-                    r"^submodule\..*\.url$",
-                ],
-            )
-        {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
-                if line
-                    .split_once(' ')
-                    .is_some_and(|(_, url)| url_has_sensitive_data(url))
+        match fs::symlink_metadata(&gitmodules) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                let Some(output) = git_run(
+                    &current,
+                    &[
+                        "config",
+                        "--file",
+                        ".gitmodules",
+                        "--get-regexp",
+                        r"^submodule\..*\.url$",
+                    ],
+                ) else {
+                    return Some("cannot safely inspect .gitmodules for credentials");
+                };
+                if !output.status.success()
+                    && (output.status.code() != Some(1) || !output.stdout.is_empty())
                 {
-                    return true;
+                    return Some("cannot safely inspect .gitmodules for credentials");
+                }
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    if line
+                        .split_once(' ')
+                        .is_some_and(|(_, url)| url_has_sensitive_data(url.trim()))
+                    {
+                        return Some("submodule URL contains credentials or query data");
+                    }
                 }
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Some("cannot safely inspect .gitmodules for credentials"),
         }
         let Ok(modules) = submodule_config(&current) else {
-            continue;
+            return Some("cannot safely inspect .gitmodules for credentials");
         };
         for module in modules {
             if url_has_sensitive_data(&module.url) {
-                return true;
+                return Some("submodule URL contains credentials or query data");
             }
             let child = current.join(module.path);
             if fs::symlink_metadata(&child).is_ok_and(|metadata| metadata.is_dir()) {
@@ -792,7 +801,7 @@ fn submodule_urls_have_sensitive_data(path: &Path) -> bool {
             }
         }
     }
-    false
+    None
 }
 
 fn inspect_recovery_inner(project: &Project) -> Result<Recovery, String> {

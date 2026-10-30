@@ -82,6 +82,7 @@ def prepare_backup(
                     "Git config contains credentials in a URL rewrite",
                     "LFS config contains credentials or query data",
                     "cannot safely inspect LFS config for credentials",
+                    "cannot safely inspect .gitmodules for credentials",
                     "cannot safely inspect Git config for credentials",
                 )
             ):

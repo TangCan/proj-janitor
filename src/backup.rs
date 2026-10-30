@@ -125,6 +125,7 @@ pub(crate) fn backup_cmd(
                     || reason.starts_with("Git config contains credentials in a URL rewrite")
                     || reason.starts_with("LFS config contains credentials or query data")
                     || reason.starts_with("cannot safely inspect LFS config for credentials")
+                    || reason.starts_with("cannot safely inspect .gitmodules for credentials")
                     || reason.starts_with("cannot safely inspect Git config for credentials")
             });
         if blocked {

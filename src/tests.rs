@@ -902,7 +902,7 @@ fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
     ));
     fs::write(
         project.join(".gitmodules"),
-        "[submodule \"private\"]\n\tpath = vendor/private\n\turl = https://github.com/team/private.git\n\turl = https://token:module-secret@github.com/team/private.git\n",
+        "malformed config line with token: https://token:module-secret@github.com/team/private.git\n",
     )
     .unwrap();
     let backup_dir = temp.0.join("backups");

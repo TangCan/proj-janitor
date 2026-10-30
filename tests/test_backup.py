@@ -863,10 +863,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             root = Path(tmp)
             project = make_pushed_repo(root)
             (project / ".gitmodules").write_text(
-                '[submodule "private"]\n'
-                "\tpath = vendor/private\n"
-                "\turl = https://github.com/acme/private.git\n"
-                "\turl = https://token:module-secret@github.com/acme/private.git\n",
+                "malformed config line with token: https://token:module-secret@github.com/acme/private.git\n",
                 encoding="utf-8",
             )
             backup_dest = root / "backups"
@@ -880,7 +877,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(records, [])
             self.assertEqual(
                 failures,
-                [("app", "submodule URL contains credentials or query data")],
+                [("app", "cannot safely inspect .gitmodules for credentials")],
             )
             self.assertFalse((backup_dest / "app").exists())
 
@@ -908,7 +905,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(records, [])
             self.assertEqual(
                 failures,
-                [("app", "submodule URL contains credentials or query data")],
+                [("app", "cannot safely inspect .gitmodules for credentials")],
             )
             self.assertFalse((backup_dest / "app").exists())
 

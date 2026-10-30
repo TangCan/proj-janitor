@@ -272,12 +272,14 @@ def _url_has_sensitive_data(url: str) -> bool:
         return True
 
 
-def _submodule_urls_have_sensitive_data(path: Path) -> bool:
+def _submodule_url_archive_reason(path: Path) -> str | None:
     pending = [path]
     while pending:
         current = pending.pop()
         gitmodules = current / ".gitmodules"
-        if gitmodules.is_file() and not gitmodules.is_symlink():
+        if gitmodules.exists() or gitmodules.is_symlink():
+            if gitmodules.is_symlink() or not gitmodules.is_file():
+                return "cannot safely inspect .gitmodules for credentials"
             result = _git_run(
                 current,
                 "config",
@@ -286,21 +288,22 @@ def _submodule_urls_have_sensitive_data(path: Path) -> bool:
                 "--get-regexp",
                 r"^submodule\..*\.url$",
             )
-            if result is not None:
-                for line in result.stdout.splitlines():
-                    _, separator, url = line.partition(" ")
-                    if separator and _url_has_sensitive_data(url.strip()):
-                        return True
+            if result is None or result.returncode not in (0, 1):
+                return "cannot safely inspect .gitmodules for credentials"
+            for line in result.stdout.splitlines():
+                _, separator, url = line.partition(" ")
+                if separator and _url_has_sensitive_data(url.strip()):
+                    return "submodule URL contains credentials or query data"
         modules = submodule_config(current)
         if modules is None:
-            continue
+            return "cannot safely inspect .gitmodules for credentials"
         for relative, url in modules:
             if _url_has_sensitive_data(url):
-                return True
+                return "submodule URL contains credentials or query data"
             child = current.joinpath(*relative.parts)
             if not child.is_symlink() and child.is_dir():
                 pending.append(child)
-    return False
+    return None
 
 
 def _git_config_archive_reason(path: Path) -> str | None:
@@ -603,8 +606,9 @@ def inspect_git_recoverability(
     service_url_reason = _service_url_archive_reason(project.path)
     if service_url_reason is not None:
         return GitRecovery(False, service_url_reason)
-    if _submodule_urls_have_sensitive_data(project.path):
-        return GitRecovery(False, "submodule URL contains credentials or query data")
+    submodule_reason = _submodule_url_archive_reason(project.path)
+    if submodule_reason is not None:
+        return GitRecovery(False, submodule_reason)
     return recovery
 
 
