@@ -323,6 +323,26 @@ def _git_config_archive_reason(path: Path) -> str | None:
             return "cannot safely inspect Git config for credentials"
         if result.returncode == 0 and result.stdout.strip():
             return reason
+    rewrites = _git_run(
+        path,
+        "config",
+        "--local",
+        "--includes",
+        "--get-regexp",
+        r"^url\..*\.(insteadof|pushinsteadof)$",
+    )
+    if rewrites is None or rewrites.returncode not in (0, 1):
+        return "cannot safely inspect Git config for credentials"
+    for line in rewrites.stdout.splitlines():
+        key, separator, value = line.partition(" ")
+        if not separator:
+            return "cannot safely inspect Git config for credentials"
+        for suffix in (".pushinsteadof", ".insteadof"):
+            if key.endswith(suffix):
+                base = key[len("url.") : -len(suffix)]
+                if _url_has_sensitive_data(base) or _url_has_sensitive_data(value.strip()):
+                    return "Git config contains credentials in a URL rewrite"
+                break
     helpers = _git_run(
         path,
         "config",

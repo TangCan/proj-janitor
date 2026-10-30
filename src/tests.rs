@@ -789,6 +789,18 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "lfs-secret",
         ),
         (
+            "url.https://rewrite-secret@github.com/.insteadOf",
+            "https://public.example/",
+            "Git config contains credentials in a URL rewrite",
+            "rewrite-secret",
+        ),
+        (
+            "url.https://github.com/.insteadOf",
+            "https://token:rewrite-value-secret@public.example/",
+            "Git config contains credentials in a URL rewrite",
+            "rewrite-value-secret",
+        ),
+        (
             ".lfsconfig",
             "https://lfs-user:file-secret@lfs.example/objects",
             "LFS config contains credentials or query data",

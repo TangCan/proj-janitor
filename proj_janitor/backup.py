@@ -79,6 +79,7 @@ def prepare_backup(
                     "Git config contains sensitive credential helper arguments",
                     "Git config points to a credential file inside the project",
                     "Git config contains credentials or query data in a service URL",
+                    "Git config contains credentials in a URL rewrite",
                     "LFS config contains credentials or query data",
                     "cannot safely inspect LFS config for credentials",
                     "cannot safely inspect Git config for credentials",

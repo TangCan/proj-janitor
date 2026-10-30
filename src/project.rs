@@ -597,6 +597,38 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             return Some("cannot safely inspect Git config for credentials");
         }
     }
+    let rewrites = git_run(
+        path,
+        &[
+            "config",
+            "--local",
+            "--includes",
+            "--get-regexp",
+            r"^url\..*\.(insteadof|pushinsteadof)$",
+        ],
+    )?;
+    if !rewrites.status.success()
+        && (rewrites.status.code() != Some(1) || !rewrites.stdout.is_empty())
+    {
+        return Some("cannot safely inspect Git config for credentials");
+    }
+    for line in String::from_utf8_lossy(&rewrites.stdout).lines() {
+        let Some((key, value)) = line.split_once(' ') else {
+            return Some("cannot safely inspect Git config for credentials");
+        };
+        let base = key
+            .strip_prefix("url.")
+            .and_then(|key| key.strip_suffix(".pushinsteadof"))
+            .or_else(|| {
+                key.strip_prefix("url.")
+                    .and_then(|key| key.strip_suffix(".insteadof"))
+            });
+        if base.is_some_and(|base| {
+            url_has_sensitive_data(base) || url_has_sensitive_data(value.trim())
+        }) {
+            return Some("Git config contains credentials in a URL rewrite");
+        }
+    }
     let helpers = git_run(
         path,
         &[
