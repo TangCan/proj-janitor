@@ -3,7 +3,9 @@ use crate::archive::{
     create_archive, extract_archive, safe_archive_link, safe_archive_path, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
-use crate::clean::{cleanup_target, tree_size};
+#[cfg(unix)]
+use crate::clean::cleanup_target;
+use crate::clean::tree_size;
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
 use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
 use flate2::{Compression, write::GzEncoder};
