@@ -398,7 +398,7 @@ def _git_config_archive_reason(path: Path) -> str | None:
 
 
 def _service_url_archive_reason(path: Path) -> str | None:
-    pattern = r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$"
+    pattern = r"^(http\.proxy|http\..*\.proxy|remote\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$"
     if (path / ".git").exists():
         result = _git_run(
             path,
@@ -423,7 +423,7 @@ def _service_url_archive_reason(path: Path) -> str | None:
             "--file",
             ".lfsconfig",
             "--get-regexp",
-            r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$",
+            r"^(http\.proxy|http\..*\.proxy|remote\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$",
         )
         if result is None or result.returncode not in (0, 1):
             return "cannot safely inspect LFS config for credentials"

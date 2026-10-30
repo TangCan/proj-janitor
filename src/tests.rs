@@ -783,6 +783,12 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "proxy-secret",
         ),
         (
+            "remote.origin.proxy",
+            "http://remote-proxy-user:remote-proxy-secret@proxy.example:8080",
+            "Git config contains credentials or query data in a service URL",
+            "remote-proxy-secret",
+        ),
+        (
             "lfs.url",
             "https://lfs-user:lfs-secret@lfs.example/objects",
             "Git config contains credentials or query data in a service URL",

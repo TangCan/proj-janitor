@@ -697,7 +697,7 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
 }
 
 fn service_url_archive_reason(path: &Path) -> Option<&'static str> {
-    let pattern = r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$";
+    let pattern = r"^(http\.proxy|http\..*\.proxy|remote\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$";
     if path.join(".git").exists() {
         let output = git_run(
             path,
