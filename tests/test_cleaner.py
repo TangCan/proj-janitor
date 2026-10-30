@@ -170,6 +170,27 @@ class CleanerTests(unittest.TestCase):
             self.assertEqual(plan, [])
             self.assertTrue((outside / "keep.txt").exists())
 
+    def test_apply_refuses_project_root_replaced_by_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            plan = build_cleanup_plan(project, ["node"])
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "node_modules").mkdir()
+            (outside / "node_modules" / "keep.txt").write_text(
+                "keep", encoding="utf-8"
+            )
+            moved_project = root / "app-original"
+            project.rename(moved_project)
+            project.symlink_to(outside, target_is_directory=True)
+
+            result = apply_cleanup(plan)
+
+            self.assertEqual(result.removed, 0)
+            self.assertTrue((outside / "node_modules" / "keep.txt").exists())
+            self.assertTrue(result.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

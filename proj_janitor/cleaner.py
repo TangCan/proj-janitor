@@ -94,16 +94,18 @@ def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
     errors: list[str] = []
     for action in actions:
         try:
-            project = action.project.resolve()
+            # Keep the canonical project root captured when the plan was built.
+            # shortcut: path checks race concurrent renames; use dirfd deletion if hostile writers are in scope.
+            project = action.project
             target = action.path.resolve()
             if target == project or not target.is_relative_to(project):
                 raise ValueError("target escapes project root")
             if action.path.is_symlink():
                 raise ValueError("refusing to follow symlink")
-            if action.path.is_dir():
-                shutil.rmtree(action.path)
-            elif action.path.exists():
-                action.path.unlink()
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
             else:
                 continue
         except OSError as exc:

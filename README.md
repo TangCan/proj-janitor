@@ -149,7 +149,7 @@ projjan clean ~/richard_plus --rules node,python-cache
 projjan clean . --list-rules
 ```
 
-默认展示将被删除的目录/文件及可回收空间，不会删除任何内容。确认后加 `--apply`；非交互环境还需 `--yes`。
+默认展示将被删除的目录/文件及可回收空间，不会删除任何内容。确认后加 `--apply`；非交互环境还需 `--yes`。执行时会按计划生成时记录的项目根目录重新检查目标；若项目根目录已被替换为符号链接，清理会拒绝该目标。
 
 | 规则 | 匹配名称 |
 | --- | --- |
@@ -257,7 +257,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-29）：Python 共 140 项（Linux 本地 139 项通过、1 项 Windows 专用测试跳过）；Rust stable 和 MSRV 1.88 均通过 27 项单元测试及 14 项 CLI 集成测试。GitHub Actions [run `40846252487`](https://github.com/TangCan/proj-janitor/actions/runs/40846252487) 的 13 个 job 全部通过；CodeQL [run `40846252393`](https://github.com/TangCan/proj-janitor/actions/runs/40846252393) 的 Actions/Python/Rust 分析通过。Python/Rust 扫描 JSON 顶层字段、Git 空值和元数据空值形状，以及文本表头/项目行均有断言；Rust CLI `--help`/`--version` 有自动化覆盖，两 CLI 的 `clean --list-rules` 无 ROOT 路径和 `--rules` 多选/未知规则路径也有测试；扫描 JSON 与文本表头/项目行均有断言；带 `--apply` 的筛选测试只删除选中的制品；清理测试验证无 `--yes` 时拒绝删除并保留目标、带 `--yes` 时按 JSON 计划删除；Python/Rust 多项目恢复测试验证全部归档先校验哈希；若后续项目解压失败，错误会列出此前已恢复项目，既有结果保留且不自动回滚。另用较大归档样本完成 `restore --dest` 演练，扫描发现恢复项目，恢复体积与 manifest 的 `source_bytes` 一致，临时副本已清理。CodeQL Actions/Python/Rust 分析全部通过；Dependabot 每周版本更新和安全更新已启用。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地验证（2026-10-30）：Python 共 150 项（Linux 本地 149 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 35 项单元测试及 14 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。此次增加了清理计划后项目根目录被符号链接替换的拒绝测试；完整 CI/CodeQL 最近状态仍见 2026-10-29 的 GitHub Actions [run `40846252487`](https://github.com/TangCan/proj-janitor/actions/runs/40846252487) 和 CodeQL [run `40846252393`](https://github.com/TangCan/proj-janitor/actions/runs/40846252393)。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：

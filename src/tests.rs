@@ -3,7 +3,7 @@ use crate::archive::{
     create_archive, extract_archive, safe_archive_link, safe_archive_path, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
-use crate::clean::tree_size;
+use crate::clean::{cleanup_target, tree_size};
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
 use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
 use flate2::{Compression, write::GzEncoder};
@@ -1508,6 +1508,25 @@ fn clean_apply_removes_only_artifacts_and_preserves_project_files() {
         "keep\n"
     );
     assert!(project.join("pyproject.toml").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_rejects_project_root_replaced_by_symlink() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(project.join("node_modules")).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("node_modules/cache"), "remove\n").unwrap();
+    let planned_project = inspect(&project).unwrap().path;
+    let outside = temp.0.join("outside");
+    fs::create_dir_all(outside.join("node_modules")).unwrap();
+    fs::write(outside.join("node_modules/keep"), "keep\n").unwrap();
+    fs::rename(&project, temp.0.join("demo-original")).unwrap();
+    std::os::unix::fs::symlink(&outside, &project).unwrap();
+
+    assert!(cleanup_target(&planned_project, &project.join("node_modules")).is_err());
+    assert!(outside.join("node_modules/keep").is_file());
 }
 
 #[test]

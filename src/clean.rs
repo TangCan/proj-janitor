@@ -189,17 +189,11 @@ pub(crate) fn clean_cmd(
         }
     }
     for (project, path, _, _, _) in actions {
-        let root = fs::canonicalize(project)?;
-        let target = fs::canonicalize(&path)?;
-        anyhow::ensure!(
-            target != root && target.starts_with(&root),
-            "target escapes project root: {}",
-            path.display()
-        );
-        if path.is_dir() {
-            fs::remove_dir_all(path)?
+        let target = cleanup_target(&project, &path)?;
+        if target.is_dir() {
+            fs::remove_dir_all(target)?
         } else {
-            fs::remove_file(path)?
+            fs::remove_file(target)?
         }
     }
     if failed {
@@ -207,6 +201,19 @@ pub(crate) fn clean_cmd(
     }
     Ok(())
 }
+
+pub(crate) fn cleanup_target(project: &Path, path: &Path) -> anyhow::Result<PathBuf> {
+    // `project` is already canonical from discovery; keep that planned root fixed.
+    // shortcut: path checks race concurrent renames; use dirfd deletion if hostile writers are in scope.
+    let target = fs::canonicalize(path)?;
+    anyhow::ensure!(
+        target != project && target.starts_with(project),
+        "target escapes project root: {}",
+        path.display()
+    );
+    Ok(target)
+}
+
 pub(crate) fn tree_size(path: &Path) -> anyhow::Result<u64> {
     let mut total = 0;
     for entry in WalkDir::new(path).follow_links(false) {
