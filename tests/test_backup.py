@@ -770,6 +770,18 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "argument-secret",
             ),
             (
+                "core.sshCommand",
+                "sshpass -p ssh-password-secret ssh",
+                "Git config contains an inline SSH password command",
+                "ssh-password-secret",
+            ),
+            (
+                "core.sshCommand",
+                "ssh -i .ssh/id_ed25519",
+                "Git config references an SSH identity inside the project",
+                "private-key",
+            ),
+            (
                 "credential.helper",
                 "store --file=.git-credentials",
                 "Git config points to a credential file inside the project",
@@ -843,6 +855,10 @@ class GitStrategyBackupTests(unittest.TestCase):
                         f"https://user:{secret}@github.com\n",
                         encoding="utf-8",
                     )
+                if value.startswith("ssh -i "):
+                    identity = project / value.split(" -i ", 1)[1]
+                    identity.parent.mkdir(parents=True)
+                    identity.write_text(secret, encoding="utf-8")
                 if not key.startswith(".lfsconfig"):
                     git(project, "config", key, value)
                 (project / "local-change.txt").write_text("dirty\n", encoding="utf-8")

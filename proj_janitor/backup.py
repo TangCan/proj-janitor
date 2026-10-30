@@ -77,6 +77,8 @@ def prepare_backup(
                     "Git config contains credential passwords",
                     "Git config contains an inline credential helper",
                     "Git config contains sensitive credential helper arguments",
+                    "Git config contains an inline SSH password command",
+                    "Git config references an SSH identity inside the project",
                     "Git config points to a credential file inside the project",
                     "Git config contains credentials or query data in a service URL",
                     "Git config contains credentials in a URL rewrite",

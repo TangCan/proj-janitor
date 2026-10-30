@@ -406,6 +406,38 @@ def _git_config_archive_reason(path: Path) -> str | None:
                     return "Git config points to a credential file inside the project"
             except OSError:
                 return "cannot safely inspect Git config for credentials"
+    ssh_commands = _git_run(
+        path,
+        "config",
+        "--local",
+        "--includes",
+        "--get-all",
+        "core.sshCommand",
+    )
+    if ssh_commands is None or ssh_commands.returncode not in (0, 1):
+        return "cannot safely inspect Git config for credentials"
+    for command in ssh_commands.stdout.splitlines():
+        arguments = command.split()
+        if any(Path(argument).name.lower() == "sshpass" for argument in arguments):
+            return "Git config contains an inline SSH password command"
+        for index, argument in enumerate(arguments):
+            identity = (
+                arguments[index + 1]
+                if argument == "-i" and index + 1 < len(arguments)
+                else argument[2:]
+                if argument.startswith("-i") and len(argument) > 2
+                else None
+            )
+            if identity is None:
+                continue
+            identity_path = Path(identity.strip("\"' ")).expanduser()
+            if not identity_path.is_absolute():
+                identity_path = path / identity_path
+            try:
+                if identity_path.exists() and identity_path.resolve().is_relative_to(path.resolve()):
+                    return "Git config references an SSH identity inside the project"
+            except OSError:
+                return "cannot safely inspect Git config for credentials"
     return None
 
 
