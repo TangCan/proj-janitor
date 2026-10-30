@@ -29,6 +29,18 @@ def make_project(root: Path, name: str = "app") -> Path:
 
 
 class BackupTests(unittest.TestCase):
+    @unittest.skipUnless(GIT_AVAILABLE and os.name != "nt", "needs Git and POSIX names")
+    def test_git_only_backup_rejects_a_windows_reserved_project_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root, "CON")
+            backup_dest = root / "backups"
+
+            with self.assertRaisesRegex(ValueError, "unsafe project name"):
+                run_backup([scan_project(project)], backup_dest)
+
+            self.assertFalse(backup_dest.exists())
+
     def test_backup_api_names_destination_backup_dest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

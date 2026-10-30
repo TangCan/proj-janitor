@@ -24,6 +24,29 @@ fn artifact_matching_uses_cleanup_rules() {
     assert_eq!(is_artifact("NODE_MODULES"), cfg!(windows));
 }
 
+#[cfg(not(windows))]
+#[test]
+fn backup_rejects_windows_reserved_project_names_before_writing() {
+    let temp = TestDir::new();
+    let project = temp.0.join("CON");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping project-name fixture");
+        return;
+    }
+    let backup_dir = temp.0.join("backups");
+    let error = backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("unsafe project name: CON"));
+    assert!(!backup_dir.exists());
+}
+
 struct TestDir(PathBuf);
 impl TestDir {
     fn new() -> Self {

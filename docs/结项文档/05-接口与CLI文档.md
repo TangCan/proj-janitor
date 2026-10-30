@@ -1122,6 +1122,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 12 | `HEAD` 不是 upstream 的祖先 | `HEAD is not contained in upstream` |
 | 13 | 无法计算 `@{upstream}..HEAD` 数量 | `cannot compare HEAD with upstream` |
 | 14 | `HEAD` 领先 upstream | `HEAD is ahead of upstream` |
+| 14p | 项目名不可移植到 restore 目标 | `unsafe project name: {name}` |
 | 14a | 需要归档但主 remote URL 含凭据或 query/fragment 数据 | `remote URL contains credentials or query data` |
 | 14b | 需要归档但本地 Git 配置含 HTTP Authorization header | `Git config contains HTTP extraHeader` |
 | 14c | 无法读取本地 Git 凭据配置 | `cannot safely inspect Git config for credentials` |

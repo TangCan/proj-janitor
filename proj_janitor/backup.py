@@ -34,6 +34,9 @@ def prepare_backup(
 ) -> tuple[list[Path], list[BackupPlan]]:
     backup_dest = backup_dest.expanduser().resolve()
     project_list = list(projects)
+    for project in project_list:
+        if not safe_archive_member(project.name, project.name):
+            raise ValueError(f"unsafe project name: {project.name!r}")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     patterns = artifact_patterns(include_artifacts)
     plans: list[BackupPlan] = []

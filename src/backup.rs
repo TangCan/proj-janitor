@@ -8,7 +8,10 @@ use std::{
 
 use crate::{
     Manifest, Record,
-    archive::{create_archive, create_private_dir, portable_path_key, sha256, write_new_file},
+    archive::{
+        create_archive, create_private_dir, portable_path_key, safe_windows_component, sha256,
+        write_new_file,
+    },
     expand, human,
     project::{discover, inspect_recovery},
     resolve_for_creation,
@@ -51,6 +54,13 @@ pub(crate) fn backup_cmd(
     }
     if projects.is_empty() {
         anyhow::bail!("No projects found")
+    }
+    for project in &projects {
+        anyhow::ensure!(
+            safe_windows_component(&project.name),
+            "unsafe project name: {}",
+            project.name
+        );
     }
     let mut name_counts = HashMap::new();
     for project in &projects {

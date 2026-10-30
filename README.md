@@ -99,6 +99,7 @@ projjan backup ~/richard_plus
 
 - `git`：工作区干净（包含子模块）、无 stash，所有本地分支和本地 tag 均已推送，且远程及子模块远程受支持时，仅记录 Git 远程、分支、上游和提交 SHA，不生成归档。未初始化（目录内无额外文件）或已初始化且干净的子模块均支持；恢复时按主仓库记录的 gitlink 提交递归克隆子模块。含 Git LFS 属性的仓库也支持，但备份与恢复都要求安装 `git-lfs`，并使用默认 GitHub LFS endpoint。
 - `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块会回退归档；若需归档时 remote/submodule/LFS URL 含 userinfo、query 或 fragment，或本地 Git 配置含认证 header、密码、内联 helper、认证参数、自定义 SSH command 或项目内 credential 文件，自动备份会失败且不写归档或 manifest。
+- 备份会在写入前拒绝 Windows 保留名或其他不可移植的项目目录名，避免生成无法由 restore 接受的 manifest。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 受支持的 GitHub HTTPS 主 remote URL 可以内嵌 PAT（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；只有采用 Git-only 时才会安全使用，记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。如果需归档，则不论 fetch/push URL 是否受支持，只要其中含凭据、query 或 fragment，或本地 Git 配置含认证 header、credential password、带认证参数的 helper、敏感 service URL 或指向项目内的 credential 文件，自动备份都会报错并且不写 archive/manifest，防止这些值随 `.git/config` 落入归档。
 - 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。含凭据、query 或 fragment 的 URL 会让自动备份失败，不生成归档/manifest，避免敏感值被二次保存或写入恢复仓库的 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
