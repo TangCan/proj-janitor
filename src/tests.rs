@@ -766,7 +766,7 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
         ),
         (
             "credential.helper",
-            "manager --token=argument-secret",
+            "manager --oauth-token=argument-secret",
             "Git config contains sensitive credential helper arguments",
             "argument-secret",
         ),

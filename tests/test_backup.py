@@ -765,7 +765,7 @@ class GitStrategyBackupTests(unittest.TestCase):
             ),
             (
                 "credential.helper",
-                "manager --token=argument-secret",
+                "manager --oauth-token=argument-secret",
                 "Git config contains sensitive credential helper arguments",
                 "argument-secret",
             ),
