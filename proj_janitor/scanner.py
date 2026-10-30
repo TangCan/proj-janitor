@@ -328,14 +328,34 @@ def _git_config_archive_reason(path: Path) -> str | None:
         "config",
         "--local",
         "--includes",
-        "--get-all",
-        "credential.helper",
+        "--get-regexp",
+        r"^credential(\..*)?\.helper$",
     )
     if helpers is None or helpers.returncode not in (0, 1):
         return "cannot safely inspect Git config for credentials"
-    for helper in helpers.stdout.splitlines():
-        if helper.strip().startswith("!"):
+    for line in helpers.stdout.splitlines():
+        _, separator, helper = line.partition(" ")
+        if not separator:
+            return "cannot safely inspect Git config for credentials"
+        helper = helper.strip()
+        if helper.startswith("!"):
             return "Git config contains an inline credential helper"
+        lower_helper = helper.lower()
+        # shortcut: catches common plaintext auth flags, not opaque helper encodings; extend if those formats are used.
+        if any(
+            marker in lower_helper
+            for marker in (
+                "--token",
+                "token=",
+                "--password",
+                "password=",
+                "--secret",
+                "secret=",
+                "--authorization",
+                "authorization:",
+            )
+        ):
+            return "Git config contains sensitive credential helper arguments"
         arguments = helper.split()
         for index, argument in enumerate(arguments):
             if argument.startswith("--file="):

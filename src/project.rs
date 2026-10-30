@@ -603,20 +603,38 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             "config",
             "--local",
             "--includes",
-            "--get-all",
-            "credential.helper",
+            "--get-regexp",
+            r"^credential(\..*)?\.helper$",
         ],
     )?;
     if !helpers.status.success() && helpers.status.code() != Some(1) {
         return Some("cannot safely inspect Git config for credentials");
     }
-    if String::from_utf8_lossy(&helpers.stdout)
-        .lines()
-        .any(|helper| helper.trim_start().starts_with('!'))
-    {
-        return Some("Git config contains an inline credential helper");
-    }
-    for helper in String::from_utf8_lossy(&helpers.stdout).lines() {
+    for line in String::from_utf8_lossy(&helpers.stdout).lines() {
+        let Some((_, helper)) = line.split_once(' ') else {
+            return Some("cannot safely inspect Git config for credentials");
+        };
+        let helper = helper.trim();
+        if helper.starts_with('!') {
+            return Some("Git config contains an inline credential helper");
+        }
+        let lower_helper = helper.to_ascii_lowercase();
+        // shortcut: catches common plaintext auth flags, not opaque helper encodings; extend if those formats are used.
+        if [
+            "--token",
+            "token=",
+            "--password",
+            "password=",
+            "--secret",
+            "secret=",
+            "--authorization",
+            "authorization:",
+        ]
+        .iter()
+        .any(|marker| lower_helper.contains(marker))
+        {
+            return Some("Git config contains sensitive credential helper arguments");
+        }
         let arguments: Vec<_> = helper.split_whitespace().collect();
         for (index, argument) in arguments.iter().enumerate() {
             let raw_path = if let Some(path) = argument.strip_prefix("--file=") {

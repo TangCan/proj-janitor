@@ -759,6 +759,18 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "helper-secret",
         ),
         (
+            "credential.https://github.com.helper",
+            "!echo url-helper-secret",
+            "Git config contains an inline credential helper",
+            "url-helper-secret",
+        ),
+        (
+            "credential.helper",
+            "manager --token=argument-secret",
+            "Git config contains sensitive credential helper arguments",
+            "argument-secret",
+        ),
+        (
             "credential.helper",
             "store --file=.git-credentials",
             "Git config points to a credential file inside the project",

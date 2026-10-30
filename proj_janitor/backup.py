@@ -76,6 +76,7 @@ def prepare_backup(
                     "Git config contains HTTP extraHeader",
                     "Git config contains credential passwords",
                     "Git config contains an inline credential helper",
+                    "Git config contains sensitive credential helper arguments",
                     "Git config points to a credential file inside the project",
                     "Git config contains credentials or query data in a service URL",
                     "LFS config contains credentials or query data",

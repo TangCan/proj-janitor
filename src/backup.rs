@@ -116,6 +116,8 @@ pub(crate) fn backup_cmd(
                     || reason.starts_with("Git config contains credential passwords")
                     || reason.starts_with("Git config contains an inline credential helper")
                     || reason
+                        .starts_with("Git config contains sensitive credential helper arguments")
+                    || reason
                         .starts_with("Git config points to a credential file inside the project")
                     || reason.starts_with(
                         "Git config contains credentials or query data in a service URL",
