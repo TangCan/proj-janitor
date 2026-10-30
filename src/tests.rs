@@ -764,6 +764,24 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "Git config points to a credential file inside the project",
             "store-secret",
         ),
+        (
+            "http.proxy",
+            "http://proxy-user:proxy-secret@proxy.example:8080",
+            "Git config contains credentials or query data in a service URL",
+            "proxy-secret",
+        ),
+        (
+            "lfs.url",
+            "https://lfs-user:lfs-secret@lfs.example/objects",
+            "Git config contains credentials or query data in a service URL",
+            "lfs-secret",
+        ),
+        (
+            ".lfsconfig",
+            "https://lfs-user:file-secret@lfs.example/objects",
+            "LFS config contains credentials or query data",
+            "file-secret",
+        ),
     ];
     for (key, value, expected_reason, secret) in settings {
         let temp = TestDir::new();
@@ -788,6 +806,9 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             )
             .unwrap();
         }
+        if key == ".lfsconfig" {
+            fs::write(project.join(key), format!("[lfs]\n\turl = {value}\n")).unwrap();
+        }
         if value.starts_with("store --file=") {
             fs::write(
                 project.join(".git-credentials"),
@@ -795,7 +816,9 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             )
             .unwrap();
         }
-        assert!(local_git(&project, &["config", key, value]));
+        if key != ".lfsconfig" {
+            assert!(local_git(&project, &["config", key, value]));
+        }
         fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
         let project_info = inspect(&project).unwrap();
         let reason = match crate::project::inspect_recovery(&project_info) {

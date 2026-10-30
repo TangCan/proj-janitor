@@ -117,6 +117,11 @@ pub(crate) fn backup_cmd(
                     || reason.starts_with("Git config contains an inline credential helper")
                     || reason
                         .starts_with("Git config points to a credential file inside the project")
+                    || reason.starts_with(
+                        "Git config contains credentials or query data in a service URL",
+                    )
+                    || reason.starts_with("LFS config contains credentials or query data")
+                    || reason.starts_with("cannot safely inspect LFS config for credentials")
                     || reason.starts_with("cannot safely inspect Git config for credentials")
             });
         if blocked {

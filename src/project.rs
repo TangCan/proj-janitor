@@ -556,6 +556,9 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
     if let Some(reason) = git_config_archive_reason(&project.path) {
         return Err(reason.into());
     }
+    if let Some(reason) = service_url_archive_reason(&project.path) {
+        return Err(reason.into());
+    }
     if submodule_urls_have_sensitive_data(&project.path) {
         return Err("submodule URL contains credentials or query data".into());
     }
@@ -638,6 +641,54 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             if fs::canonicalize(&credential_file).is_ok_and(|file| file.starts_with(&root)) {
                 return Some("Git config points to a credential file inside the project");
             }
+        }
+    }
+    None
+}
+
+fn service_url_archive_reason(path: &Path) -> Option<&'static str> {
+    let pattern = r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$";
+    if path.join(".git").exists() {
+        let output = git_run(
+            path,
+            &["config", "--local", "--includes", "--get-regexp", pattern],
+        )?;
+        if output.status.success() {
+            if String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                line.split_once(' ')
+                    .is_some_and(|(_, url)| url_has_sensitive_data(url.trim()))
+            }) {
+                return Some("Git config contains credentials or query data in a service URL");
+            }
+        } else if output.status.code() != Some(1) || !output.stdout.is_empty() {
+            return Some("cannot safely inspect Git config for credentials");
+        }
+    }
+    let lfsconfig = path.join(".lfsconfig");
+    if fs::symlink_metadata(&lfsconfig)
+        .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+    {
+        let Some(output) = git_run(
+            path,
+            &[
+                "config",
+                "--file",
+                ".lfsconfig",
+                "--get-regexp",
+                r"^lfs\.url$|^lfs\..*\.url$",
+            ],
+        ) else {
+            return Some("cannot safely inspect LFS config for credentials");
+        };
+        if output.status.success() {
+            if String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                line.split_once(' ')
+                    .is_some_and(|(_, url)| url_has_sensitive_data(url.trim()))
+            }) {
+                return Some("LFS config contains credentials or query data");
+            }
+        } else if output.status.code() != Some(1) || !output.stdout.is_empty() {
+            return Some("cannot safely inspect LFS config for credentials");
         }
     }
     None

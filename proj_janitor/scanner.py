@@ -357,6 +357,43 @@ def _git_config_archive_reason(path: Path) -> str | None:
     return None
 
 
+def _service_url_archive_reason(path: Path) -> str | None:
+    pattern = r"^(http\.proxy|http\..*\.proxy|lfs\.url|lfs\..*\.url|remote\..*\.lfsurl)$"
+    if (path / ".git").exists():
+        result = _git_run(
+            path,
+            "config",
+            "--local",
+            "--includes",
+            "--get-regexp",
+            pattern,
+        )
+        if result is None or result.returncode not in (0, 1):
+            return "cannot safely inspect Git config for credentials"
+        for line in result.stdout.splitlines():
+            _, separator, url = line.partition(" ")
+            if separator and _url_has_sensitive_data(url.strip()):
+                return "Git config contains credentials or query data in a service URL"
+
+    lfsconfig = path / ".lfsconfig"
+    if lfsconfig.is_file() and not lfsconfig.is_symlink():
+        result = _git_run(
+            path,
+            "config",
+            "--file",
+            ".lfsconfig",
+            "--get-regexp",
+            r"^lfs\.url$|^lfs\..*\.url$",
+        )
+        if result is None or result.returncode not in (0, 1):
+            return "cannot safely inspect LFS config for credentials"
+        for line in result.stdout.splitlines():
+            _, separator, url = line.partition(" ")
+            if separator and _url_has_sensitive_data(url.strip()):
+                return "LFS config contains credentials or query data"
+    return None
+
+
 def _git_lfs_recovery_reason(path: Path) -> str | None:
     lfsconfig = path / ".lfsconfig"
     if lfsconfig.exists() or lfsconfig.is_symlink():
@@ -514,6 +551,9 @@ def inspect_git_recoverability(
     config_reason = _git_config_archive_reason(project.path)
     if config_reason is not None:
         return GitRecovery(False, config_reason)
+    service_url_reason = _service_url_archive_reason(project.path)
+    if service_url_reason is not None:
+        return GitRecovery(False, service_url_reason)
     if _submodule_urls_have_sensitive_data(project.path):
         return GitRecovery(False, "submodule URL contains credentials or query data")
     return recovery

@@ -763,6 +763,24 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "Git config points to a credential file inside the project",
                 "store-secret",
             ),
+            (
+                "http.proxy",
+                "http://proxy-user:proxy-secret@proxy.example:8080",
+                "Git config contains credentials or query data in a service URL",
+                "proxy-secret",
+            ),
+            (
+                "lfs.url",
+                "https://lfs-user:lfs-secret@lfs.example/objects",
+                "Git config contains credentials or query data in a service URL",
+                "lfs-secret",
+            ),
+            (
+                ".lfsconfig",
+                "https://lfs-user:file-secret@lfs.example/objects",
+                "LFS config contains credentials or query data",
+                "file-secret",
+            ),
         )
         for key, value, reason, secret in settings:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
@@ -774,12 +792,18 @@ class GitStrategyBackupTests(unittest.TestCase):
                         f"[http]\n\textraHeader = {secret}\n",
                         encoding="utf-8",
                     )
+                elif key == ".lfsconfig":
+                    (project / key).write_text(
+                        f"[lfs]\n\turl = {value}\n",
+                        encoding="utf-8",
+                    )
                 if value.startswith("store --file="):
                     (project / ".git-credentials").write_text(
                         f"https://user:{secret}@github.com\n",
                         encoding="utf-8",
                     )
-                git(project, "config", key, value)
+                if key != ".lfsconfig":
+                    git(project, "config", key, value)
                 (project / "local-change.txt").write_text("dirty\n", encoding="utf-8")
                 backup_dest = root / "backups"
 
