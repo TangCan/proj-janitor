@@ -863,31 +863,6 @@ class GitStrategyBackupTests(unittest.TestCase):
             root = Path(tmp)
             project = make_pushed_repo(root)
             (project / ".gitmodules").write_text(
-                "malformed config line with token: https://token:module-secret@github.com/acme/private.git\n",
-                encoding="utf-8",
-            )
-            backup_dest = root / "backups"
-
-            manifests, records, failures = run_backup(
-                [scan_project(project)],
-                backup_dest,
-            )
-
-            self.assertEqual(manifests, [])
-            self.assertEqual(records, [])
-            self.assertEqual(
-                failures,
-                [("app", "cannot safely inspect .gitmodules for credentials")],
-            )
-            self.assertFalse((backup_dest / "app").exists())
-
-    def test_non_git_project_with_credentialed_submodule_never_falls_back_to_archive(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            project = root / "app"
-            project.mkdir()
-            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-            (project / ".gitmodules").write_text(
                 '[submodule "private"]\n'
                 "\tpath = vendor/private\n"
                 "\turl = https://github.com/acme/private.git\n"
@@ -905,7 +880,37 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(records, [])
             self.assertEqual(
                 failures,
-                [("app", "cannot safely inspect .gitmodules for credentials")],
+                [("app", "submodule URL contains credentials or query data")],
+            )
+            self.assertFalse((backup_dest / "app").exists())
+
+    def test_non_git_project_with_credentialed_submodule_never_falls_back_to_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / ".gitmodules").write_text(
+                "malformed config line with token: https://token:module-secret@github.com/acme/private.git\n",
+                encoding="utf-8",
+            )
+            backup_dest = root / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                backup_dest,
+            )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0][0], "app")
+            self.assertIn(
+                failures[0][1],
+                {
+                    "submodule URL contains credentials or query data",
+                    "cannot safely inspect .gitmodules for credentials",
+                },
             )
             self.assertFalse((backup_dest / "app").exists())
 
