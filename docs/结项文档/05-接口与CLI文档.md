@@ -7,10 +7,10 @@
 | 项目名称 | proj-janitor（proj_janitor） |
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | 2026-10-29 清理确认路径回归补充 |
-| 源码提交 | `c2bc93a40975792ffd9e765c02cf955e05842b3d`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 文档版本 | 2026-10-30 Python 3.10–3.15 CI 矩阵补充 |
+| 源码提交 | `a51a4ffe3921427e2ff6738e8cf256d58689f1f1`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
-| 文档日期 | 2026-10-29 |
+| 文档日期 | 2026-10-30 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
@@ -1341,13 +1341,13 @@ projjan verify MANIFEST --project NAME --json
 
 正式验收和签字仍由实际负责人/接收人完成；开源发布、CI 通过和交付材料齐备不代替接收人确认。
 
-### 发布后 main 维护状态（2026-10-28）
+### 发布后 main 维护状态（2026-10-30）
 
 - 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，选项实现提交 `7bd6f317637ce1daace91e896cfd57b07f601818`，候选版本准备提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，候选行为修正与回归测试提交 `dcc116e7d7243751a3683741d9507be0803f4f50`，尚未创建 tag 或发布；Python 包仍为 `0.1.0`。
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 140 项测试、Rust 27 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。
-- GitHub Actions run [40846252487](https://github.com/TangCan/proj-janitor/actions/runs/40846252487) 的 13/13 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [40846252393](https://github.com/TangCan/proj-janitor/actions/runs/40846252393) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- Python 150 项测试、Rust 35 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致；CI 的 Python Ubuntu 矩阵覆盖 3.10–3.15，3.12 另覆盖 macOS/Windows。
+- GitHub Actions run [41043607397](https://github.com/TangCan/proj-janitor/actions/runs/41043607397) 的 16/16 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [41043607917](https://github.com/TangCan/proj-janitor/actions/runs/41043607917) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
