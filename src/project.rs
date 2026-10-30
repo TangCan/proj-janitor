@@ -715,39 +715,11 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
     if !ssh_commands.status.success() && ssh_commands.status.code() != Some(1) {
         return Some("cannot safely inspect Git config for credentials");
     }
-    for command in String::from_utf8_lossy(&ssh_commands.stdout).lines() {
-        let arguments: Vec<_> = command.split_whitespace().collect();
-        if arguments.iter().any(|argument| {
-            Path::new(argument)
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("sshpass"))
-        }) {
-            return Some("Git config contains an inline SSH password command");
-        }
-        for (index, argument) in arguments.iter().enumerate() {
-            let identity = if *argument == "-i" {
-                arguments.get(index + 1).copied()
-            } else {
-                argument
-                    .strip_prefix("-i")
-                    .filter(|value| !value.is_empty())
-            };
-            let Some(identity) = identity else {
-                continue;
-            };
-            let identity = Path::new(identity.trim_matches(|c| c == '"' || c == '\''));
-            let identity = if identity.is_absolute() {
-                identity.to_path_buf()
-            } else {
-                path.join(identity)
-            };
-            let Ok(root) = fs::canonicalize(path) else {
-                return Some("cannot safely inspect Git config for credentials");
-            };
-            if fs::canonicalize(&identity).is_ok_and(|file| file.starts_with(&root)) {
-                return Some("Git config references an SSH identity inside the project");
-            }
-        }
+    if !String::from_utf8_lossy(&ssh_commands.stdout)
+        .trim()
+        .is_empty()
+    {
+        return Some("Git config contains a custom SSH command");
     }
     None
 }

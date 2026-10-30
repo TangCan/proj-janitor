@@ -1132,7 +1132,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 14h | HTTP proxy/LFS service URL 含凭据或 query/fragment | `Git config contains credentials or query data in a service URL` |
 | 14i | credential helper 参数含认证值 | `Git config contains sensitive credential helper arguments` |
 | 14j | Git URL rewrite 的键或值含凭据 | `Git config contains credentials in a URL rewrite` |
-| 14k | SSH password command 或项目内 identity file | `Git config contains an inline SSH password command` / `Git config references an SSH identity inside the project` |
+| 14k | 配置了自定义 SSH command | `Git config contains a custom SSH command` |
 | 14l | `.gitmodules` 无法安全解析 | `cannot safely inspect .gitmodules for credentials` |
 | 15 | 子模块 URL 含凭据或 query/fragment 数据 | `submodule URL contains credentials or query data` |
 | 16 | 子模块 URL 不受支持 | `submodule URL is not a supported GitHub URL` |

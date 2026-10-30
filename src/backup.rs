@@ -117,9 +117,7 @@ pub(crate) fn backup_cmd(
                     || reason.starts_with("Git config contains an inline credential helper")
                     || reason
                         .starts_with("Git config contains sensitive credential helper arguments")
-                    || reason.starts_with("Git config contains an inline SSH password command")
-                    || reason
-                        .starts_with("Git config references an SSH identity inside the project")
+                    || reason.starts_with("Git config contains a custom SSH command")
                     || reason
                         .starts_with("Git config points to a credential file inside the project")
                     || reason.starts_with(

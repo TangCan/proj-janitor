@@ -773,14 +773,20 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
         (
             "core.sshCommand",
             "sshpass -p ssh-password-secret ssh",
-            "Git config contains an inline SSH password command",
+            "Git config contains a custom SSH command",
             "ssh-password-secret",
         ),
         (
             "core.sshCommand",
             "ssh -i .ssh/id_ed25519",
-            "Git config references an SSH identity inside the project",
+            "Git config contains a custom SSH command",
             "private-key",
+        ),
+        (
+            "core.sshCommand",
+            "sh -c 'echo helper-secret'",
+            "Git config contains a custom SSH command",
+            "helper-secret",
         ),
         (
             "credential.helper",
@@ -869,11 +875,6 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
                 format!("https://user:{secret}@github.com\n"),
             )
             .unwrap();
-        }
-        if value.starts_with("ssh -i ") {
-            let identity = project.join(value.split_once(" -i ").unwrap().1);
-            fs::create_dir_all(identity.parent().unwrap()).unwrap();
-            fs::write(identity, secret).unwrap();
         }
         if !key.starts_with(".lfsconfig") {
             assert!(local_git(&project, &["config", key, value]));
