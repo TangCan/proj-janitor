@@ -1586,7 +1586,7 @@ fn clean_rejects_project_root_replaced_by_symlink() {
         &project_dir,
         &planned_project,
         &planned_project.join("node_modules"),
-        &target_identity,
+        target_identity,
     )
     .unwrap();
     assert!(!temp.0.join("demo-original/node_modules").exists());
@@ -1607,7 +1607,7 @@ fn clean_refuses_target_replaced_after_plan() {
     let project_dir =
         cap_std::fs::Dir::open_ambient_dir(&project, cap_std::ambient_authority()).unwrap();
 
-    assert!(remove_cleanup_target(&project_dir, &project, &path, &identity).is_err());
+    assert!(remove_cleanup_target(&project_dir, &project, &path, identity).is_err());
     assert!(path.join("keep.txt").is_file());
 }
 

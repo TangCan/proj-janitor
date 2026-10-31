@@ -219,7 +219,7 @@ pub(crate) fn clean_cmd(
         let dir = project_dirs
             .get(&project)
             .ok_or_else(|| anyhow::anyhow!("missing cleanup project handle"))?;
-        remove_cleanup_target(dir, &project, &path, &identity)?;
+        remove_cleanup_target(dir, &project, &path, identity)?;
     }
     if failed {
         anyhow::bail!("scan failures")
@@ -231,7 +231,7 @@ pub(crate) fn remove_cleanup_target(
     dir: &Dir,
     project: &Path,
     path: &Path,
-    planned_identity: &same_file::Handle,
+    planned_identity: same_file::Handle,
 ) -> anyhow::Result<()> {
     let relative = path
         .strip_prefix(project)
@@ -257,10 +257,12 @@ pub(crate) fn remove_cleanup_target(
         same_file::Handle::from_file(dir.open(relative)?.into_std())?
     };
     anyhow::ensure!(
-        current_identity == *planned_identity,
+        current_identity == planned_identity,
         "cleanup target changed since cleanup plan: {}",
         path.display()
     );
+    drop(current_identity);
+    drop(planned_identity);
     if metadata.is_dir() {
         dir.remove_dir_all(relative)?;
     } else {
