@@ -263,14 +263,23 @@ def _discard_partial_file(path: Path) -> None:
         pass
 
 
+def _discard_partial_file_if_same(path: Path, identity: tuple[int, int]) -> None:
+    try:
+        current = path.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) == identity:
+            path.unlink()
+    except OSError:
+        pass
+
+
 def _open_new_file(path: Path, binary: bool = False):
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags = (os.O_RDWR if binary else os.O_WRONLY) | os.O_CREAT | os.O_EXCL
     if binary:
         flags |= getattr(os, "O_BINARY", 0)
     descriptor = os.open(path, flags, 0o600)
     try:
         if binary:
-            return os.fdopen(descriptor, "wb")
+            return os.fdopen(descriptor, "w+b")
         return os.fdopen(descriptor, "w", encoding="utf-8")
     except BaseException:
         os.close(descriptor)
@@ -291,8 +300,11 @@ def backup_project(
     patterns = tuple(patterns)
 
     archive_file = _open_new_file(archive, binary=True)
+    archive_identity: tuple[int, int] | None = None
     try:
         with archive_file:
+            created = os.fstat(archive_file.fileno())
+            archive_identity = created.st_dev, created.st_ino
             with tarfile.open(fileobj=archive_file, mode="w:gz") as tar:
                 tar.add(
                     project.path,
@@ -301,10 +313,18 @@ def backup_project(
                         project.name, patterns, project.path, exclude_git_metadata
                     ),
                 )
-        archive_bytes = archive.stat().st_size
-        digest = sha256_file(archive)
+            archive_file.flush()
+            archive_bytes = os.fstat(archive_file.fileno()).st_size
+            archive_file.seek(0)
+            digest = sha256_stream(archive_file)
+            current = archive.stat(follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != archive_identity:
+                raise OSError("archive path changed while it was being written")
     except BaseException:
-        _discard_partial_file(archive)
+        if archive_identity is None:
+            _discard_partial_file(archive)
+        else:
+            _discard_partial_file_if_same(archive, archive_identity)
         raise
 
     return BackupRecord(

@@ -155,6 +155,30 @@ class BackupTests(unittest.TestCase):
 
             self.assertEqual(archive.read_bytes(), b"keep existing backup")
 
+    @unittest.skipUnless(os.name == "posix", "renaming an open archive is POSIX-specific")
+    def test_backup_rejects_archive_path_replaced_before_hashing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            archive_dir = root / "backups"
+            archive_dir.mkdir()
+            archive = archive_dir / "app.tar.gz"
+            original_hash = backup_module.sha256_stream
+
+            def replace_path_then_hash(handle):
+                archive.rename(root / "original.tar.gz")
+                archive.write_bytes(b"replacement")
+                return original_hash(handle)
+
+            with mock.patch(
+                "proj_janitor.backup.sha256_stream",
+                side_effect=replace_path_then_hash,
+            ):
+                with self.assertRaisesRegex(OSError, "archive path changed"):
+                    backup_module.backup_project(project, archive_dir)
+
+            self.assertEqual(archive.read_bytes(), b"replacement")
+
     def test_backup_interrupt_cleans_partial_outputs(self) -> None:
         for failure in ("archive-hash", "manifest-write"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
@@ -163,7 +187,7 @@ class BackupTests(unittest.TestCase):
                 backup_dest = root / "backups"
                 if failure == "archive-hash":
                     patch_target = mock.patch(
-                        "proj_janitor.backup.sha256_file",
+                        "proj_janitor.backup.sha256_stream",
                         side_effect=KeyboardInterrupt,
                     )
                 else:
@@ -231,7 +255,7 @@ class BackupTests(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "proj_janitor.backup.sha256_file",
+                    "proj_janitor.backup.sha256_stream",
                     side_effect=KeyboardInterrupt,
                 ),
                 mock.patch.object(
@@ -516,15 +540,18 @@ class BackupTests(unittest.TestCase):
             good = make_project(root, "good")
             bad = make_project(root, "bad")
             dest = root / "backups"
-            real_sha256_file = backup_module.sha256_file
+            real_sha256_stream = backup_module.sha256_stream
+            hash_count = 0
 
-            def fail_hash_for_bad_project(path):
-                if path.parent.name == "bad":
+            def fail_hash_for_bad_project(stream):
+                nonlocal hash_count
+                hash_count += 1
+                if hash_count == 2:
                     raise OSError("disk full")
-                return real_sha256_file(path)
+                return real_sha256_stream(stream)
 
             with mock.patch(
-                "proj_janitor.backup.sha256_file",
+                "proj_janitor.backup.sha256_stream",
                 side_effect=fail_hash_for_bad_project,
             ):
                 manifest_paths, records, failures = run_backup(

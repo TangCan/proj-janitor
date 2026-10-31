@@ -9,7 +9,7 @@ use std::{
 use crate::{
     Manifest, Record,
     archive::{
-        create_archive, create_private_dir, portable_path_key, safe_windows_component, sha256,
+        create_archive, create_private_dir, portable_path_key, safe_windows_component,
         write_new_file,
     },
     expand, human,
@@ -198,15 +198,13 @@ pub(crate) fn backup_cmd(
                     fallback_reason: None,
                 });
             }
-            create_archive(
+            let (hash, bytes) = create_archive(
                 &p.path,
                 &archive_path,
                 include_artifacts,
                 exclude_git_metadata,
             )?;
             archive_created = true;
-            let hash = sha256(&archive_path)?;
-            let bytes = fs::metadata(&archive_path)?.len();
             Ok(Record {
                 project: p.name.clone(),
                 source: p.path.to_string_lossy().into(),

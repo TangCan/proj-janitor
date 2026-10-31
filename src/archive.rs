@@ -61,9 +61,10 @@ pub(crate) fn create_archive(
     archive: &Path,
     include: bool,
     exclude_git_metadata: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(String, u64)> {
     let f = create_private_file(archive)?;
-    let result = (|| -> anyhow::Result<()> {
+    let identity = same_file::Handle::from_file(f.try_clone()?)?;
+    let result = (|| -> anyhow::Result<(String, u64)> {
         let enc = GzEncoder::new(f, Compression::default());
         let mut tar = Builder::new(enc);
         let root = project.file_name().unwrap_or_default();
@@ -110,18 +111,32 @@ pub(crate) fn create_archive(
                 tar.append_path_with_name(e.path(), name)?;
             }
         }
-        tar.into_inner()?.finish()?;
-        Ok(())
+        let mut file = tar.into_inner()?.finish()?;
+        let size = file.metadata()?.len();
+        file.seek(SeekFrom::Start(0))?;
+        let digest = sha256_reader(&mut file)?;
+        let current = same_file::Handle::from_path(archive)?;
+        anyhow::ensure!(
+            current == identity,
+            "archive path changed while it was being written: {}",
+            archive.display()
+        );
+        Ok((digest, size))
     })();
     if result.is_err() {
-        let _ = fs::remove_file(archive);
+        let still_ours =
+            same_file::Handle::from_path(archive).is_ok_and(|current| current == identity);
+        drop(identity);
+        if still_ours {
+            let _ = fs::remove_file(archive);
+        }
     }
     result
 }
 
 fn create_private_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
+    options.read(true).write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

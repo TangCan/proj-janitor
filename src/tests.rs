@@ -1063,6 +1063,21 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
     assert!(!backup_dest.exists());
 }
 
+#[test]
+fn create_archive_returns_digest_and_size_for_its_open_file() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("file.txt"), "archive data\n").unwrap();
+    let archive = temp.0.join("demo.tar.gz");
+
+    let (digest, size) = create_archive(&project, &archive, true, false).unwrap();
+
+    assert_eq!(size, fs::metadata(&archive).unwrap().len());
+    assert_eq!(digest, sha256(&archive).unwrap());
+}
+
 #[cfg(unix)]
 #[test]
 fn path_resolution_follows_symlinks_before_parent_components() {
