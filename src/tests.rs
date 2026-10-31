@@ -1,7 +1,9 @@
 use super::*;
+#[cfg(unix)]
+use crate::archive::remove_file_if_same;
 use crate::archive::{
-    archive_path_matches, create_archive, extract_archive, remove_file_if_same, safe_archive_link,
-    safe_archive_path, sha256, write_new_file,
+    archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
+    sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
