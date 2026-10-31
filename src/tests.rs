@@ -1647,6 +1647,24 @@ fn clean_refuses_target_replaced_after_plan() {
 }
 
 #[test]
+fn clean_refuses_file_replaced_after_plan() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let path = project.join("cache.pyc");
+    fs::write(&path, "old cache").unwrap();
+    let identity = same_file::Handle::from_path(&path).unwrap();
+    fs::rename(&path, project.join("cache-original.pyc")).unwrap();
+    fs::write(&path, "keep").unwrap();
+    let project_dir =
+        cap_std::fs::Dir::open_ambient_dir(&project, cap_std::ambient_authority()).unwrap();
+
+    assert!(remove_cleanup_target(&project_dir, &project, &path, identity).is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), "keep");
+}
+
+#[test]
 fn clean_refuses_project_root_replaced_while_opening_capability() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

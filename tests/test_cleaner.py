@@ -224,6 +224,24 @@ class CleanerTests(unittest.TestCase):
             self.assertTrue((original / "keep.txt").exists())
             self.assertTrue(result.errors)
 
+    def test_apply_refuses_file_replaced_after_cleanup_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            target = project / "cache.pyc"
+            target.write_bytes(b"old cache")
+            plan = build_cleanup_plan(project, ["python-cache"])
+            target.rename(project / "cache-original.pyc")
+            target.write_bytes(b"keep")
+
+            result = apply_cleanup(plan)
+
+            self.assertEqual(result.removed, 0)
+            self.assertEqual(target.read_bytes(), b"keep")
+            self.assertTrue(result.errors)
+
     @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
     def test_fd_cleanup_checks_opened_target_identity_before_recursion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
