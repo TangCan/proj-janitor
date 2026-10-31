@@ -1345,7 +1345,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 155 项测试（Linux 本地 154 项通过、1 项 Windows 专用测试跳过）、Rust 38 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。CI run [41165688056](https://github.com/TangCan/proj-janitor/actions/runs/41165688056) 的 18/18 jobs 与 CodeQL run [41165688073](https://github.com/TangCan/proj-janitor/actions/runs/41165688073) 的三项分析均通过。
+- Python 155 项测试（Linux 本地 154 项通过、1 项 Windows 专用测试跳过）、Rust 38 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。CI run [41167221424](https://github.com/TangCan/proj-janitor/actions/runs/41167221424) 的 18/18 jobs 与 CodeQL run [41167221033](https://github.com/TangCan/proj-janitor/actions/runs/41167221033) 的三项分析均通过。
 - GitHub Actions run [41159972991](https://github.com/TangCan/proj-janitor/actions/runs/41159972991) 的 18/18 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
 - CodeQL run [41159973417](https://github.com/TangCan/proj-janitor/actions/runs/41159973417) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
