@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 import threading
 from pathlib import Path, PurePosixPath
-from typing import Iterable
+from typing import BinaryIO, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from proj_janitor.backup import (
@@ -20,6 +20,7 @@ from proj_janitor.backup import (
     safe_archive_link,
     safe_archive_member,
     sha256_file,
+    sha256_stream,
 )
 from proj_janitor.models import RestorePlan, RestoreResult
 from proj_janitor.scanner import is_supported_submodule_url, submodule_config
@@ -629,7 +630,21 @@ def _restore_archive(plan: RestorePlan) -> None:
         )
     )
     try:
-        _safe_extract(plan.archive, temporary, plan.project)
+        with plan.archive.open("rb") as archive_source:
+            if plan.hash_verified:
+                actual = sha256_stream(archive_source)
+                if actual.lower() != (plan.sha256 or "").lower():
+                    raise RestoreError(
+                        f"sha256 mismatch for {plan.archive}: "
+                        f"expected {plan.sha256}, got {actual}"
+                    )
+                archive_source.seek(0)
+            _safe_extract(
+                plan.archive,
+                temporary,
+                plan.project,
+                fileobj=archive_source,
+            )
         extracted = temporary / plan.project
         if extracted.is_symlink() or not extracted.is_dir():
             raise RestoreError(
@@ -642,9 +657,20 @@ def _restore_archive(plan: RestorePlan) -> None:
         _cleanup_restore_temp(temporary)
 
 
-def _safe_extract(archive: Path, dest: Path, project: str) -> None:
+def _safe_extract(
+    archive: Path,
+    dest: Path,
+    project: str,
+    *,
+    fileobj: BinaryIO | None = None,
+) -> None:
     try:
-        with tarfile.open(archive, "r:*") as tar:
+        tar_source = (
+            tarfile.open(archive, "r:*")
+            if fileobj is None
+            else tarfile.open(fileobj=fileobj, mode="r:*")
+        )
+        with tar_source as tar:
             members = tar.getmembers()
             if not members:
                 raise RestoreError(f"archive is empty: {archive}")

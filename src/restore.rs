@@ -23,7 +23,8 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 use crate::{
     Manifest, Record,
     archive::{
-        create_restore_temp_dir, extract_archive, portable_path_key, safe_windows_component, sha256,
+        create_restore_temp_dir, extract_archive, extract_archive_with_hash, portable_path_key,
+        safe_windows_component, sha256,
     },
     expand,
     project::{git_output, submodule_config, submodule_url_supported},
@@ -441,7 +442,16 @@ pub(crate) fn restore_cmd(
                     let archive = archive
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing archive for {}", r.project))?;
-                    extract_archive(archive, target, &r.project)?;
+                    if no_verify {
+                        extract_archive(archive, target, &r.project)?;
+                    } else {
+                        extract_archive_with_hash(
+                            archive,
+                            target,
+                            &r.project,
+                            r.sha256.as_deref(),
+                        )?;
+                    }
                 }
                 "git" => {
                     let url = r

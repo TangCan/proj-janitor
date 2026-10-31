@@ -11,7 +11,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Iterable
+from typing import BinaryIO, Iterable
 
 from proj_janitor import __version__
 from proj_janitor.config import (
@@ -319,10 +319,14 @@ def backup_project(
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+        return sha256_stream(handle)
+
+
+def sha256_stream(handle: BinaryIO) -> str:
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
     return digest.hexdigest()
 
 

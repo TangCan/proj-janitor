@@ -321,6 +321,22 @@ class RestoreTests(unittest.TestCase):
             self.assertTrue((restored / "first" / "src" / "main.py").is_file())
             self.assertFalse((restored / "second").exists())
 
+    def test_restore_rechecks_archive_after_plan_before_extracting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, record = archive_backup(root)
+            target = root / "restored"
+            plans, results = restore_from_manifest(manifest, target, dry_run=True)
+            self.assertEqual(results, [])
+            self.assertTrue(plans[0].hash_verified)
+
+            Path(record["archive"]).write_bytes(b"replaced after planning")
+
+            with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
+                restore_module.execute_restore(plans)
+
+            self.assertFalse((target / "app").exists())
+
     def test_restore_rejects_non_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

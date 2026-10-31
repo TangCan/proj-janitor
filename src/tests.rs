@@ -1281,6 +1281,27 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
 }
 
 #[test]
+fn restore_rechecks_archive_after_plan_before_extraction() {
+    let temp = TestDir::new();
+    let source = temp.0.join("demo");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(source.join("data.txt"), "verified content\n").unwrap();
+    let archive = temp.0.join("demo.tar.gz");
+    create_archive(&source, &archive, true, false).unwrap();
+    let expected = sha256(&archive).unwrap();
+    fs::write(&archive, b"replaced after restore planning").unwrap();
+    let target = temp.0.join("restored/demo");
+
+    let error =
+        crate::archive::extract_archive_with_hash(&archive, &target, "demo", Some(&expected))
+            .unwrap_err();
+
+    assert!(error.to_string().contains("sha256 mismatch"));
+    assert!(!target.exists());
+}
+
+#[test]
 fn restore_accepts_archive_containing_only_project_directory() {
     let temp = TestDir::new();
     let source = temp.0.join("demo");

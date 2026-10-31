@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -150,6 +150,15 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
+    extract_archive_with_hash(archive, target, project, None)
+}
+
+pub(crate) fn extract_archive_with_hash(
+    archive: &Path,
+    target: &Path,
+    project: &str,
+    expected_hash: Option<&str>,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         !target.exists() && !target.is_symlink(),
         "restore target already exists: {}",
@@ -161,7 +170,16 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
     fs::create_dir_all(parent)?;
     let tmp = create_restore_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<()> {
-        let f = File::open(archive)?;
+        let mut f = File::open(archive)?;
+        if let Some(expected) = expected_hash {
+            let actual = sha256_reader(&mut f)?;
+            anyhow::ensure!(
+                actual.eq_ignore_ascii_case(expected),
+                "sha256 mismatch for {}",
+                archive.display()
+            );
+            f.seek(SeekFrom::Start(0))?;
+        }
         let dec = GzDecoder::new(f);
         let mut ar = Archive::new(dec);
         let entries = ar.entries()?;
@@ -442,10 +460,14 @@ fn archive_excluded(
 }
 pub(crate) fn sha256(path: &Path) -> anyhow::Result<String> {
     let mut f = File::open(path)?;
+    sha256_reader(&mut f)
+}
+
+fn sha256_reader(reader: &mut impl Read) -> anyhow::Result<String> {
     let mut h = Sha256::new();
     let mut b = [0; 1024 * 1024];
     loop {
-        let n = f.read(&mut b)?;
+        let n = reader.read(&mut b)?;
         if n == 0 {
             break;
         }
