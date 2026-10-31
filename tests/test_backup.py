@@ -179,7 +179,6 @@ class BackupTests(unittest.TestCase):
 
             self.assertEqual(archive.read_bytes(), b"replacement")
 
-    @unittest.skipUnless(os.name == "posix", "renaming an open archive is POSIX-specific")
     def test_backup_rejects_archive_path_replaced_before_manifest_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
