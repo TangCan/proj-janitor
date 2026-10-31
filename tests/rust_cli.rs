@@ -1039,6 +1039,23 @@ fn backup_reads_backup_dest_from_environment() {
 }
 
 #[test]
+fn backup_rejects_empty_backup_dest_environment() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run"])
+        .arg(&project)
+        .env("BACKUP_DEST", "")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("a value is required for '--backup-dest")
+    );
+}
+
+#[test]
 fn command_line_backup_dest_overrides_environment() {
     let temp = TestDir::new();
     let project = temp.project();

@@ -207,8 +207,16 @@ class CliTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(SystemExit) as exc:
                 run_cli("backup", ".")
-
         self.assertEqual(exc.exception.code, 2)
+
+    def test_backup_treats_empty_backup_dest_environment_as_unset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            with mock.patch.dict("os.environ", {"BACKUP_DEST": ""}):
+                with self.assertRaises(SystemExit) as exc:
+                    run_cli("backup", str(project), "--dry-run")
+
+            self.assertEqual(exc.exception.code, 2)
 
     def test_backup_dest_option_rejects_legacy_dest(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
