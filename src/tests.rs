@@ -3,7 +3,6 @@ use crate::archive::{
     create_archive, extract_archive, safe_archive_link, safe_archive_path, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
-#[cfg(unix)]
 use crate::clean::remove_cleanup_target;
 use crate::clean::tree_size;
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
