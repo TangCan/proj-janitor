@@ -135,7 +135,22 @@ pub(crate) fn clean_cmd(
                             } else {
                                 "file"
                             };
-                            actions.push((p.path.clone(), path.to_owned(), size, rule, kind));
+                            let identity = match same_file::Handle::from_path(path) {
+                                Ok(identity) => identity,
+                                Err(error) => {
+                                    eprintln!("error: {error}");
+                                    failed = true;
+                                    continue;
+                                }
+                            };
+                            actions.push((
+                                p.path.clone(),
+                                path.to_owned(),
+                                size,
+                                rule,
+                                kind,
+                                identity,
+                            ));
                         }
                     }
                 }
@@ -151,7 +166,7 @@ pub(crate) fn clean_cmd(
     }
     actions.sort_by_key(|action| action.1.components().count());
     let mut selected_paths: Vec<PathBuf> = Vec::new();
-    actions.retain(|(_, path, _, _, _)| {
+    actions.retain(|(_, path, _, _, _, _)| {
         if selected_paths.iter().any(|parent| path.starts_with(parent)) {
             false
         } else {
@@ -163,13 +178,13 @@ pub(crate) fn clean_cmd(
     if json {
         let vals: Vec<_> = actions
             .iter()
-            .map(|(p, path, size, rule, kind)| serde_json::json!({"project":p,"path":path,"rule":rule,"kind":kind,"size_bytes":size}))
+            .map(|(p, path, size, rule, kind, _)| serde_json::json!({"project":p,"path":path,"rule":rule,"kind":kind,"size_bytes":size}))
             .collect();
         println!("{}", serde_json::to_string_pretty(&vals)?);
     } else if actions.is_empty() {
         println!("Nothing to clean.")
     } else {
-        for (_, p, s, _, _) in &actions {
+        for (_, p, s, _, _, _) in &actions {
             println!("{}  {}", human(*s), p.display())
         }
         println!(
@@ -200,11 +215,11 @@ pub(crate) fn clean_cmd(
             anyhow::bail!("Aborted")
         }
     }
-    for (project, path, _, _, _) in actions {
+    for (project, path, _, _, _, identity) in actions {
         let dir = project_dirs
             .get(&project)
             .ok_or_else(|| anyhow::anyhow!("missing cleanup project handle"))?;
-        remove_cleanup_target(dir, &project, &path)?;
+        remove_cleanup_target(dir, &project, &path, &identity)?;
     }
     if failed {
         anyhow::bail!("scan failures")
@@ -212,7 +227,12 @@ pub(crate) fn clean_cmd(
     Ok(())
 }
 
-pub(crate) fn remove_cleanup_target(dir: &Dir, project: &Path, path: &Path) -> anyhow::Result<()> {
+pub(crate) fn remove_cleanup_target(
+    dir: &Dir,
+    project: &Path,
+    path: &Path,
+    planned_identity: &same_file::Handle,
+) -> anyhow::Result<()> {
     let relative = path
         .strip_prefix(project)
         .map_err(|_| anyhow::anyhow!("target escapes project root: {}", path.display()))?;
@@ -229,6 +249,16 @@ pub(crate) fn remove_cleanup_target(dir: &Dir, project: &Path, path: &Path) -> a
     anyhow::ensure!(
         !metadata.file_type().is_symlink(),
         "refusing to follow symlink: {}",
+        path.display()
+    );
+    let current_identity = if metadata.is_dir() {
+        same_file::Handle::from_file(dir.open_dir(relative)?.into_std_file())?
+    } else {
+        same_file::Handle::from_file(dir.open(relative)?.into_std())?
+    };
+    anyhow::ensure!(
+        current_identity == *planned_identity,
+        "cleanup target changed since cleanup plan: {}",
         path.display()
     );
     if metadata.is_dir() {

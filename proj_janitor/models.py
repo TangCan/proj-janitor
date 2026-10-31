@@ -44,6 +44,8 @@ class CleanupAction:
     size_bytes: int
     project_device: int
     project_inode: int
+    target_device: int
+    target_inode: int
 
 
 @dataclass(frozen=True)

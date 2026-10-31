@@ -131,7 +131,13 @@ def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
                     ):
                         raise ValueError("project root changed since cleanup plan")
                     relative = action.path.relative_to(project)
-                    removed_now = _remove_cleanup_target_at(project_fd, relative)
+                    removed_now = _remove_cleanup_target_at(
+                        project_fd,
+                        relative,
+                        action.target_device,
+                        action.target_inode,
+                        action.kind,
+                    )
                 finally:
                     os.close(project_fd)
                 if not removed_now:
@@ -149,6 +155,12 @@ def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
                     raise ValueError("target escapes project root")
                 if action.path.is_symlink():
                     raise ValueError("refusing to follow symlink")
+                target_stat = target.stat(follow_symlinks=False)
+                if (target_stat.st_dev, target_stat.st_ino) != (
+                    action.target_device,
+                    action.target_inode,
+                ):
+                    raise ValueError("cleanup target changed since cleanup plan")
                 if target.is_dir():
                     shutil.rmtree(target)
                 elif target.exists():
@@ -172,7 +184,13 @@ def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
     )
 
 
-def _remove_cleanup_target_at(project_fd: int, relative: Path) -> bool:
+def _remove_cleanup_target_at(
+    project_fd: int,
+    relative: Path,
+    target_device: int,
+    target_inode: int,
+    kind: str,
+) -> bool:
     parts = relative.parts
     if relative.is_absolute() or not parts or any(part in {".", ".."} for part in parts):
         raise ValueError("unsafe cleanup target")
@@ -185,12 +203,25 @@ def _remove_cleanup_target_at(project_fd: int, relative: Path) -> bool:
                 return False
             os.close(parent_fd)
             parent_fd = next_fd
-        return _remove_entry_at(parent_fd, parts[-1], refuse_symlink=True)
+        return _remove_entry_at(
+            parent_fd,
+            parts[-1],
+            refuse_symlink=True,
+            expected_identity=(target_device, target_inode),
+            expected_kind=kind,
+        )
     finally:
         os.close(parent_fd)
 
 
-def _remove_entry_at(parent_fd: int, name: str, *, refuse_symlink: bool) -> bool:
+def _remove_entry_at(
+    parent_fd: int,
+    name: str,
+    *,
+    refuse_symlink: bool,
+    expected_identity: tuple[int, int] | None = None,
+    expected_kind: str | None = None,
+) -> bool:
     try:
         entry_stat = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     except FileNotFoundError:
@@ -200,6 +231,13 @@ def _remove_entry_at(parent_fd: int, name: str, *, refuse_symlink: bool) -> bool
             raise ValueError("refusing to follow symlink")
         os.unlink(name, dir_fd=parent_fd)
     elif stat.S_ISDIR(entry_stat.st_mode):
+        if expected_kind == "file":
+            raise ValueError("cleanup target type changed since cleanup plan")
+        if expected_identity is not None and expected_identity != (
+            entry_stat.st_dev,
+            entry_stat.st_ino,
+        ):
+            raise ValueError("cleanup target changed since cleanup plan")
         try:
             directory_fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
         except FileNotFoundError:
@@ -217,6 +255,13 @@ def _remove_entry_at(parent_fd: int, name: str, *, refuse_symlink: bool) -> bool
             raise ValueError("cleanup target changed during deletion")
         os.rmdir(name, dir_fd=parent_fd)
     else:
+        if expected_kind == "dir":
+            raise ValueError("cleanup target type changed since cleanup plan")
+        if expected_identity is not None and expected_identity != (
+            entry_stat.st_dev,
+            entry_stat.st_ino,
+        ):
+            raise ValueError("cleanup target changed since cleanup plan")
         os.unlink(name, dir_fd=parent_fd)
     return True
 
@@ -291,10 +336,11 @@ def _action(
     project_device: int | None = None,
     project_inode: int | None = None,
 ) -> CleanupAction:
+    target_stat = path.stat(follow_symlinks=False)
     if kind == "dir":
         size_bytes, _ = measure_tree(path)
     else:
-        size_bytes = path.stat(follow_symlinks=False).st_size
+        size_bytes = target_stat.st_size
     project_stat = project.stat() if project_device is None or project_inode is None else None
     return CleanupAction(
         project=project,
@@ -304,4 +350,6 @@ def _action(
         size_bytes=size_bytes,
         project_device=project_device if project_stat is None else project_stat.st_dev,
         project_inode=project_inode if project_stat is None else project_stat.st_ino,
+        target_device=target_stat.st_dev,
+        target_inode=target_stat.st_ino,
     )

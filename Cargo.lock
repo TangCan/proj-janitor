@@ -683,6 +683,7 @@ dependencies = [
  "flate2",
  "globset",
  "libc",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",

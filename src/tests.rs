@@ -1575,6 +1575,8 @@ fn clean_rejects_project_root_replaced_by_symlink() {
     let planned_project = inspect(&project).unwrap().path;
     let project_dir =
         cap_std::fs::Dir::open_ambient_dir(&planned_project, cap_std::ambient_authority()).unwrap();
+    let target_identity =
+        same_file::Handle::from_path(planned_project.join("node_modules")).unwrap();
     let outside = temp.0.join("outside");
     fs::create_dir_all(outside.join("node_modules")).unwrap();
     fs::write(outside.join("node_modules/keep"), "keep\n").unwrap();
@@ -1585,10 +1587,29 @@ fn clean_rejects_project_root_replaced_by_symlink() {
         &project_dir,
         &planned_project,
         &planned_project.join("node_modules"),
+        &target_identity,
     )
     .unwrap();
     assert!(!temp.0.join("demo-original/node_modules").exists());
     assert!(outside.join("node_modules/keep").is_file());
+}
+
+#[test]
+fn clean_refuses_target_replaced_after_plan() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(project.join("node_modules")).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let path = project.join("node_modules");
+    let identity = same_file::Handle::from_path(&path).unwrap();
+    fs::rename(&path, project.join("node_modules-original")).unwrap();
+    fs::create_dir(&path).unwrap();
+    fs::write(path.join("keep.txt"), "keep\n").unwrap();
+    let project_dir =
+        cap_std::fs::Dir::open_ambient_dir(&project, cap_std::ambient_authority()).unwrap();
+
+    assert!(remove_cleanup_target(&project_dir, &project, &path, &identity).is_err());
+    assert!(path.join("keep.txt").is_file());
 }
 
 #[test]

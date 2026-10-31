@@ -208,6 +208,22 @@ class CleanerTests(unittest.TestCase):
             self.assertTrue((replacement / "node_modules" / "pkg" / "index.js").exists())
             self.assertTrue(result.errors)
 
+    def test_apply_refuses_target_replaced_after_cleanup_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            plan = build_cleanup_plan(project, ["node"])
+            original = project / "node_modules"
+            original.rename(project / "node_modules-original")
+            original.mkdir()
+            (original / "keep.txt").write_text("keep", encoding="utf-8")
+
+            result = apply_cleanup(plan)
+
+            self.assertEqual(result.removed, 0)
+            self.assertTrue((original / "keep.txt").exists())
+            self.assertTrue(result.errors)
+
     @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
     def test_fd_cleanup_stays_inside_open_project_after_root_is_replaced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,6 +233,7 @@ class CleanerTests(unittest.TestCase):
             outside.mkdir()
             (outside / "keep.txt").write_text("keep", encoding="utf-8")
             (project / "node_modules" / "pkg" / "outside-link").symlink_to(outside)
+            target_stat = os.stat(project / "node_modules", follow_symlinks=False)
             project_fd = os.open(
                 project,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -226,7 +243,15 @@ class CleanerTests(unittest.TestCase):
                 project.rename(moved_project)
                 project.symlink_to(outside, target_is_directory=True)
 
-                self.assertTrue(_remove_cleanup_target_at(project_fd, Path("node_modules")))
+                self.assertTrue(
+                    _remove_cleanup_target_at(
+                        project_fd,
+                        Path("node_modules"),
+                        target_stat.st_dev,
+                        target_stat.st_ino,
+                        "dir",
+                    )
+                )
             finally:
                 os.close(project_fd)
 
