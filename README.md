@@ -257,7 +257,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-31）：Python 共 151 项（Linux 本地 150 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 36 项单元测试及 14 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。GitHub Actions [run `41159972991`](https://github.com/TangCan/proj-janitor/actions/runs/41159972991) 的 18 个 job 全部通过，覆盖 Python 3.10–3.15 Ubuntu、Python 3.12/3.15 macOS/Windows、Python wheel 在 3.10/3.15 Ubuntu 构建安装及 Rust stable/MSRV 矩阵；CodeQL [run `41159973417`](https://github.com/TangCan/proj-janitor/actions/runs/41159973417) 的 Actions/Python/Rust 分析通过。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地验证（2026-10-31）：Python 共 162 项（Linux 本地 161 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 43 项单元测试及 15 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。GitHub Actions [run `41195134359`](https://github.com/TangCan/proj-janitor/actions/runs/41195134359) 的 18 个 job 全部通过，覆盖 Python 3.10–3.15 Ubuntu、Python 3.12/3.15 macOS/Windows、Rust stable 三平台及 MSRV 1.88；CodeQL [run `41195134477`](https://github.com/TangCan/proj-janitor/actions/runs/41195134477) 的 Actions/Python/Rust 分析通过。发布候选 `0.2.6` 通过 package、release build、跨版本归档兼容、隔离安装冒烟及 `cargo publish --dry-run`；尚未实际发布。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：
