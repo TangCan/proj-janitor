@@ -547,10 +547,8 @@ Dry run. Re-run with --apply to delete these items.
   - 输入 `y` 或 `yes`（去除首尾空白、忽略大小写）才继续；
   - 其他输入输出 `Aborted.` 并退出 `2`。
 - `apply_cleanup()` 对每个计划项：
-  - 解析项目和目标路径；
-  - 目标必须等于项目根以内且不能是项目根本身，否则记录 `target escapes project root`；
-  - 拒绝符号链接，记录 `refusing to follow symlink`；
-  - 目录使用 `shutil.rmtree`，文件使用 `unlink`；
+  - POSIX 上打开并核对计划时记录的项目根身份，逐层打开目标父目录，通过目录文件描述符相对删除；拒绝越界目标和作为计划目标的符号链接；
+  - 递归删除时不跟随目录树内的符号链接；Windows Python 使用根目录身份及路径校验回退；
   - 目标已不存在时跳过，不计数；
   - 单个 `OSError`/`ValueError` 记录到 `errors`，继续处理后续项。
 - 成功摘要：
@@ -1195,7 +1193,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 项目发现只处理根目录本身或直接子目录，不递归发现嵌套项目。
 - 根路径和备份目标支持 `~` 展开；项目路径在扫描后解析为绝对路径。
 - 扫描、清理计划和归档排除逻辑不跟随符号链接；符号链接目录不会被递归进入。
-- 清理删除时再次拒绝符号链接和越界目标；但计划与删除之间仍存在 TOCTOU 窗口。
+- POSIX Python 清理通过已打开的目录文件描述符相对删除，Rust 使用目录 capability；Python Windows 仍走路径回退，检查与删除之间存在 TOCTOU 窗口。
 - 归档包含 `.git`，默认只排除 artifact 规则命中的路径；不会自动排除 secrets、日志或用户数据。
 - 硬链接按普通文件内容统计和归档，不保留链接关系；FIFO、设备文件和 socket 不归档，恢复拒绝特殊或未知成员类型。
 

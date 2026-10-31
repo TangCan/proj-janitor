@@ -149,7 +149,7 @@ projjan clean ~/richard_plus --rules node,python-cache
 projjan clean . --list-rules
 ```
 
-默认展示将被删除的目录/文件及可回收空间，不会删除任何内容。确认后加 `--apply`；非交互环境还需 `--yes`。执行时会按计划生成时记录的项目根目录重新检查目标；若项目根目录已被替换为符号链接，清理会拒绝该目标。
+默认展示将被删除的目录/文件及可回收空间，不会删除任何内容。确认后加 `--apply`；非交互环境还需 `--yes`。POSIX Python 使用目录文件描述符相对删除，并核对计划时记录的项目根身份；Rust 使用目录 capability 限定删除范围。Python Windows 暂使用根目录身份与路径校验回退，无法完全抵御并发重命名。
 
 | 规则 | 匹配名称 |
 | --- | --- |

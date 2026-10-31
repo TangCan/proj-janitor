@@ -1,6 +1,7 @@
+use cap_std::{ambient_authority, fs::Dir};
 use globset::{Glob, GlobSetBuilder};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
@@ -49,12 +50,23 @@ pub(crate) fn clean_cmd(
     let mut actions = Vec::new();
     let mut failed = false;
     let mut seen = HashSet::new();
+    let mut project_dirs = HashMap::new();
     for root in roots {
         match discover(root, false) {
             Ok(ps) => {
                 for p in ps {
                     if !seen.insert(p.path.clone()) {
                         continue;
+                    }
+                    if apply {
+                        let dir = Dir::open_ambient_dir(&p.path, ambient_authority())?;
+                        // shortcut: catches persistent swaps; use stable file IDs to guard handle acquisition too.
+                        anyhow::ensure!(
+                            fs::canonicalize(&p.path)? == p.path,
+                            "project root changed during cleanup planning: {}",
+                            p.path.display()
+                        );
+                        project_dirs.insert(p.path.clone(), dir);
                     }
                     for entry in WalkDir::new(&p.path)
                         .follow_links(false)
@@ -189,12 +201,10 @@ pub(crate) fn clean_cmd(
         }
     }
     for (project, path, _, _, _) in actions {
-        let target = cleanup_target(&project, &path)?;
-        if target.is_dir() {
-            fs::remove_dir_all(target)?
-        } else {
-            fs::remove_file(target)?
-        }
+        let dir = project_dirs
+            .get(&project)
+            .ok_or_else(|| anyhow::anyhow!("missing cleanup project handle"))?;
+        remove_cleanup_target(dir, &project, &path)?;
     }
     if failed {
         anyhow::bail!("scan failures")
@@ -202,16 +212,31 @@ pub(crate) fn clean_cmd(
     Ok(())
 }
 
-pub(crate) fn cleanup_target(project: &Path, path: &Path) -> anyhow::Result<PathBuf> {
-    // `project` is already canonical from discovery; keep that planned root fixed.
-    // shortcut: path checks race concurrent renames; use dirfd deletion if hostile writers are in scope.
-    let target = fs::canonicalize(path)?;
+pub(crate) fn remove_cleanup_target(dir: &Dir, project: &Path, path: &Path) -> anyhow::Result<()> {
+    let relative = path
+        .strip_prefix(project)
+        .map_err(|_| anyhow::anyhow!("target escapes project root: {}", path.display()))?;
     anyhow::ensure!(
-        target != project && target.starts_with(project),
-        "target escapes project root: {}",
+        !relative.as_os_str().is_empty()
+            && !relative.is_absolute()
+            && !relative
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir)),
+        "unsafe cleanup target: {}",
         path.display()
     );
-    Ok(target)
+    let metadata = dir.symlink_metadata(relative)?;
+    anyhow::ensure!(
+        !metadata.file_type().is_symlink(),
+        "refusing to follow symlink: {}",
+        path.display()
+    );
+    if metadata.is_dir() {
+        dir.remove_dir_all(relative)?;
+    } else {
+        dir.remove_file(relative)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn tree_size(path: &Path) -> anyhow::Result<u64> {

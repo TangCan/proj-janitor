@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +8,7 @@ from unittest import mock
 
 from proj_janitor.cleaner import (
     _action,
+    _remove_cleanup_target_at,
     apply_cleanup,
     build_cleanup_plan,
     resolve_rules,
@@ -190,6 +192,31 @@ class CleanerTests(unittest.TestCase):
             self.assertEqual(result.removed, 0)
             self.assertTrue((outside / "node_modules" / "keep.txt").exists())
             self.assertTrue(result.errors)
+
+    @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
+    def test_fd_cleanup_stays_inside_open_project_after_root_is_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "keep.txt").write_text("keep", encoding="utf-8")
+            (project / "node_modules" / "pkg" / "outside-link").symlink_to(outside)
+            project_fd = os.open(
+                project,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            moved_project = root / "app-original"
+            try:
+                project.rename(moved_project)
+                project.symlink_to(outside, target_is_directory=True)
+
+                self.assertTrue(_remove_cleanup_target_at(project_fd, Path("node_modules")))
+            finally:
+                os.close(project_fd)
+
+            self.assertFalse((moved_project / "node_modules").exists())
+            self.assertTrue((outside / "keep.txt").exists())
 
 
 if __name__ == "__main__":

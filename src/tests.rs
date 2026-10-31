@@ -4,7 +4,7 @@ use crate::archive::{
 };
 use crate::backup::backup_cmd;
 #[cfg(unix)]
-use crate::clean::cleanup_target;
+use crate::clean::remove_cleanup_target;
 use crate::clean::tree_size;
 use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
 use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
@@ -1573,13 +1573,21 @@ fn clean_rejects_project_root_replaced_by_symlink() {
     fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
     fs::write(project.join("node_modules/cache"), "remove\n").unwrap();
     let planned_project = inspect(&project).unwrap().path;
+    let project_dir =
+        cap_std::fs::Dir::open_ambient_dir(&planned_project, cap_std::ambient_authority()).unwrap();
     let outside = temp.0.join("outside");
     fs::create_dir_all(outside.join("node_modules")).unwrap();
     fs::write(outside.join("node_modules/keep"), "keep\n").unwrap();
     fs::rename(&project, temp.0.join("demo-original")).unwrap();
     std::os::unix::fs::symlink(&outside, &project).unwrap();
 
-    assert!(cleanup_target(&planned_project, &project.join("node_modules")).is_err());
+    remove_cleanup_target(
+        &project_dir,
+        &planned_project,
+        &planned_project.join("node_modules"),
+    )
+    .unwrap();
+    assert!(!temp.0.join("demo-original/node_modules").exists());
     assert!(outside.join("node_modules/keep").is_file());
 }
 

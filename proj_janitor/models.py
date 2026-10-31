@@ -42,6 +42,8 @@ class CleanupAction:
     rule: str
     kind: str
     size_bytes: int
+    project_device: int
+    project_inode: int
 
 
 @dataclass(frozen=True)
