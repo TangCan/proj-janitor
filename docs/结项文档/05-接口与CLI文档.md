@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-31 Python 3.15 多平台 CI 补充 |
-| 源码提交 | `90ea47c951a8cc807cf781c980e4afe1c529e5bc`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `29fc7ce70eaa170282dffe5764826cbdb00131ed`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-31 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -1005,7 +1005,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `restore_from_manifest` | `(manifest_path: Path, dest: Path \| None, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dest=None` 表示原始位置模式；`dry_run=True` 不写文件。 |
 | `plan_restore` | `(manifest_path: Path, dest: Path \| None, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、`source`/目标不存在、目标重复、归档 SHA-256 和 Git 字段；`dest=None` 时使用记录的 `source`。 |
 | `verify_manifest` | `(manifest_path: Path, projects=()) -> list[dict]` | 每项目校验结果；失败抛 `RestoreError` | 只读检查 archive SHA-256；Git 策略只校验 URL/commit 元数据，不联网。 |
-| `execute_restore` | `(plans: Iterable[RestorePlan]) -> list[RestoreResult]` | 结果列表；文件系统错误抛 `RestoreError` | 创建目标父目录并按顺序执行已校验的计划；不做交互确认。 |
+| `execute_restore` | `(plans: Iterable[RestorePlan], verify=True) -> list[RestoreResult]` | 结果列表；文件系统错误抛 `RestoreError` | 先预检待恢复归档的 SHA-256，再创建目标父目录并按顺序执行；解包时对同一文件句柄复核摘要；不做交互确认。 |
 | `load_manifest` | `(path: Path) -> tuple[Path, dict]` | 规范化路径和 JSON 对象 | 要求 `schema_version == 2`、`records` 为非空对象数组。 |
 | `RestoreError` | `RuntimeError` 子类 | 异常 | CLI 捕获后输出 `error: ...` 并返回 `1`。 |
 | `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
