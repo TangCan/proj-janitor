@@ -152,24 +152,27 @@ def run_backup(
                 (plan.project.name, plan.reason or "unsafe to archive")
             )
             continue
-        manifest_reserved = False
+        manifest_identity: tuple[int, int] | None = None
         try:
             manifest_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            with _open_new_file(manifest_path):
-                manifest_reserved = True
+            with _open_new_file(manifest_path) as manifest_file:
+                reserved = os.fstat(manifest_file.fileno())
+                manifest_identity = reserved.st_dev, reserved.st_ino
         except OSError as exc:
-            if manifest_reserved:
-                _discard_partial_file(manifest_path)
+            if manifest_identity is not None:
+                _discard_partial_file_if_same(manifest_path, manifest_identity)
             failures.append((plan.project.name, str(exc)))
             continue
         except BaseException:
-            if manifest_reserved:
-                _discard_partial_file(manifest_path)
+            if manifest_identity is not None:
+                _discard_partial_file_if_same(manifest_path, manifest_identity)
             raise
+        assert manifest_identity is not None
         try:
             record = _backup_one(
                 plan,
                 manifest_path,
+                manifest_identity,
                 patterns,
                 created_at,
                 include_artifacts,
@@ -177,11 +180,11 @@ def run_backup(
                 exclude_git_metadata,
             )
         except (OSError, tarfile.TarError) as exc:
-            _discard_partial_file(manifest_path)
+            _discard_partial_file_if_same(manifest_path, manifest_identity)
             failures.append((plan.project.name, str(exc)))
             continue
         except BaseException:
-            _discard_partial_file(manifest_path)
+            _discard_partial_file_if_same(manifest_path, manifest_identity)
             raise
         records.append(record)
         completed_paths.append(manifest_path)
@@ -191,6 +194,7 @@ def run_backup(
 def _backup_one(
     plan: BackupPlan,
     manifest_path: Path,
+    manifest_identity: tuple[int, int],
     patterns: tuple[str, ...],
     created_at: str,
     include_artifacts: bool,
@@ -248,16 +252,16 @@ def _backup_one(
             current = archive_path.stat(follow_symlinks=False)
             if (current.st_dev, current.st_ino) != archive_identity:
                 raise OSError("archive path changed before manifest was written")
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        _write_reserved_file(
+            manifest_path,
+            json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8") + b"\n",
+            manifest_identity,
         )
         if archive_path is not None and archive_identity is not None:
             current = archive_path.stat(follow_symlinks=False)
             if (current.st_dev, current.st_ino) != archive_identity:
                 raise OSError("archive path changed while manifest was written")
     except BaseException:
-        _discard_partial_file(manifest_path)
         if archive_path is not None:
             if archive_identity is None:
                 _discard_partial_file(archive_path)
@@ -265,6 +269,26 @@ def _backup_one(
                 _discard_partial_file_if_same(archive_path, archive_identity)
         raise
     return record
+
+
+def _write_reserved_file(path: Path, contents: bytes, identity: tuple[int, int]) -> None:
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        current = os.fstat(descriptor)
+        if (current.st_dev, current.st_ino) != identity:
+            raise OSError("manifest path changed before it was written")
+        with os.fdopen(descriptor, "r+b") as manifest_file:
+            descriptor = -1
+            manifest_file.seek(0)
+            manifest_file.write(contents)
+            manifest_file.truncate()
+        current = path.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != identity:
+            raise OSError("manifest path changed while it was written")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def _discard_partial_file(path: Path) -> None:

@@ -184,19 +184,17 @@ class BackupTests(unittest.TestCase):
             root = Path(tmp)
             project = scan_project(make_project(root))
             backup_dest = root / "backups"
-            real_write_text = Path.write_text
+            real_write_reserved_file = backup_module._write_reserved_file
 
-            def replace_archive_then_write_manifest(path, *args, **kwargs):
-                if path.name.startswith("manifest-"):
-                    archive = next(backup_dest.rglob("*.tar.gz"))
-                    archive.rename(root / "original.tar.gz")
-                    archive.write_bytes(b"replacement")
-                return real_write_text(path, *args, **kwargs)
+            def replace_archive_then_write_manifest(path, contents, identity):
+                archive = next(backup_dest.rglob("*.tar.gz"))
+                archive.rename(root / "original.tar.gz")
+                archive.write_bytes(b"replacement")
+                return real_write_reserved_file(path, contents, identity)
 
             with mock.patch.object(
-                Path,
-                "write_text",
-                autospec=True,
+                backup_module,
+                "_write_reserved_file",
                 side_effect=replace_archive_then_write_manifest,
             ):
                 manifests, records, failures = run_backup(
@@ -209,6 +207,33 @@ class BackupTests(unittest.TestCase):
             self.assertIn("archive path changed", failures[0][1])
             self.assertEqual(next(backup_dest.rglob("*.tar.gz")).read_bytes(), b"replacement")
             self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+
+    def test_backup_does_not_overwrite_replaced_manifest_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+            real_write_reserved_file = backup_module._write_reserved_file
+
+            def replace_manifest(path, contents, identity):
+                path.rename(root / "original-manifest.json")
+                path.write_text("keep replacement", encoding="utf-8")
+                return real_write_reserved_file(path, contents, identity)
+
+            with mock.patch.object(
+                backup_module, "_write_reserved_file", side_effect=replace_manifest
+            ):
+                manifests, records, failures = run_backup(
+                    [project], backup_dest, always_archive=True
+                )
+
+            self.assertFalse(manifests)
+            self.assertFalse(records)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("manifest path changed", failures[0][1])
+            replacement = next(backup_dest.rglob("manifest-*.json"))
+            self.assertEqual(replacement.read_text(encoding="utf-8"), "keep replacement")
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
     def test_backup_interrupt_cleans_partial_outputs(self) -> None:
         for failure in ("archive-hash", "manifest-write"):
@@ -223,7 +248,7 @@ class BackupTests(unittest.TestCase):
                     )
                 else:
                     patch_target = mock.patch.object(
-                        Path, "write_text", side_effect=KeyboardInterrupt
+                        backup_module, "_write_reserved_file", side_effect=KeyboardInterrupt
                     )
 
                 with patch_target:
