@@ -179,6 +179,38 @@ class BackupTests(unittest.TestCase):
 
             self.assertEqual(archive.read_bytes(), b"replacement")
 
+    @unittest.skipUnless(os.name == "posix", "renaming an open archive is POSIX-specific")
+    def test_backup_rejects_archive_path_replaced_before_manifest_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+            real_write_text = Path.write_text
+
+            def replace_archive_then_write_manifest(path, *args, **kwargs):
+                if path.name.startswith("manifest-"):
+                    archive = next(backup_dest.rglob("*.tar.gz"))
+                    archive.rename(root / "original.tar.gz")
+                    archive.write_bytes(b"replacement")
+                return real_write_text(path, *args, **kwargs)
+
+            with mock.patch.object(
+                Path,
+                "write_text",
+                autospec=True,
+                side_effect=replace_archive_then_write_manifest,
+            ):
+                manifests, records, failures = run_backup(
+                    [project], backup_dest, always_archive=True
+                )
+
+            self.assertFalse(manifests)
+            self.assertFalse(records)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("archive path changed", failures[0][1])
+            self.assertEqual(next(backup_dest.rglob("*.tar.gz")).read_bytes(), b"replacement")
+            self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+
     def test_backup_interrupt_cleans_partial_outputs(self) -> None:
         for failure in ("archive-hash", "manifest-write"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:

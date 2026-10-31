@@ -61,7 +61,7 @@ pub(crate) fn create_archive(
     archive: &Path,
     include: bool,
     exclude_git_metadata: bool,
-) -> anyhow::Result<(String, u64)> {
+) -> anyhow::Result<(String, u64, same_file::Handle)> {
     let f = create_private_file(archive)?;
     let identity = same_file::Handle::from_file(f.try_clone()?)?;
     let result = (|| -> anyhow::Result<(String, u64)> {
@@ -123,15 +123,22 @@ pub(crate) fn create_archive(
         );
         Ok((digest, size))
     })();
-    if result.is_err() {
-        let still_ours =
-            same_file::Handle::from_path(archive).is_ok_and(|current| current == identity);
-        drop(identity);
-        if still_ours {
-            let _ = fs::remove_file(archive);
+    match result {
+        Ok((digest, size)) => Ok((digest, size, identity)),
+        Err(error) => {
+            let still_ours =
+                same_file::Handle::from_path(archive).is_ok_and(|current| current == identity);
+            drop(identity);
+            if still_ours {
+                let _ = fs::remove_file(archive);
+            }
+            Err(error)
         }
     }
-    result
+}
+
+pub(crate) fn archive_path_matches(path: &Path, identity: &same_file::Handle) -> bool {
+    same_file::Handle::from_path(path).is_ok_and(|current| current == *identity)
 }
 
 fn create_private_file(path: &Path) -> io::Result<File> {

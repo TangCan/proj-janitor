@@ -238,7 +238,7 @@ class CliTests(unittest.TestCase):
                 (project / "pyproject.toml").write_text("", encoding="utf-8")
                 (project / "main.py").write_text("x\n", encoding="utf-8")
             dest = root / "backups"
-            real_backup_project = backup_module.backup_project
+            real_backup_project = backup_module._backup_project_with_identity
 
             def fail_bad_project(
                 project,
@@ -260,7 +260,7 @@ class CliTests(unittest.TestCase):
                 )
 
             with mock.patch(
-                "proj_janitor.backup.backup_project",
+                "proj_janitor.backup._backup_project_with_identity",
                 side_effect=fail_bad_project,
             ):
                 code, out, err = run_cli(

@@ -1,6 +1,7 @@
 use super::*;
 use crate::archive::{
-    create_archive, extract_archive, safe_archive_link, safe_archive_path, sha256, write_new_file,
+    archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
+    sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -1072,10 +1073,11 @@ fn create_archive_returns_digest_and_size_for_its_open_file() {
     fs::write(project.join("file.txt"), "archive data\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
 
-    let (digest, size) = create_archive(&project, &archive, true, false).unwrap();
+    let (digest, size, identity) = create_archive(&project, &archive, true, false).unwrap();
 
     assert_eq!(size, fs::metadata(&archive).unwrap().len());
     assert_eq!(digest, sha256(&archive).unwrap());
+    assert!(archive_path_matches(&archive, &identity));
 }
 
 #[cfg(unix)]

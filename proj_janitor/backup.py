@@ -198,6 +198,7 @@ def _backup_one(
     exclude_git_metadata: bool,
 ) -> BackupRecord:
     archive_path: Path | None = None
+    archive_identity: tuple[int, int] | None = None
     if plan.strategy == "git":
         recovery = plan.recovery
         if recovery is None:
@@ -223,7 +224,7 @@ def _backup_one(
         archive_dir = manifest_path.parent
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_path = archive_dir / plan.archive_name
-        record = backup_project(
+        record, archive_identity = _backup_project_with_identity(
             plan.project,
             archive_dir,
             patterns=patterns,
@@ -243,13 +244,25 @@ def _backup_one(
         "records": [asdict(record)],
     }
     try:
+        if archive_path is not None and archive_identity is not None:
+            current = archive_path.stat(follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != archive_identity:
+                raise OSError("archive path changed before manifest was written")
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        if archive_path is not None and archive_identity is not None:
+            current = archive_path.stat(follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != archive_identity:
+                raise OSError("archive path changed while manifest was written")
     except BaseException:
+        _discard_partial_file(manifest_path)
         if archive_path is not None:
-            _discard_partial_file(archive_path)
+            if archive_identity is None:
+                _discard_partial_file(archive_path)
+            else:
+                _discard_partial_file_if_same(archive_path, archive_identity)
         raise
     return record
 
@@ -257,8 +270,6 @@ def _backup_one(
 def _discard_partial_file(path: Path) -> None:
     try:
         path.unlink()
-    except FileNotFoundError:
-        pass
     except OSError:
         pass
 
@@ -295,6 +306,25 @@ def backup_project(
     fallback_reason: str | None = None,
     exclude_git_metadata: bool = False,
 ) -> BackupRecord:
+    record, _ = _backup_project_with_identity(
+        project,
+        archive_dir,
+        patterns=patterns,
+        archive_name=archive_name,
+        fallback_reason=fallback_reason,
+        exclude_git_metadata=exclude_git_metadata,
+    )
+    return record
+
+
+def _backup_project_with_identity(
+    project: Project,
+    archive_dir: Path,
+    patterns: Iterable[str] = (),
+    archive_name: str | None = None,
+    fallback_reason: str | None = None,
+    exclude_git_metadata: bool = False,
+) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
     patterns = tuple(patterns)
@@ -335,7 +365,7 @@ def backup_project(
         source_bytes=project.size_bytes,
         sha256=digest,
         fallback_reason=fallback_reason,
-    )
+    ), archive_identity
 
 
 def sha256_file(path: Path) -> str:

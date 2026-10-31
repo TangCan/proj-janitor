@@ -9,8 +9,8 @@ use std::{
 use crate::{
     Manifest, Record,
     archive::{
-        create_archive, create_private_dir, portable_path_key, safe_windows_component,
-        write_new_file,
+        archive_path_matches, create_archive, create_private_dir, portable_path_key,
+        safe_windows_component, write_new_file,
     },
     expand, human,
     project::{discover, inspect_recovery},
@@ -177,7 +177,7 @@ pub(crate) fn backup_cmd(
             }
             continue;
         }
-        let mut archive_created = false;
+        let mut archive_identity = None;
         let result = (|| -> anyhow::Result<Record> {
             create_private_dir(&dir)?;
             if let Some(git) = &recovery {
@@ -198,13 +198,13 @@ pub(crate) fn backup_cmd(
                     fallback_reason: None,
                 });
             }
-            let (hash, bytes) = create_archive(
+            let (hash, bytes, identity) = create_archive(
                 &p.path,
                 &archive_path,
                 include_artifacts,
                 exclude_git_metadata,
             )?;
-            archive_created = true;
+            archive_identity = Some(identity);
             Ok(Record {
                 project: p.name.clone(),
                 source: p.path.to_string_lossy().into(),
@@ -234,15 +234,30 @@ pub(crate) fn backup_cmd(
                     exclude_git_metadata: exclude_git_metadata && record.strategy == "archive",
                     records: vec![record.clone()],
                 };
-                let write_result = serde_json::to_vec_pretty(&manifest)
-                    .map_err(anyhow::Error::from)
-                    .and_then(|mut bytes| {
-                        bytes.push(b'\n');
-                        write_new_file(&manifest_path, &bytes).map_err(anyhow::Error::from)
-                    });
+                let write_result = (|| -> anyhow::Result<()> {
+                    if let Some(identity) = &archive_identity {
+                        anyhow::ensure!(
+                            archive_path_matches(&archive_path, identity),
+                            "archive path changed before manifest write: {}",
+                            archive_path.display()
+                        );
+                    }
+                    let mut bytes = serde_json::to_vec_pretty(&manifest)?;
+                    bytes.push(b'\n');
+                    write_new_file(&manifest_path, &bytes)?;
+                    if let Some(identity) = &archive_identity {
+                        anyhow::ensure!(
+                            archive_path_matches(&archive_path, identity),
+                            "archive path changed while manifest was written: {}",
+                            archive_path.display()
+                        );
+                    }
+                    Ok(())
+                })();
                 if let Err(e) = write_result {
-                    if archive_created {
-                        let _ = fs::remove_file(&archive_path);
+                    let _ = fs::remove_file(&manifest_path);
+                    if let Some(identity) = archive_identity.take() {
+                        remove_archive_if_same(&archive_path, identity);
                     }
                     eprintln!("error: {}: cannot write manifest: {e}", p.name);
                     failed = true;
@@ -278,8 +293,8 @@ pub(crate) fn backup_cmd(
                 println!("Manifest: {}", manifest_path.display());
             }
             Err(e) => {
-                if archive_created {
-                    let _ = fs::remove_file(&archive_path);
+                if let Some(identity) = archive_identity.take() {
+                    remove_archive_if_same(&archive_path, identity);
                 }
                 eprintln!("error: {}: {e}", p.name);
                 failed = true
@@ -290,4 +305,12 @@ pub(crate) fn backup_cmd(
         anyhow::bail!("one or more backup operations failed")
     }
     Ok(())
+}
+
+fn remove_archive_if_same(path: &std::path::Path, identity: same_file::Handle) {
+    let still_ours = archive_path_matches(path, &identity);
+    drop(identity);
+    if still_ours {
+        let _ = fs::remove_file(path);
+    }
 }
