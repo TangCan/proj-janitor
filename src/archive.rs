@@ -46,14 +46,33 @@ pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
     }
 }
 
-pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<same_file::Handle> {
     let mut file = create_private_file(path)?;
-    if let Err(error) = file.write_all(bytes) {
-        drop(file);
-        let _ = fs::remove_file(path);
+    let identity = same_file::Handle::from_file(file.try_clone()?).map_err(io::Error::other)?;
+    let result = file.write_all(bytes).and_then(|()| {
+        let current = same_file::Handle::from_path(path).map_err(io::Error::other)?;
+        if current != identity {
+            return Err(io::Error::other(format!(
+                "output path changed while it was being written: {}",
+                path.display()
+            )));
+        }
+        Ok(())
+    });
+    drop(file);
+    if let Err(error) = result {
+        remove_file_if_same(path, identity);
         return Err(error);
     }
-    Ok(())
+    Ok(identity)
+}
+
+pub(crate) fn remove_file_if_same(path: &Path, identity: same_file::Handle) {
+    let still_ours = archive_path_matches(path, &identity);
+    drop(identity);
+    if still_ours {
+        let _ = fs::remove_file(path);
+    }
 }
 
 pub(crate) fn create_archive(
@@ -126,12 +145,7 @@ pub(crate) fn create_archive(
     match result {
         Ok((digest, size)) => Ok((digest, size, identity)),
         Err(error) => {
-            let still_ours =
-                same_file::Handle::from_path(archive).is_ok_and(|current| current == identity);
-            drop(identity);
-            if still_ours {
-                let _ = fs::remove_file(archive);
-            }
+            remove_file_if_same(archive, identity);
             Err(error)
         }
     }

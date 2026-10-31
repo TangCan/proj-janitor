@@ -1,7 +1,7 @@
 use super::*;
 use crate::archive::{
-    archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
-    sha256, write_new_file,
+    archive_path_matches, create_archive, extract_archive, remove_file_if_same, safe_archive_link,
+    safe_archive_path, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -452,12 +452,30 @@ fn backup_output_creation_never_overwrites_existing_files() {
     );
 
     let manifest = temp.0.join("manifest.json");
+    let identity = write_new_file(&manifest, b"manifest contents").unwrap();
+    assert!(archive_path_matches(&manifest, &identity));
+    fs::remove_file(&manifest).unwrap();
     fs::write(&manifest, "keep existing manifest").unwrap();
     assert!(write_new_file(&manifest, b"replacement").is_err());
     assert_eq!(
         fs::read_to_string(manifest).unwrap(),
         "keep existing manifest"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_output_cleanup_preserves_a_replacement_file() {
+    let temp = TestDir::new();
+    let output = temp.0.join("manifest.json");
+    fs::write(&output, "original").unwrap();
+    let identity = same_file::Handle::from_path(&output).unwrap();
+    fs::rename(&output, temp.0.join("original.json")).unwrap();
+    fs::write(&output, "replacement").unwrap();
+
+    remove_file_if_same(&output, identity);
+
+    assert_eq!(fs::read_to_string(output).unwrap(), "replacement");
 }
 
 #[cfg(unix)]

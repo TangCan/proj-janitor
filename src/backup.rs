@@ -2,7 +2,6 @@ use chrono::{Local, Utc};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::PathBuf,
 };
 
@@ -10,7 +9,7 @@ use crate::{
     Manifest, Record,
     archive::{
         archive_path_matches, create_archive, create_private_dir, portable_path_key,
-        safe_windows_component, write_new_file,
+        remove_file_if_same, safe_windows_component, write_new_file,
     },
     expand, human,
     project::{discover, inspect_recovery},
@@ -178,6 +177,7 @@ pub(crate) fn backup_cmd(
             continue;
         }
         let mut archive_identity = None;
+        let mut manifest_identity = None;
         let result = (|| -> anyhow::Result<Record> {
             create_private_dir(&dir)?;
             if let Some(git) = &recovery {
@@ -244,7 +244,7 @@ pub(crate) fn backup_cmd(
                     }
                     let mut bytes = serde_json::to_vec_pretty(&manifest)?;
                     bytes.push(b'\n');
-                    write_new_file(&manifest_path, &bytes)?;
+                    manifest_identity = Some(write_new_file(&manifest_path, &bytes)?);
                     if let Some(identity) = &archive_identity {
                         anyhow::ensure!(
                             archive_path_matches(&archive_path, identity),
@@ -255,14 +255,17 @@ pub(crate) fn backup_cmd(
                     Ok(())
                 })();
                 if let Err(e) = write_result {
-                    let _ = fs::remove_file(&manifest_path);
+                    if let Some(identity) = manifest_identity.take() {
+                        remove_file_if_same(&manifest_path, identity);
+                    }
                     if let Some(identity) = archive_identity.take() {
-                        remove_archive_if_same(&archive_path, identity);
+                        remove_file_if_same(&archive_path, identity);
                     }
                     eprintln!("error: {}: cannot write manifest: {e}", p.name);
                     failed = true;
                     continue;
                 }
+                drop(manifest_identity.take());
                 if record.strategy == "git" {
                     println!(
                         "[git] {}: {} @ {}",
@@ -294,7 +297,7 @@ pub(crate) fn backup_cmd(
             }
             Err(e) => {
                 if let Some(identity) = archive_identity.take() {
-                    remove_archive_if_same(&archive_path, identity);
+                    remove_file_if_same(&archive_path, identity);
                 }
                 eprintln!("error: {}: {e}", p.name);
                 failed = true
@@ -305,12 +308,4 @@ pub(crate) fn backup_cmd(
         anyhow::bail!("one or more backup operations failed")
     }
     Ok(())
-}
-
-fn remove_archive_if_same(path: &std::path::Path, identity: same_file::Handle) {
-    let still_ours = archive_path_matches(path, &identity);
-    drop(identity);
-    if still_ours {
-        let _ = fs::remove_file(path);
-    }
 }
