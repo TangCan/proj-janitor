@@ -1131,7 +1131,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 14f | credential-store 文件位于项目内 | `Git config points to a credential file inside the project` |
 | 14g | LFS endpoint URL 含凭据或 query/fragment | `LFS config contains credentials or query data` |
 | 14h | HTTP proxy/LFS service URL 含凭据或 query/fragment | `Git config contains credentials or query data in a service URL` |
-| 14i | credential helper 参数含认证值 | `Git config contains sensitive credential helper arguments` |
+| 14i | credential helper 含无法识别的参数（包括编码值）；仅允许标准 cache timeout 和 store file 参数 | `Git config contains sensitive credential helper arguments` |
 | 14j | Git URL rewrite 的键或值含凭据 | `Git config contains credentials in a URL rewrite` |
 | 14k | 配置了自定义 SSH command | `Git config contains a custom SSH command` |
 | 14l | `.gitmodules` 无法安全解析 | `cannot safely inspect .gitmodules for credentials` |
@@ -1347,7 +1347,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 150 项测试、Rust 35 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致；CI 的 Python Ubuntu 矩阵覆盖 3.10–3.15，3.12 和 3.15 均覆盖 macOS/Windows。
-- GitHub Actions run [41158338737](https://github.com/TangCan/proj-janitor/actions/runs/41158338737) 的 18/18 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
-- CodeQL run [41158338615](https://github.com/TangCan/proj-janitor/actions/runs/41158338615) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
+- Python 151 项测试、Rust 36 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致；CI 的 Python Ubuntu 矩阵覆盖 3.10–3.15，3.12 和 3.15 均覆盖 macOS/Windows。
+- GitHub Actions run [41159972991](https://github.com/TangCan/proj-janitor/actions/runs/41159972991) 的 18/18 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
+- CodeQL run [41159973417](https://github.com/TangCan/proj-janitor/actions/runs/41159973417) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
