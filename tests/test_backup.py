@@ -824,6 +824,12 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "expanded-store-secret",
             ),
             (
+                "credential.helper",
+                "store --file ~otheruser/.git-credentials",
+                "Git config contains sensitive credential helper arguments",
+                "named-home-secret",
+            ),
+            (
                 "http.proxy",
                 "http://proxy-user:proxy-secret@proxy.example:8080",
                 "Git config contains credentials or query data in a service URL",

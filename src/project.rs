@@ -749,6 +749,14 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             }) {
                 return Some("Git config contains sensitive credential helper arguments");
             }
+            if expand_home
+                && raw_path.starts_with('~')
+                && raw_path != "~"
+                && !raw_path.starts_with("~/")
+                && !raw_path.starts_with("~\\")
+            {
+                return Some("Git config contains sensitive credential helper arguments");
+            }
             let credential_file = if expand_home
                 && (raw_path == "~" || raw_path.starts_with("~/") || raw_path.starts_with("~\\"))
             {

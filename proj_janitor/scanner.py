@@ -424,6 +424,10 @@ def _git_config_archive_reason(path: Path) -> str | None:
                 continue
             if any(char in raw_path for char in "\"'$`*?[]{};|&()<>"):
                 return "Git config contains sensitive credential helper arguments"
+            if expand_home and raw_path.startswith("~") and not (
+                raw_path == "~" or raw_path.startswith(("~/", "~\\"))
+            ):
+                return "Git config contains sensitive credential helper arguments"
             credential_file = Path(raw_path.strip(" "))
             if expand_home:
                 credential_file = credential_file.expanduser()
