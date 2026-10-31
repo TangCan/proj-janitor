@@ -782,6 +782,12 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "argument-secret",
             ),
             (
+                "credential.helper",
+                "manager --config=ZXhhbXBsZQ==",
+                "Git config contains sensitive credential helper arguments",
+                "ZXhhbXBsZQ==",
+            ),
+            (
                 "core.sshCommand",
                 "sshpass -p ssh-password-secret ssh",
                 "Git config contains a custom SSH command",
@@ -887,6 +893,22 @@ class GitStrategyBackupTests(unittest.TestCase):
                 self.assertEqual(records, [])
                 self.assertEqual(failures, [("app", reason)])
                 self.assertFalse((backup_dest / "app").exists())
+
+    @unittest.skipUnless(GIT_AVAILABLE, "needs Git")
+    def test_safe_credential_helper_arguments_allow_archive_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "config", "credential.helper", "cache --timeout=3600")
+            (project / "local-change.txt").write_text("dirty\n", encoding="utf-8")
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups"
+            )
+
+            self.assertEqual(failures, [])
+            self.assertEqual(len(manifests), 1)
+            self.assertEqual(records[0].strategy, "archive")
 
     def test_dirty_project_with_credentialed_submodule_never_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

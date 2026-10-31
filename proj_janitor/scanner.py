@@ -364,7 +364,6 @@ def _git_config_archive_reason(path: Path) -> str | None:
         if helper.startswith("!"):
             return "Git config contains an inline credential helper"
         lower_helper = helper.lower()
-        # shortcut: catches common plaintext auth flags, not opaque helper encodings; extend if those formats are used.
         if any(
             marker in lower_helper
             for marker in (
@@ -389,6 +388,31 @@ def _git_config_archive_reason(path: Path) -> str | None:
         ):
             return "Git config contains sensitive credential helper arguments"
         arguments = helper.split()
+        safe_cache_args = (
+            len(arguments) == 3
+            and arguments[0].lower() == "cache"
+            and arguments[1].lower() == "--timeout"
+            and arguments[2].isdigit()
+        ) or (
+            len(arguments) == 2
+            and arguments[0].lower() == "cache"
+            and arguments[1].lower().startswith("--timeout=")
+            and arguments[1].partition("=")[2].isdigit()
+        )
+        safe_store_args = (
+            len(arguments) == 2
+            and arguments[0].lower() == "store"
+            and arguments[1].lower().startswith("--file=")
+            and bool(arguments[1].partition("=")[2])
+        ) or (
+            len(arguments) == 3
+            and arguments[0].lower() == "store"
+            and arguments[1].lower() == "--file"
+            and bool(arguments[2])
+        )
+        # shortcut: only common cache/store options are allowed; add other safe forms if needed.
+        if len(arguments) > 1 and not (safe_cache_args or safe_store_args):
+            return "Git config contains sensitive credential helper arguments"
         for index, argument in enumerate(arguments):
             if argument.startswith("--file="):
                 raw_path = argument.partition("=")[2]

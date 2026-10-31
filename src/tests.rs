@@ -796,6 +796,12 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "argument-secret",
         ),
         (
+            "credential.helper",
+            "manager --config=ZXhhbXBsZQ==",
+            "Git config contains sensitive credential helper arguments",
+            "ZXhhbXBsZQ==",
+        ),
+        (
             "core.sshCommand",
             "sshpass -p ssh-password-secret ssh",
             "Git config contains a custom SSH command",
@@ -1491,6 +1497,52 @@ fn restore_git_rejects_windows_invalid_project_names() {
         assert!(error.to_string().contains("unsafe project name"));
         assert!(!dest.exists());
     }
+}
+
+#[test]
+fn backup_allows_safe_credential_helper_arguments_for_archive_fallback() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    if !pushed_github_fixture(&project) {
+        eprintln!("git unavailable; skipping credential helper fixture");
+        return;
+    }
+    assert!(local_git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/team/demo.git"
+        ]
+    ));
+    assert!(local_git(
+        &project,
+        &["config", "credential.helper", "cache --timeout=3600"]
+    ));
+    fs::write(project.join("tracked.txt"), "dirty\n").unwrap();
+    let backup_dir = temp.0.join("backups");
+
+    backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap();
+
+    let manifest_path = fs::read_dir(backup_dir.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest: Manifest = serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest.records[0].strategy, "archive");
 }
 
 #[test]

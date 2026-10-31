@@ -651,7 +651,6 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             return Some("Git config contains an inline credential helper");
         }
         let lower_helper = helper.to_ascii_lowercase();
-        // shortcut: catches common plaintext auth flags, not opaque helper encodings; extend if those formats are used.
         if [
             "--token",
             "token=",
@@ -677,6 +676,45 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             return Some("Git config contains sensitive credential helper arguments");
         }
         let arguments: Vec<_> = helper.split_whitespace().collect();
+        let safe_cache_args = match arguments.as_slice() {
+            [name, option, timeout]
+                if name.eq_ignore_ascii_case("cache")
+                    && option.eq_ignore_ascii_case("--timeout") =>
+            {
+                timeout.parse::<u64>().is_ok()
+            }
+            [name, option]
+                if name.eq_ignore_ascii_case("cache")
+                    && option.split_once('=').is_some_and(|(key, value)| {
+                        key.eq_ignore_ascii_case("--timeout") && value.parse::<u64>().is_ok()
+                    }) =>
+            {
+                true
+            }
+            _ => false,
+        };
+        let safe_store_args = match arguments.as_slice() {
+            [name, option]
+                if name.eq_ignore_ascii_case("store")
+                    && option
+                        .strip_prefix("--file=")
+                        .is_some_and(|path| !path.is_empty()) =>
+            {
+                true
+            }
+            [name, option, path]
+                if name.eq_ignore_ascii_case("store")
+                    && option.eq_ignore_ascii_case("--file")
+                    && !path.is_empty() =>
+            {
+                true
+            }
+            _ => false,
+        };
+        // shortcut: only common cache/store options are allowed; add other safe forms if needed.
+        if arguments.len() > 1 && !safe_cache_args && !safe_store_args {
+            return Some("Git config contains sensitive credential helper arguments");
+        }
         for (index, argument) in arguments.iter().enumerate() {
             let raw_path = if let Some(path) = argument.strip_prefix("--file=") {
                 Some(path)
