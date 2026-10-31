@@ -27,6 +27,7 @@ _DIRFD_CLEANUP = (
     and bool(getattr(os, "O_NOFOLLOW", 0))
     and os.open in os.supports_dir_fd
     and os.stat in os.supports_dir_fd
+    and os.stat in os.supports_follow_symlinks
     and os.unlink in os.supports_dir_fd
     and os.rmdir in os.supports_dir_fd
     and os.listdir in os.supports_fd

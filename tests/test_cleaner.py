@@ -193,6 +193,21 @@ class CleanerTests(unittest.TestCase):
             self.assertTrue((outside / "node_modules" / "keep.txt").exists())
             self.assertTrue(result.errors)
 
+    def test_path_fallback_refuses_project_root_replaced_by_another_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            plan = build_cleanup_plan(project, ["node"])
+            project.rename(root / "app-original")
+            replacement = make_project(root)
+
+            with mock.patch("proj_janitor.cleaner._DIRFD_CLEANUP", False):
+                result = apply_cleanup(plan)
+
+            self.assertEqual(result.removed, 0)
+            self.assertTrue((replacement / "node_modules" / "pkg" / "index.js").exists())
+            self.assertTrue(result.errors)
+
     @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
     def test_fd_cleanup_stays_inside_open_project_after_root_is_replaced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
