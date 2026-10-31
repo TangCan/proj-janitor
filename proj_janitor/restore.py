@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable
 from urllib.parse import urlsplit, urlunsplit
@@ -49,11 +50,20 @@ def restore_from_manifest(
     if dry_run:
         return plans, []
 
-    results = execute_restore(plans)
+    results = execute_restore(plans, verify=verify)
+    if verify:
+        plans = [
+            replace(plan, hash_verified=True) if plan.strategy == "archive" else plan
+            for plan in plans
+        ]
     return plans, results
 
 
-def execute_restore(plans: Iterable[RestorePlan]) -> list[RestoreResult]:
+def execute_restore(
+    plans: Iterable[RestorePlan],
+    *,
+    verify: bool = True,
+) -> list[RestoreResult]:
     plan_list = list(plans)
     try:
         for plan in plan_list:
@@ -62,11 +72,10 @@ def execute_restore(plans: Iterable[RestorePlan]) -> list[RestoreResult]:
         raise RestoreError(
             f"cannot create restore target directory: {exc}"
         ) from exc
-
     results: list[RestoreResult] = []
     for plan in plan_list:
         try:
-            results.append(_restore_one(plan))
+            results.append(_restore_one(plan, verify=verify))
         except (OSError, RestoreError) as exc:
             completed = ", ".join(
                 f"{result.project} -> {result.target}" for result in results
@@ -152,17 +161,7 @@ def plan_restore(
                         f"manifest has no sha256 for {project}; "
                         "use --no-verify to skip verification"
                     )
-                try:
-                    actual = sha256_file(archive)
-                except OSError as exc:
-                    raise RestoreError(
-                        f"cannot read archive {archive}: {exc}"
-                    ) from exc
-                if actual.lower() != sha256.lower():
-                    raise RestoreError(
-                        f"sha256 mismatch for {archive}: "
-                        f"expected {sha256}, got {actual}"
-                    )
+                _verify_archive_hash(archive, project, sha256)
                 hash_verified = True
             plans.append(
                 RestorePlan(
@@ -181,6 +180,20 @@ def plan_restore(
             f"unsupported backup strategy for {project}: {strategy!r}"
         )
     return plans
+
+
+def _verify_archive_hash(archive: Path, project: str, expected: str | None) -> str:
+    if not expected:
+        raise RestoreError(f"manifest has no sha256 for {project}")
+    try:
+        actual = sha256_file(archive)
+    except OSError as exc:
+        raise RestoreError(f"cannot read archive {archive}: {exc}") from exc
+    if actual.lower() != expected.lower():
+        raise RestoreError(
+            f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
+        )
+    return actual
 
 
 def verify_manifest(
@@ -421,11 +434,11 @@ def redact_remote_url(remote: str) -> str:
     return remote
 
 
-def _restore_one(plan: RestorePlan) -> RestoreResult:
+def _restore_one(plan: RestorePlan, *, verify: bool) -> RestoreResult:
     if plan.strategy == "git":
         _restore_git(plan)
     elif plan.strategy == "archive":
-        _restore_archive(plan)
+        _restore_archive(plan, verify=verify)
     else:
         raise RestoreError(f"unsupported strategy: {plan.strategy}")
     return RestoreResult(
@@ -537,6 +550,7 @@ def _restore_git(plan: RestorePlan) -> None:
     if plan.target.exists() or plan.target.is_symlink():
         raise RestoreError(f"restore target already exists: {plan.target}")
 
+    plan.target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
         tempfile.mkdtemp(
             prefix=f".{plan.project}-restore-",
@@ -617,44 +631,47 @@ def _restore_git(plan: RestorePlan) -> None:
         _cleanup_restore_temp(temporary)
 
 
-def _restore_archive(plan: RestorePlan) -> None:
+def _restore_archive(plan: RestorePlan, *, verify: bool) -> None:
     if plan.archive is None:
         raise RestoreError(f"incomplete archive restore plan for {plan.project}")
     if plan.target.exists() or plan.target.is_symlink():
         raise RestoreError(f"restore target already exists: {plan.target}")
 
-    temporary = Path(
-        tempfile.mkdtemp(
-            prefix=f".{plan.project}-restore-",
-            dir=plan.target.parent,
+    with plan.archive.open("rb") as archive_source:
+        if verify:
+            if not plan.sha256:
+                raise RestoreError(f"manifest has no sha256 for {plan.project}")
+            actual = sha256_stream(archive_source)
+            if actual.lower() != plan.sha256.lower():
+                raise RestoreError(
+                    f"sha256 mismatch for {plan.archive}: "
+                    f"expected {plan.sha256}, got {actual}"
+                )
+            archive_source.seek(0)
+        plan.target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = Path(
+            tempfile.mkdtemp(
+                prefix=f".{plan.project}-restore-",
+                dir=plan.target.parent,
+            )
         )
-    )
-    try:
-        with plan.archive.open("rb") as archive_source:
-            if plan.hash_verified:
-                actual = sha256_stream(archive_source)
-                if actual.lower() != (plan.sha256 or "").lower():
-                    raise RestoreError(
-                        f"sha256 mismatch for {plan.archive}: "
-                        f"expected {plan.sha256}, got {actual}"
-                    )
-                archive_source.seek(0)
+        try:
             _safe_extract(
                 plan.archive,
                 temporary,
                 plan.project,
                 fileobj=archive_source,
             )
-        extracted = temporary / plan.project
-        if extracted.is_symlink() or not extracted.is_dir():
-            raise RestoreError(
-                f"archive does not contain project directory: {plan.project}"
-            )
-        if plan.target.exists() or plan.target.is_symlink():
-            raise RestoreError(f"restore target already exists: {plan.target}")
-        extracted.rename(plan.target)
-    finally:
-        _cleanup_restore_temp(temporary)
+            extracted = temporary / plan.project
+            if extracted.is_symlink() or not extracted.is_dir():
+                raise RestoreError(
+                    f"archive does not contain project directory: {plan.project}"
+                )
+            if plan.target.exists() or plan.target.is_symlink():
+                raise RestoreError(f"restore target already exists: {plan.target}")
+            extracted.rename(plan.target)
+        finally:
+            _cleanup_restore_temp(temporary)
 
 
 def _safe_extract(

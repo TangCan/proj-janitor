@@ -381,7 +381,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             return 2
 
     try:
-        results = execute_restore(plans)
+        results = execute_restore(plans, verify=not args.no_verify)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

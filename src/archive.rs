@@ -164,22 +164,22 @@ pub(crate) fn extract_archive_with_hash(
         "restore target already exists: {}",
         target.display()
     );
+    let mut f = File::open(archive)?;
+    if let Some(expected) = expected_hash {
+        let actual = sha256_reader(&mut f)?;
+        anyhow::ensure!(
+            actual.eq_ignore_ascii_case(expected),
+            "sha256 mismatch for {}",
+            archive.display()
+        );
+        f.seek(SeekFrom::Start(0))?;
+    }
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
     let tmp = create_restore_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<()> {
-        let mut f = File::open(archive)?;
-        if let Some(expected) = expected_hash {
-            let actual = sha256_reader(&mut f)?;
-            anyhow::ensure!(
-                actual.eq_ignore_ascii_case(expected),
-                "sha256 mismatch for {}",
-                archive.display()
-            );
-            f.seek(SeekFrom::Start(0))?;
-        }
         let dec = GzDecoder::new(f);
         let mut ar = Archive::new(dec);
         let entries = ar.entries()?;
