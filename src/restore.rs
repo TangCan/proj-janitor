@@ -342,6 +342,7 @@ pub(crate) fn restore_cmd(
         };
         if let Some(a) = &archive
             && !no_verify
+            && dry
         {
             let expect = r
                 .sha256
@@ -428,6 +429,21 @@ pub(crate) fn restore_cmd(
             matches!(a.trim().to_lowercase().as_str(), "y" | "yes"),
             "Aborted"
         )
+    }
+    if !no_verify {
+        for (record, _, archive) in &plans {
+            if let Some(archive) = archive {
+                let expected = record.sha256.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("manifest has no sha256 for {}", record.project)
+                })?;
+                let actual = sha256(archive)?;
+                anyhow::ensure!(
+                    actual.eq_ignore_ascii_case(expected),
+                    "sha256 mismatch for {}",
+                    archive.display()
+                );
+            }
+        }
     }
     let mut done = Vec::new();
     for (r, target, archive) in &plans {

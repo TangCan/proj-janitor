@@ -45,7 +45,7 @@ def restore_from_manifest(
         manifest_path,
         dest,
         projects=projects,
-        verify=verify,
+        verify=verify if dry_run else False,
     )
     if dry_run:
         return plans, []
@@ -65,6 +65,14 @@ def execute_restore(
     verify: bool = True,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
+    if verify:
+        for plan in plan_list:
+            if plan.strategy == "archive":
+                if plan.archive is None:
+                    raise RestoreError(
+                        f"incomplete archive restore plan for {plan.project}"
+                    )
+                _verify_archive_hash(plan.archive, plan.project, plan.sha256)
     try:
         for plan in plan_list:
             plan.target.parent.mkdir(parents=True, exist_ok=True)

@@ -335,7 +335,7 @@ class RestoreTests(unittest.TestCase):
             with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
                 restore_module.execute_restore(plans)
 
-            self.assertFalse((target / "app").exists())
+            self.assertFalse(target.exists())
 
     def test_restore_rejects_non_integer_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

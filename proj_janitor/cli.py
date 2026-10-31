@@ -326,7 +326,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             args.manifest,
             args.dest,
             projects=args.project,
-            verify=not args.no_verify,
+            verify=not args.no_verify if args.dry_run else False,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
