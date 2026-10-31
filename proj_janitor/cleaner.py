@@ -243,6 +243,12 @@ def _remove_entry_at(
         except FileNotFoundError:
             return False
         try:
+            opened_stat = os.fstat(directory_fd)
+            if (opened_stat.st_dev, opened_stat.st_ino) != (
+                entry_stat.st_dev,
+                entry_stat.st_ino,
+            ):
+                raise ValueError("cleanup target changed during deletion")
             for child in os.listdir(directory_fd):
                 _remove_entry_at(directory_fd, child, refuse_symlink=False)
         finally:

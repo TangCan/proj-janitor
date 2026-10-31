@@ -225,6 +225,50 @@ class CleanerTests(unittest.TestCase):
             self.assertTrue(result.errors)
 
     @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
+    def test_fd_cleanup_checks_opened_target_identity_before_recursion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            target = project / "node_modules"
+            target_stat = os.stat(target, follow_symlinks=False)
+            project_fd = os.open(
+                project,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            original_open = os.open
+            replaced = False
+
+            def replace_target_before_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                nonlocal replaced
+                if path == "node_modules" and dir_fd is not None and not replaced:
+                    replaced = True
+                    target.rename(project / "node_modules-original")
+                    target.mkdir()
+                    (target / "keep.txt").write_text("keep", encoding="utf-8")
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+
+            try:
+                with mock.patch("proj_janitor.cleaner.os.open", side_effect=replace_target_before_open):
+                    with self.assertRaisesRegex(ValueError, "target changed"):
+                        _remove_cleanup_target_at(
+                            project_fd,
+                            Path("node_modules"),
+                            target_stat.st_dev,
+                            target_stat.st_ino,
+                            "dir",
+                        )
+            finally:
+                os.close(project_fd)
+
+            self.assertTrue((target / "keep.txt").is_file())
+
+    @unittest.skipUnless(os.name == "posix", "needs directory file descriptors")
     def test_fd_cleanup_stays_inside_open_project_after_root_is_replaced(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
