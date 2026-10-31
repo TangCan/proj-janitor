@@ -950,6 +950,23 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
 }
 
 #[test]
+fn credential_store_expands_tilde_to_home_before_project_check() {
+    let temp = TestDir::new();
+    let project = temp.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let resolved = crate::project::credential_store_path(
+        &project,
+        "~/.git-credentials",
+        true,
+        Some(project.as_os_str()),
+    )
+    .unwrap();
+
+    assert_eq!(resolved, project.join(".git-credentials"));
+    assert!(resolved.starts_with(&project));
+}
+
+#[test]
 fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
     let temp = TestDir::new();
     let project = temp.0.join("demo");

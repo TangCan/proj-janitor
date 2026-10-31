@@ -928,6 +928,32 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(len(manifests), 1)
             self.assertEqual(records[0].strategy, "archive")
 
+    @unittest.skipUnless(GIT_AVAILABLE, "needs Git")
+    def test_store_helper_expands_separate_tilde_path_before_project_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            (project / ".git-credentials").write_text(
+                "https://user:store-secret@github.com\n",
+                encoding="utf-8",
+            )
+            git(project, "config", "credential.helper", "store --file ~/.git-credentials")
+
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": str(project), "USERPROFILE": str(project)},
+            ):
+                manifests, records, failures = run_backup(
+                    [scan_project(project)], root / "backups"
+                )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(
+                failures,
+                [("app", "Git config points to a credential file inside the project")],
+            )
+
     def test_dirty_project_with_credentialed_submodule_never_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

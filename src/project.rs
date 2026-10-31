@@ -757,26 +757,11 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             {
                 return Some("Git config contains sensitive credential helper arguments");
             }
-            let credential_file = if expand_home
-                && (raw_path == "~" || raw_path.starts_with("~/") || raw_path.starts_with("~\\"))
-            {
-                let Some(home) =
-                    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
-                else {
-                    return Some("cannot safely inspect Git config for credentials");
-                };
-                PathBuf::from(home).join(
-                    raw_path
-                        .trim_start_matches('~')
-                        .trim_start_matches(['/', '\\']),
-                )
-            } else {
-                let credential_file = Path::new(raw_path);
-                if credential_file.is_absolute() {
-                    credential_file.to_path_buf()
-                } else {
-                    path.join(credential_file)
-                }
+            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+            let Some(credential_file) =
+                credential_store_path(path, raw_path, expand_home, home.as_deref())
+            else {
+                return Some("cannot safely inspect Git config for credentials");
             };
             let Ok(root) = fs::canonicalize(path) else {
                 return Some("cannot safely inspect Git config for credentials");
@@ -806,6 +791,31 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
         return Some("Git config contains a custom SSH command");
     }
     None
+}
+
+pub(crate) fn credential_store_path(
+    project: &Path,
+    raw_path: &str,
+    expand_home: bool,
+    home: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    let credential_file = if expand_home
+        && (raw_path == "~" || raw_path.starts_with("~/") || raw_path.starts_with("~\\"))
+    {
+        PathBuf::from(home?).join(
+            raw_path
+                .trim_start_matches('~')
+                .trim_start_matches(['/', '\\']),
+        )
+    } else {
+        let credential_file = Path::new(raw_path);
+        if credential_file.is_absolute() {
+            credential_file.to_path_buf()
+        } else {
+            project.join(credential_file)
+        }
+    };
+    Some(credential_file)
 }
 
 fn service_url_archive_reason(path: &Path) -> Option<&'static str> {
