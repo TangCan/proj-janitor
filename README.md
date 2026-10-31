@@ -257,7 +257,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-30）：Python 共 150 项（Linux 本地 149 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 35 项单元测试及 14 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。GitHub Actions [run `41043607397`](https://github.com/TangCan/proj-janitor/actions/runs/41043607397) 的 16 个 job 全部通过，覆盖 Python 3.10–3.15 Ubuntu、Python 3.12 macOS/Windows 和 Rust stable/MSRV 矩阵；CodeQL [run `41043607917`](https://github.com/TangCan/proj-janitor/actions/runs/41043607917) 的 Actions/Python/Rust 分析通过。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近一次本地验证（2026-10-31）：Python 共 150 项（Linux 本地 149 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 35 项单元测试及 14 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。GitHub Actions [run `41156956964`](https://github.com/TangCan/proj-janitor/actions/runs/41156956964) 的 18 个 job 全部通过，覆盖 Python 3.10–3.15 Ubuntu、Python 3.12/3.15 macOS/Windows 和 Rust stable/MSRV 矩阵；CodeQL [run `41156957525`](https://github.com/TangCan/proj-janitor/actions/runs/41156957525) 的 Actions/Python/Rust 分析通过。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
 
 Rust 版开发检查：
