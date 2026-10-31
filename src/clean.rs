@@ -59,13 +59,8 @@ pub(crate) fn clean_cmd(
                         continue;
                     }
                     if apply {
-                        let dir = Dir::open_ambient_dir(&p.path, ambient_authority())?;
-                        // shortcut: catches persistent swaps; use stable file IDs to guard handle acquisition too.
-                        anyhow::ensure!(
-                            fs::canonicalize(&p.path)? == p.path,
-                            "project root changed during cleanup planning: {}",
-                            p.path.display()
-                        );
+                        let identity = same_file::Handle::from_path(&p.path)?;
+                        let dir = open_cleanup_project(&p.path, &identity)?;
                         project_dirs.insert(p.path.clone(), dir);
                     }
                     for entry in WalkDir::new(&p.path)
@@ -225,6 +220,25 @@ pub(crate) fn clean_cmd(
         anyhow::bail!("scan failures")
     }
     Ok(())
+}
+
+pub(crate) fn open_cleanup_project(
+    project: &Path,
+    planned_identity: &same_file::Handle,
+) -> anyhow::Result<Dir> {
+    let dir = Dir::open_ambient_dir(project, ambient_authority())?;
+    let opened_identity = same_file::Handle::from_file(dir.try_clone()?.into_std_file())?;
+    anyhow::ensure!(
+        &opened_identity == planned_identity,
+        "project root changed during cleanup planning: {}",
+        project.display()
+    );
+    anyhow::ensure!(
+        fs::canonicalize(project)? == project,
+        "project root changed during cleanup planning: {}",
+        project.display()
+    );
+    Ok(dir)
 }
 
 pub(crate) fn remove_cleanup_target(

@@ -1612,6 +1612,21 @@ fn clean_refuses_target_replaced_after_plan() {
 }
 
 #[test]
+fn clean_refuses_project_root_replaced_while_opening_capability() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(project.join("target")).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let identity = same_file::Handle::from_path(&project).unwrap();
+    fs::rename(&project, temp.0.join("demo-original")).unwrap();
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+
+    assert!(crate::clean::open_cleanup_project(&project, &identity).is_err());
+    assert!(project.join("pyproject.toml").is_file());
+}
+
+#[test]
 fn tree_size_reports_traversal_errors() {
     let temp = TestDir::new();
     assert!(tree_size(&temp.0.join("missing")).is_err());
