@@ -716,21 +716,59 @@ fn git_config_archive_reason(path: &Path) -> Option<&'static str> {
             return Some("Git config contains sensitive credential helper arguments");
         }
         for (index, argument) in arguments.iter().enumerate() {
-            let raw_path = if let Some(path) = argument.strip_prefix("--file=") {
-                Some(path)
+            let (raw_path, expand_home) = if let Some(path) = argument.strip_prefix("--file=") {
+                (Some(path), false)
             } else if *argument == "--file" {
-                arguments.get(index + 1).copied()
+                (arguments.get(index + 1).copied(), true)
             } else {
-                None
+                (None, false)
             };
             let Some(raw_path) = raw_path else {
                 continue;
             };
-            let credential_file = Path::new(raw_path.trim_matches(|c| c == '"' || c == '\''));
-            let credential_file = if credential_file.is_absolute() {
-                credential_file.to_path_buf()
+            if raw_path.chars().any(|c| {
+                matches!(
+                    c,
+                    '\'' | '"'
+                        | '$'
+                        | '`'
+                        | '*'
+                        | '?'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | ';'
+                        | '|'
+                        | '&'
+                        | '('
+                        | ')'
+                        | '<'
+                        | '>'
+                )
+            }) {
+                return Some("Git config contains sensitive credential helper arguments");
+            }
+            let credential_file = if expand_home
+                && (raw_path == "~" || raw_path.starts_with("~/") || raw_path.starts_with("~\\"))
+            {
+                let Some(home) =
+                    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+                else {
+                    return Some("cannot safely inspect Git config for credentials");
+                };
+                PathBuf::from(home).join(
+                    raw_path
+                        .trim_start_matches('~')
+                        .trim_start_matches(['/', '\\']),
+                )
             } else {
-                path.join(credential_file)
+                let credential_file = Path::new(raw_path);
+                if credential_file.is_absolute() {
+                    credential_file.to_path_buf()
+                } else {
+                    path.join(credential_file)
+                }
             };
             let Ok(root) = fs::canonicalize(path) else {
                 return Some("cannot safely inspect Git config for credentials");

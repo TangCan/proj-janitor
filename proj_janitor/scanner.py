@@ -416,11 +416,17 @@ def _git_config_archive_reason(path: Path) -> str | None:
         for index, argument in enumerate(arguments):
             if argument.startswith("--file="):
                 raw_path = argument.partition("=")[2]
+                expand_home = False
             elif argument == "--file" and index + 1 < len(arguments):
                 raw_path = arguments[index + 1]
+                expand_home = True
             else:
                 continue
-            credential_file = Path(raw_path.strip("\"' ")).expanduser()
+            if any(char in raw_path for char in "\"'$`*?[]{};|&()<>"):
+                return "Git config contains sensitive credential helper arguments"
+            credential_file = Path(raw_path.strip(" "))
+            if expand_home:
+                credential_file = credential_file.expanduser()
             if not credential_file.is_absolute():
                 credential_file = path / credential_file
             if not credential_file.exists():

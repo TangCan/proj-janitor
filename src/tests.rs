@@ -825,6 +825,18 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             "store-secret",
         ),
         (
+            "credential.helper",
+            "store --file='.git-credentials'",
+            "Git config contains sensitive credential helper arguments",
+            "quoted-store-secret",
+        ),
+        (
+            "credential.helper",
+            "store --file $HOME/.git-credentials",
+            "Git config contains sensitive credential helper arguments",
+            "expanded-store-secret",
+        ),
+        (
             "http.proxy",
             "http://proxy-user:proxy-secret@proxy.example:8080",
             "Git config contains credentials or query data in a service URL",
@@ -899,7 +911,7 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             )
             .unwrap();
         }
-        if value.starts_with("store --file=") {
+        if value.starts_with("store --file") {
             fs::write(
                 project.join(".git-credentials"),
                 format!("https://user:{secret}@github.com\n"),

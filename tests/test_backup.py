@@ -812,6 +812,18 @@ class GitStrategyBackupTests(unittest.TestCase):
                 "store-secret",
             ),
             (
+                "credential.helper",
+                "store --file='.git-credentials'",
+                "Git config contains sensitive credential helper arguments",
+                "quoted-store-secret",
+            ),
+            (
+                "credential.helper",
+                "store --file $HOME/.git-credentials",
+                "Git config contains sensitive credential helper arguments",
+                "expanded-store-secret",
+            ),
+            (
                 "http.proxy",
                 "http://proxy-user:proxy-secret@proxy.example:8080",
                 "Git config contains credentials or query data in a service URL",
@@ -874,7 +886,7 @@ class GitStrategyBackupTests(unittest.TestCase):
                         f"[http]\n\tproxy = {value}\n",
                         encoding="utf-8",
                     )
-                if value.startswith("store --file="):
+                if value.startswith("store --file"):
                     (project / ".git-credentials").write_text(
                         f"https://user:{secret}@github.com\n",
                         encoding="utf-8",
