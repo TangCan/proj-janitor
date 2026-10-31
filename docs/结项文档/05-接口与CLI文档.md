@@ -8,7 +8,7 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-10-31 Python 3.15 多平台 CI 补充 |
-| 源码提交 | `a905b77606868a52ac24176f84cfd566ca1baaea`（main 当前程序快照；`v0.2.5` 为已发布标签） |
+| 源码提交 | `676ca474dd389ec9ab4c4847bf57a4d50c3e95a6`（main 当前程序快照；`v0.2.5` 为已发布标签） |
 | 源码标签 | `v0.2.5` 为最新发布标签；main 的 0.2.6 候选尚未打 tag |
 | 文档日期 | 2026-10-31 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -814,7 +814,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 没有 `schema_version` 字段。
 - `clean --json` 的 stdout 为单个 JSON 文档；确认提示、摘要和错误写入 stderr。详见第 7.5 节。
 - 计划项按 `(project, path)` 字符串排序；不保证按体积或规则名排序。
-- `size_bytes` 是计划时估算值；删除前文件可能变化，实际释放空间以操作系统结果为准。
+- `size_bytes` 是计划时估算值；删除前文件可能变化，实际释放空间以操作系统结果为准。执行前会比较计划时记录的目标身份；目标路径被替换时会报错并跳过。
 
 ### 10.3 `restore --json` 对象
 
@@ -1021,7 +1021,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | --- | --- |
 | `GitState` | `branch: str \| None`，`dirty: bool \| None` |
 | `Project` | `path`，`name`，`markers`，`size_bytes`，`last_modified`，`git`；属性 `dirty_label`、`branch_label` |
-| `CleanupAction` | `project`，`path`，`rule`，`kind`，`size_bytes` |
+| `CleanupAction` | `project`，`path`，`rule`，`kind`，`size_bytes`，内部项目根及目标身份字段 |
 | `GitRecovery` | `eligible`，`reason`，`remote`，`remote_url`，`branch`，`commit`，`upstream`，`verified` |
 | `BackupRecord` | 第 11.2 节所列 14 个字段 |
 | `BackupPlan` | `project`，`archive_name`，`strategy`，`recovery`，`reason` |
@@ -1193,7 +1193,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 - 项目发现只处理根目录本身或直接子目录，不递归发现嵌套项目。
 - 根路径和备份目标支持 `~` 展开；项目路径在扫描后解析为绝对路径。
 - 扫描、清理计划和归档排除逻辑不跟随符号链接；符号链接目录不会被递归进入。
-- POSIX Python 清理通过已打开的目录文件描述符相对删除，Rust 使用目录 capability；Python Windows 仍走路径回退，检查与删除之间存在 TOCTOU 窗口。
+- POSIX Python 清理通过已打开的目录文件描述符相对删除，Rust 使用目录 capability；执行前都会校验清理目标的计划身份。Python Windows 仍走路径回退，校验与 unlink 之间仍有窄 TOCTOU 窗口。
 - 归档包含 `.git`，默认只排除 artifact 规则命中的路径；不会自动排除 secrets、日志或用户数据。
 - 硬链接按普通文件内容统计和归档，不保留链接关系；FIFO、设备文件和 socket 不归档，恢复拒绝特殊或未知成员类型。
 
@@ -1345,7 +1345,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
-- Python 153 项测试（Linux 本地 152 项通过、1 项 Windows 专用测试跳过）、Rust 36 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。CI run [41163575637](https://github.com/TangCan/proj-janitor/actions/runs/41163575637) 的 18/18 jobs 全部通过；CodeQL run [41163575570](https://github.com/TangCan/proj-janitor/actions/runs/41163575570) 的 Actions、Python、Rust 分析通过。
+- Python 154 项测试（Linux 本地 153 项通过、1 项 Windows 专用测试跳过）、Rust 37 项单元测试和 14 项 CLI 集成测试通过；Python/Rust 对 archive 与 Git metadata-only manifest 的 verify JSON 结果一致。此前 CI run [41163930228](https://github.com/TangCan/proj-janitor/actions/runs/41163930228) 的 18/18 jobs 与 CodeQL run [41163930040](https://github.com/TangCan/proj-janitor/actions/runs/41163930040) 的三项分析通过；本次目标身份改动待远端验证。
 - GitHub Actions run [41159972991](https://github.com/TangCan/proj-janitor/actions/runs/41159972991) 的 18/18 个 job 成功，包含 Windows Rust CLI 和跨语言 verify 检查。
 - CodeQL run [41159973417](https://github.com/TangCan/proj-janitor/actions/runs/41159973417) 的 Actions、Python、Rust 三个 job 成功；当前无开放 CodeQL 告警。Dependabot 当前无开放依赖告警。
 - 正式结项仍待实际负责人/接收人验收与签字；verify 不验证归档成员结构或 Git 远程可用性。
