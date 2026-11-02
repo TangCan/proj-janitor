@@ -303,6 +303,30 @@ class BackupTests(unittest.TestCase):
             self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    @unittest.skipUnless(os.name == "posix", "replacing an open file is POSIX-specific")
+    def test_backup_fdopen_failure_preserves_replaced_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+
+            def replace_manifest_then_fail(fd, mode="r", *args, **kwargs):
+                if mode == "w":
+                    manifest = next(backup_dest.rglob("manifest-*.json"))
+                    manifest.rename(root / "original-manifest.json")
+                    manifest.write_text("keep replacement", encoding="utf-8")
+                raise KeyboardInterrupt
+
+            with mock.patch(
+                "proj_janitor.backup.os.fdopen", side_effect=replace_manifest_then_fail
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    run_backup([project], backup_dest, always_archive=True)
+
+            manifest = next(backup_dest.rglob("manifest-*.json"))
+            self.assertEqual(manifest.read_text(encoding="utf-8"), "keep replacement")
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
     def test_backup_cleanup_error_does_not_mask_interruption(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

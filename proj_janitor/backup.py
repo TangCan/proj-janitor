@@ -312,13 +312,18 @@ def _open_new_file(path: Path, binary: bool = False):
     if binary:
         flags |= getattr(os, "O_BINARY", 0)
     descriptor = os.open(path, flags, 0o600)
+    created = os.fstat(descriptor)
+    identity = created.st_dev, created.st_ino
     try:
         if binary:
             return os.fdopen(descriptor, "w+b")
         return os.fdopen(descriptor, "w", encoding="utf-8")
     except BaseException:
-        os.close(descriptor)
-        _discard_partial_file(path)
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        _discard_partial_file_if_same(path, identity)
         raise
 
 
