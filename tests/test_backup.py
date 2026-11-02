@@ -353,6 +353,25 @@ class BackupTests(unittest.TestCase):
                 os.fstat(descriptor)
             self.assertEqual(path.read_bytes(), b"")
 
+    @unittest.skipUnless(os.name == "posix", "renaming an open file is POSIX-specific")
+    def test_backup_fstat_failure_preserves_replaced_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "reserved.json"
+
+            def replace_path_then_fail(descriptor):
+                path.rename(root / "original.json")
+                path.write_bytes(b"keep concurrent file")
+                raise OSError("fstat failed")
+
+            with mock.patch(
+                "proj_janitor.backup.os.fstat", side_effect=replace_path_then_fail
+            ):
+                with self.assertRaisesRegex(OSError, "fstat failed"):
+                    backup_module._open_new_file(path)
+
+            self.assertEqual(path.read_bytes(), b"keep concurrent file")
+
     @unittest.skipUnless(os.name == "posix", "replacing an open file is POSIX-specific")
     def test_backup_fdopen_failure_preserves_replaced_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
