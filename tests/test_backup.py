@@ -761,6 +761,34 @@ class GitStrategyBackupTests(unittest.TestCase):
             self.assertEqual(records[0].strategy, "archive")
             self.assertTrue(json.loads(manifests[0].read_text())["exclude_git_metadata"])
 
+    def test_git_bundle_timeout_is_reported_as_a_project_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "switch", "-c", "feature/local")
+            (project / "feature.py").write_text("local history\n", encoding="utf-8")
+            git(project, "add", "feature.py")
+            git(project, "commit", "-m", "local-only commit")
+            real_run = backup_module.subprocess.run
+
+            def time_out_bundle(command, *args, **kwargs):
+                if "bundle" in command:
+                    raise backup_module.subprocess.TimeoutExpired(command, 600)
+                return real_run(command, *args, **kwargs)
+
+            backup_dest = root / "backups"
+            with mock.patch.object(
+                backup_module.subprocess, "run", side_effect=time_out_bundle
+            ):
+                manifests, records, failures = run_backup(
+                    [scan_project(project)], backup_dest
+                )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(failures, [("app", "git bundle creation timed out")])
+            self.assertEqual(list((backup_dest / "app").iterdir()), [])
+
     def test_credentialed_submodule_url_never_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

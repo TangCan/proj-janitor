@@ -382,24 +382,27 @@ def _create_git_bundle(
     temporary_bundle = temporary / "bundle"
     identity: tuple[int, int] | None = None
     try:
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(project.path),
-                "bundle",
-                "create",
-                str(temporary_bundle),
-                "--all",
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=600,
-            check=False,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(project.path),
+                    "bundle",
+                    "create",
+                    str(temporary_bundle),
+                    "--all",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=600,
+                check=False,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise OSError("git bundle creation timed out") from exc
         if result.returncode:
             raise OSError(result.stderr.strip() or "git bundle creation failed")
         with temporary_bundle.open("rb") as source, _open_new_file(
