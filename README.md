@@ -253,7 +253,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近验证（2026-11-02）：Python 共 163 项（Linux 本地 162 项通过、1 项 Windows 专属测试跳过）；Rust main 开发版通过 43 项单元测试及 16 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。当前 main CI [run `41377683837`](https://github.com/TangCan/proj-janitor/actions/runs/41377683837) 18/18 jobs、CodeQL [run `41377683827`](https://github.com/TangCan/proj-janitor/actions/runs/41377683827) 三项分析通过。Rust `0.2.6` 已从 crates.io 安装验证，`projjan --version` 输出 `0.2.6`；当前 main 的 `0.2.7` 开发版隐藏 `backup --help` 中的 `BACKUP_DEST` 实际路径，并让失败清理只删除身份匹配的备份文件；尚未发布。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近验证（2026-11-02）：Python 共 164 项（Linux 本地 163 项通过、1 项 Windows 专属测试跳过）；Rust main 开发版通过 43 项单元测试及 16 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。当前 main CI [run `41378547911`](https://github.com/TangCan/proj-janitor/actions/runs/41378547911) 18/18 jobs、CodeQL [run `41378547866`](https://github.com/TangCan/proj-janitor/actions/runs/41378547866) 三项分析通过。Rust `0.2.6` 已从 crates.io 安装验证，`projjan --version` 输出 `0.2.6`；当前 main 的 `0.2.7` 开发版隐藏 `backup --help` 中的 `BACKUP_DEST` 实际路径，并在创建备份文件失败时只清理身份匹配的文件，保留并发抢占同名归档的文件；尚未发布。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.6` 已发布至 crates.io；详见 [Rust 版 0.2.6 发布记录](docs/发布记录/0.2.6-Rust版.md)。
 
 Rust 版开发检查：
