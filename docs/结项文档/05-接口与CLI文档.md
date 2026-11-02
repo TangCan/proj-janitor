@@ -1355,3 +1355,7 @@ projjan verify MANIFEST --project NAME --json
 - Rust `0.2.6` 已发布至 crates.io，tag 为 `v0.2.6`；Python package 仍为 `0.1.0`。
 - `--exclude-git-metadata` 随 Rust 0.2.6 提供，Python API/CLI 尚未提供该选项。
 - 发布验证、tag CI 和安装命令见 `docs/发布记录/0.2.6-Rust版.md`。
+
+## Rust 0.2.7 开发状态（2026-11-02）
+
+main 当前 Cargo 版本为 `0.2.7` 开发版（提交 `16e4f1a`）；Rust CLI 的 `backup --help` 只显示 `BACKUP_DEST` 环境变量名，不再显示运行环境中的实际路径。该修复尚未包含在 crates.io `0.2.6`。

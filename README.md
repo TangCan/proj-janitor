@@ -253,7 +253,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近验证（2026-11-02）：Python 共 162 项（Linux 本地 161 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 43 项单元测试及 15 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。v0.2.6 tag CI [run `41371758992`](https://github.com/TangCan/proj-janitor/actions/runs/41371758992) 的 18 个 job 全部通过；CodeQL [run `41323539943`](https://github.com/TangCan/proj-janitor/actions/runs/41323539943) 的 Actions/Python/Rust 分析通过。crate 已从 crates.io 安装验证，`projjan --version` 输出 `0.2.6`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+最近验证（2026-11-02）：Python 共 162 项（Linux 本地 161 项通过、1 项 Windows 专属测试跳过）；Rust main 开发版通过 43 项单元测试及 16 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。当前 main CI [run `41376193255`](https://github.com/TangCan/proj-janitor/actions/runs/41376193255) 18/18 jobs、CodeQL [run `41376193244`](https://github.com/TangCan/proj-janitor/actions/runs/41376193244) 三项分析通过。Rust `0.2.6` 已从 crates.io 安装验证，`projjan --version` 输出 `0.2.6`；当前 main 的 `0.2.7` 开发版修复了 `backup --help` 显示 `BACKUP_DEST` 实际路径的问题，尚未发布。Python 版无第三方运行时依赖，要求 Python 3.10+。
 Rust `0.2.6` 已发布至 crates.io；详见 [Rust 版 0.2.6 发布记录](docs/发布记录/0.2.6-Rust版.md)。
 
 Rust 版开发检查：
