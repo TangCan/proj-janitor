@@ -770,7 +770,9 @@ fn backup_and_restore_unpushed_git_history_with_bundle() {
     assert!(git(&restored, &["branch", "--list"]).contains("main"));
     assert!(git(&restored, &["remote"]).is_empty());
     assert_eq!(
-        fs::read_to_string(restored.join("feature.py")).unwrap(),
+        fs::read_to_string(restored.join("feature.py"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "local history\n"
     );
 
