@@ -330,6 +330,29 @@ class BackupTests(unittest.TestCase):
             self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_fstat_failure_closes_descriptor_without_unlinking_by_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reserved.json"
+            real_open = os.open
+            descriptor = None
+
+            def record_open(*args, **kwargs):
+                nonlocal descriptor
+                descriptor = real_open(*args, **kwargs)
+                return descriptor
+
+            with (
+                mock.patch("proj_janitor.backup.os.open", side_effect=record_open),
+                mock.patch("proj_janitor.backup.os.fstat", side_effect=OSError("fstat failed")),
+            ):
+                with self.assertRaisesRegex(OSError, "fstat failed"):
+                    backup_module._open_new_file(path)
+
+            self.assertIsNotNone(descriptor)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+            self.assertEqual(path.read_bytes(), b"")
+
     @unittest.skipUnless(os.name == "posix", "replacing an open file is POSIX-specific")
     def test_backup_fdopen_failure_preserves_replaced_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

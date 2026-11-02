@@ -302,7 +302,15 @@ def _open_new_file(path: Path, binary: bool = False):
     if binary:
         flags |= getattr(os, "O_BINARY", 0)
     descriptor = os.open(path, flags, 0o600)
-    created = os.fstat(descriptor)
+    try:
+        created = os.fstat(descriptor)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        # shortcut: leave an empty file if fstat fails; use handle-based cleanup if observable.
+        raise
     identity = created.st_dev, created.st_ino
     try:
         if binary:
