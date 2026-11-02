@@ -960,7 +960,7 @@ fn restore_git_bundle(
         );
         let repo = temporary.join("repo");
         let mut init = Command::new("git");
-        init.args(["init"]).arg(&repo);
+        init.current_dir(&temporary).args(["init", "repo"]);
         anyhow::ensure!(
             run_git_with_timeout(&mut init, project, "init")?.success(),
             "cannot initialize Git bundle restore for {project}"
