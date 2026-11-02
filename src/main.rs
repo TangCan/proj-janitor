@@ -87,7 +87,7 @@ enum Action {
     Backup {
         #[arg(required = true)]
         roots: Vec<PathBuf>,
-        #[arg(long, env = "BACKUP_DEST")]
+        #[arg(long, env = "BACKUP_DEST", hide_env_values = true)]
         backup_dest: Option<PathBuf>,
         #[arg(long)]
         dry_run: bool,

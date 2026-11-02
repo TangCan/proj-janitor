@@ -106,6 +106,22 @@ fn cli_help_and_version_are_available_without_subcommands() {
 }
 
 #[test]
+fn backup_help_hides_backup_dest_environment_value() {
+    let temp = TestDir::new();
+    let backup_dest = temp.0.join("private-backup-location");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--help"])
+        .env("BACKUP_DEST", &backup_dest)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("BACKUP_DEST"));
+    assert!(!help.contains(backup_dest.to_str().unwrap()));
+}
+
+#[test]
 fn backup_and_restore_git_lfs_objects_with_git_strategy() {
     if cfg!(windows) {
         eprintln!("skipping local-file Git LFS integration on Windows");
