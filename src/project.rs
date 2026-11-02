@@ -154,6 +154,21 @@ pub(crate) fn git_output(path: &Path, args: &[&str]) -> Option<String> {
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+pub(crate) fn git_compatible_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix("\\\\?\\UNC\\") {
+            return PathBuf::from(format!("\\\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix("\\\\?\\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
 fn git_run(path: &Path, args: &[&str]) -> Option<std::process::Output> {
     let mut child = Command::new("git")
         .env("GIT_TERMINAL_PROMPT", "0")

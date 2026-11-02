@@ -27,7 +27,7 @@ use crate::{
         safe_windows_component, sha256,
     },
     expand,
-    project::{git_output, submodule_config, submodule_url_supported},
+    project::{git_compatible_path, git_output, submodule_config, submodule_url_supported},
     resolve_for_creation,
 };
 
@@ -940,6 +940,7 @@ fn restore_git_bundle(
     let result = (|| -> anyhow::Result<()> {
         let stable_bundle = temporary.join("source.bundle");
         fs::copy(bundle, &stable_bundle)?;
+        let git_bundle_path = git_compatible_path(&stable_bundle);
         if !no_verify {
             let expected = expected_hash
                 .filter(|hash| !hash.is_empty())
@@ -952,7 +953,7 @@ fn restore_git_bundle(
             );
         }
         let mut verify = Command::new("git");
-        verify.args(["bundle", "verify"]).arg(&stable_bundle);
+        verify.args(["bundle", "verify"]).arg(&git_bundle_path);
         anyhow::ensure!(
             run_git_with_timeout(&mut verify, project, "bundle verify")?.success(),
             "invalid Git bundle for {project}"
@@ -970,7 +971,7 @@ fn restore_git_bundle(
             .arg("-C")
             .arg(&repo)
             .args(["fetch", "--no-tags"])
-            .arg(&stable_bundle)
+            .arg(&git_bundle_path)
             .args(["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
         anyhow::ensure!(
             run_git_with_timeout(&mut fetch, project, "bundle fetch")?.success(),

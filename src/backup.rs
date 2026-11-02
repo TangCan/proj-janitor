@@ -15,7 +15,7 @@ use crate::{
         write_new_file,
     },
     expand, human,
-    project::{discover, inspect_bundle_recovery, inspect_recovery},
+    project::{discover, git_compatible_path, inspect_bundle_recovery, inspect_recovery},
     resolve_for_creation,
 };
 
@@ -57,7 +57,7 @@ fn create_git_bundle(
             .arg("-C")
             .arg(project)
             .args(["bundle", "create"])
-            .arg(&temporary_bundle)
+            .arg(git_compatible_path(&temporary_bundle))
             .arg("--all")
             .stdin(Stdio::null())
             .output()?;

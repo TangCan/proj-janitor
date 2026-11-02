@@ -8,6 +8,8 @@ use crate::archive::{
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
 use crate::clean::tree_size;
+#[cfg(windows)]
+use crate::project::git_compatible_path;
 use crate::project::{
     github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
 };
@@ -49,6 +51,19 @@ fn bundle_eligibility_accepts_clean_local_branch() {
         .unwrap_or_else(|reason| panic!("bundle should be eligible: {reason}"));
     assert_eq!(recovery.branch, "main");
     assert_eq!(recovery.commit.len(), 40);
+}
+
+#[cfg(windows)]
+#[test]
+fn git_file_arguments_remove_windows_verbatim_path_prefix() {
+    assert_eq!(
+        git_compatible_path(Path::new(r"\\?\C:\temp\bundle")),
+        PathBuf::from(r"C:\temp\bundle")
+    );
+    assert_eq!(
+        git_compatible_path(Path::new(r"\\?\UNC\server\share\bundle")),
+        PathBuf::from(r"\\server\share\bundle")
+    );
 }
 
 #[cfg(not(windows))]
