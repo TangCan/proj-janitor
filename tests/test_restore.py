@@ -716,6 +716,39 @@ class RestoreTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRestoreTests(unittest.TestCase):
+    def test_git_bundle_restores_unpushed_branch_and_all_local_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "switch", "-c", "feature/local")
+            (project / "feature.py").write_text("local history\n", encoding="utf-8")
+            git(project, "add", "feature.py")
+            git(project, "commit", "-m", "local-only commit")
+            head = git(project, "rev-parse", "HEAD")
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups"
+            )
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git_bundle")
+            self.assertEqual(verify_manifest(manifests[0])[0]["status"], "verified")
+
+            restored = root / "restored"
+            plans, results = restore_from_manifest(manifests[0], restored)
+            target = restored / "app"
+
+            self.assertEqual(plans[0].strategy, "git_bundle")
+            self.assertEqual(results[0].strategy, "git_bundle")
+            self.assertEqual(git(target, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(target, "branch", "--show-current"), "feature/local")
+            self.assertIn("main", git(target, "branch", "--list"))
+            self.assertEqual(git(target, "remote"), "")
+            self.assertEqual((target / "feature.py").read_text(encoding="utf-8"), "local history\n")
+
+            with Path(records[0].archive or "").open("ab") as bundle:
+                bundle.write(b"corruption")
+            with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
+                verify_manifest(manifests[0])
+
     @unittest.skipUnless(
         GIT_LFS_AVAILABLE and os.name != "nt",
         "git-lfs or a local-file LFS endpoint is not available",

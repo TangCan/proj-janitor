@@ -54,6 +54,11 @@ pub(crate) struct Recovery {
     pub(crate) upstream: String,
 }
 
+pub(crate) struct BundleRecovery {
+    pub(crate) branch: String,
+    pub(crate) commit: String,
+}
+
 pub(crate) struct Submodule {
     pub(crate) path: PathBuf,
     pub(crate) url: String,
@@ -563,6 +568,80 @@ pub(crate) fn inspect_recovery(project: &Project) -> Result<Recovery, String> {
         return Err(reason.into());
     }
     recovery
+}
+
+pub(crate) fn inspect_bundle_recovery(project: &Project) -> Result<BundleRecovery, String> {
+    let path = &project.path;
+    if !path.join(".git").exists() {
+        return Err("not a git repository".into());
+    }
+    let branch = git_output(path, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .filter(|branch| !branch.is_empty())
+        .ok_or("detached HEAD")?;
+    let status = git_output(
+        path,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+    )
+    .ok_or("git status failed")?;
+    if !status.is_empty() {
+        return Err("working tree is not clean".into());
+    }
+    let stashes = git_output(path, &["stash", "list"]).ok_or("cannot inspect stashes")?;
+    if !stashes.is_empty() {
+        return Err("stash entries are not included".into());
+    }
+    let shallow = git_output(path, &["rev-parse", "--is-shallow-repository"])
+        .ok_or("cannot inspect shallow repository state")?;
+    if shallow == "true" {
+        return Err("shallow Git repositories cannot be bundled".into());
+    }
+    let modules = submodule_config(path).map_err(|_| "cannot inspect submodule configuration")?;
+    if !modules.is_empty() {
+        return Err("Git bundle does not support submodules".into());
+    }
+    if git_lfs_recovery_reason(path).is_some() {
+        return Err("Git bundle does not support Git LFS".into());
+    }
+    let indexed = git_output(path, &["ls-files", "--stage"]).ok_or("cannot inspect Git index")?;
+    if indexed.lines().any(|line| line.starts_with("160000 ")) {
+        return Err("Git bundle does not support submodules".into());
+    }
+    let ignored = git_run(
+        path,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        ],
+    )
+    .filter(|output| output.status.success())
+    .ok_or("cannot inspect ignored files")?;
+    for raw in ignored
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|s| !s.is_empty())
+    {
+        let ignored_path = String::from_utf8_lossy(raw)
+            .trim_end_matches('/')
+            .to_string();
+        if !ignored_path.is_empty() && !ignored_is_artifact(path, Path::new(&ignored_path)) {
+            return Err(format!("ignored path is not an artifact: {ignored_path}"));
+        }
+    }
+    let commit = git_output(path, &["rev-parse", "HEAD"])
+        .filter(|commit| !commit.is_empty())
+        .ok_or("HEAD is unavailable")?;
+    Ok(BundleRecovery { branch, commit })
 }
 
 fn git_config_archive_reason(path: &Path) -> Option<&'static str> {

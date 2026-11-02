@@ -678,6 +678,170 @@ fn backup_cli_creates_an_archive_and_manifest() {
 }
 
 #[test]
+fn backup_and_restore_unpushed_git_history_with_bundle() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    fs::write(project.join("main.py"), "main\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "main"]);
+    git(&project, &["switch", "-q", "-c", "feature/local"]);
+    fs::write(project.join("feature.py"), "local history\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "local-only"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&backup.stdout).contains("[git-bundle]"),
+        "stdout: {}",
+        String::from_utf8_lossy(&backup.stdout)
+    );
+    let project_backup = backup_dest.join("demo");
+    let entries: Vec<_> = fs::read_dir(&project_backup)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    let manifest = entries
+        .iter()
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let bundle = entries
+        .iter()
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "bundle")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["records"][0]["strategy"], "git_bundle");
+    assert_eq!(manifest_json["records"][0]["commit"], head);
+    assert_eq!(
+        manifest_json["records"][0]["sha256"],
+        format!("{:x}", Sha256::digest(fs::read(bundle).unwrap()))
+    );
+    let verified = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(manifest)
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+
+    let restored_dest = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    let restored = restored_dest.join("demo");
+    assert_eq!(git(&restored, &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        git(&restored, &["branch", "--show-current"]),
+        "feature/local"
+    );
+    assert!(git(&restored, &["branch", "--list"]).contains("main"));
+    assert!(git(&restored, &["remote"]).is_empty());
+    assert_eq!(
+        fs::read_to_string(restored.join("feature.py")).unwrap(),
+        "local history\n"
+    );
+
+    let excluded_backups = temp.0.join("excluded-backups");
+    let excluded = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&excluded_backups)
+        .arg("--exclude-git-metadata")
+        .output()
+        .unwrap();
+    assert!(
+        excluded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&excluded.stderr)
+    );
+    let excluded_manifest = fs::read_dir(excluded_backups.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let excluded_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&excluded_manifest).unwrap()).unwrap();
+    assert_eq!(excluded_json["exclude_git_metadata"], true);
+    assert_eq!(excluded_json["records"][0]["strategy"], "archive");
+    let excluded_restore = temp.0.join("excluded-restore");
+    let restored_archive = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(excluded_manifest)
+        .arg("--dest")
+        .arg(&excluded_restore)
+        .output()
+        .unwrap();
+    assert!(
+        restored_archive.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored_archive.stderr)
+    );
+    assert!(!excluded_restore.join("demo/.git").exists());
+
+    use std::io::Write;
+    fs::OpenOptions::new()
+        .append(true)
+        .open(bundle)
+        .unwrap()
+        .write_all(b"corruption")
+        .unwrap();
+    let rejected = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(manifest)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("sha256 mismatch"));
+    let rejected_dest = temp.0.join("tampered-restore");
+    let rejected_restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(manifest)
+        .arg("--dest")
+        .arg(&rejected_dest)
+        .output()
+        .unwrap();
+    assert!(!rejected_restore.status.success());
+    assert!(!rejected_dest.join("demo").exists());
+}
+
+#[test]
 fn backup_can_archive_working_tree_without_git_metadata() {
     let temp = TestDir::new();
     let project = temp.project();

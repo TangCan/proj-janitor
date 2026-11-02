@@ -658,6 +658,77 @@ def inspect_git_recoverability(
     return recovery
 
 
+def inspect_git_bundle_recoverability(
+    project: Project,
+    patterns: Iterable[str] = (),
+) -> GitRecovery:
+    path = project.path
+    patterns = tuple(patterns)
+    if not (path / ".git").exists():
+        return GitRecovery(False, "not a git repository")
+    branch = _git_output(path, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if not branch:
+        return GitRecovery(False, "detached HEAD")
+    status = _git_output(
+        path,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    if status is None:
+        return GitRecovery(False, "git status failed")
+    if status:
+        return GitRecovery(False, "working tree is not clean")
+    stashes = _git_output(path, "stash", "list")
+    if stashes is None:
+        return GitRecovery(False, "cannot inspect stashes")
+    if stashes:
+        return GitRecovery(False, "stash entries are not included")
+    shallow = _git_output(path, "rev-parse", "--is-shallow-repository")
+    if shallow is None:
+        return GitRecovery(False, "cannot inspect shallow repository state")
+    if shallow == "true":
+        return GitRecovery(False, "shallow Git repositories cannot be bundled")
+    modules = submodule_config(path)
+    if modules is None or modules:
+        return GitRecovery(False, "Git bundle does not support submodules")
+    if _git_lfs_recovery_reason(path) is not None:
+        return GitRecovery(False, "Git bundle does not support Git LFS")
+    indexed = _git_output(path, "ls-files", "--stage")
+    if indexed is None:
+        return GitRecovery(False, "cannot inspect Git index")
+    if any(line.startswith("160000 ") for line in indexed.splitlines()):
+        return GitRecovery(False, "Git bundle does not support submodules")
+    ignored = _git_run(
+        path,
+        "-c",
+        "core.quotePath=false",
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--directory",
+        "-z",
+    )
+    if ignored is None or ignored.returncode != 0:
+        return GitRecovery(False, "cannot inspect ignored files")
+    for entry in ignored.stdout.split("\0"):
+        ignored_path = entry.rstrip("/")
+        if ignored_path and not _ignored_path_is_artifact(path, ignored_path, patterns):
+            return GitRecovery(False, f"ignored path is not an artifact: {ignored_path}")
+    commit = _git_output(path, "rev-parse", "HEAD")
+    if not commit:
+        return GitRecovery(False, "HEAD is unavailable")
+    return GitRecovery(
+        True,
+        "GitHub remote does not contain all local refs",
+        branch=branch,
+        commit=commit,
+        verified="local-bundle",
+    )
+
+
 def _inspect_git_recoverability(
     project: Project,
     patterns: Iterable[str] = (),

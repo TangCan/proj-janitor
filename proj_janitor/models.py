@@ -95,6 +95,7 @@ class RestorePlan:
     archive: Path | None = None
     remote_url: str | None = None
     commit: str | None = None
+    branch: str | None = None
     sha256: str | None = None
     hash_verified: bool = False
     in_place: bool = False

@@ -23,7 +23,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 use crate::{
     Manifest, Record,
     archive::{
-        create_restore_temp_dir, extract_archive, extract_archive_with_hash, portable_path_key,
+        create_private_temp_dir, extract_archive, extract_archive_with_hash, portable_path_key,
         safe_windows_component, sha256,
     },
     expand,
@@ -189,6 +189,7 @@ pub(crate) fn verify_cmd(
                     "verified",
                     Some(archive),
                     Some(actual),
+                    None,
                 ));
             }
             "git" => {
@@ -206,6 +207,42 @@ pub(crate) fn verify_cmd(
                     "git",
                     "metadata-only",
                     None,
+                    None,
+                    Some(commit.to_owned()),
+                ));
+            }
+            "git_bundle" => {
+                let bundle =
+                    resolve_archive(record, manifest_path.parent().unwrap_or(Path::new(".")))?;
+                let expected = record
+                    .sha256
+                    .as_deref()
+                    .filter(|hash| !hash.is_empty())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("manifest has no sha256 for {}", record.project)
+                    })?;
+                let commit = record
+                    .commit
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("missing commit for {}", record.project))?;
+                anyhow::ensure!(
+                    (40..=64).contains(&commit.len())
+                        && commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                    "invalid Git bundle commit for {}",
+                    record.project
+                );
+                let actual = sha256(&bundle)?;
+                anyhow::ensure!(
+                    actual.eq_ignore_ascii_case(expected),
+                    "sha256 mismatch for {}",
+                    bundle.display()
+                );
+                results.push((
+                    record.project.clone(),
+                    "git_bundle",
+                    "verified",
+                    Some(bundle),
+                    Some(actual),
                     Some(commit.to_owned()),
                 ));
             }
@@ -215,7 +252,7 @@ pub(crate) fn verify_cmd(
     if json {
         let projects: Vec<_> = results
             .iter()
-            .map(|(project, strategy, status, archive, detail)| {
+            .map(|(project, strategy, status, archive, detail, commit)| {
                 let mut value = serde_json::json!({
                     "project": project,
                     "strategy": strategy,
@@ -224,16 +261,12 @@ pub(crate) fn verify_cmd(
                         .as_ref()
                         .map(|path| path.to_string_lossy().into_owned()),
                 });
-                value["sha256"] = if *strategy == "archive" {
+                value["sha256"] = if matches!(*strategy, "archive" | "git_bundle") {
                     serde_json::json!(detail)
                 } else {
                     serde_json::Value::Null
                 };
-                value["commit"] = if *strategy == "git" {
-                    serde_json::json!(detail)
-                } else {
-                    serde_json::Value::Null
-                };
+                value["commit"] = serde_json::json!(commit);
                 value
             })
             .collect();
@@ -245,10 +278,15 @@ pub(crate) fn verify_cmd(
             }))?
         );
     } else {
-        for (project, strategy, status, archive, detail) in &results {
-            if *strategy == "archive" {
+        for (project, strategy, status, archive, detail, _commit) in &results {
+            if matches!(*strategy, "archive" | "git_bundle") {
+                let label = if *strategy == "git_bundle" {
+                    "git-bundle"
+                } else {
+                    "archive"
+                };
                 println!(
-                    "[archive] {project}: SHA-256 {status} {}",
+                    "[{label}] {project}: SHA-256 {status} {}",
                     archive.as_ref().unwrap().display()
                 );
             } else {
@@ -338,6 +376,45 @@ pub(crate) fn restore_cmd(
                 validate_git_restore(url, commit)?;
                 None
             }
+            "git_bundle" => {
+                let bundle = resolve_archive(r, manifest_path.parent().unwrap_or(Path::new(".")))?;
+                let branch = r
+                    .branch
+                    .as_deref()
+                    .filter(|branch| !branch.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("missing branch for {}", r.project))?;
+                anyhow::ensure!(
+                    !branch.chars().any(char::is_whitespace),
+                    "invalid Git bundle branch for {}",
+                    r.project
+                );
+                let commit = r
+                    .commit
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("missing commit for {}", r.project))?;
+                anyhow::ensure!(
+                    (40..=64).contains(&commit.len())
+                        && commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                    "invalid Git bundle commit for {}",
+                    r.project
+                );
+                if !no_verify {
+                    let expected = r
+                        .sha256
+                        .as_deref()
+                        .filter(|hash| !hash.is_empty())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("manifest has no sha256 for {}", r.project)
+                        })?;
+                    let actual = sha256(&bundle)?;
+                    anyhow::ensure!(
+                        actual.eq_ignore_ascii_case(expected),
+                        "sha256 mismatch for {}",
+                        bundle.display()
+                    );
+                }
+                Some(bundle)
+            }
             other => anyhow::bail!("unsupported backup strategy: {other}"),
         };
         if let Some(a) = &archive
@@ -370,7 +447,7 @@ pub(crate) fn restore_cmd(
                         "remote_url": r.remote_url.as_deref().map(redact_remote),
                         "commit": r.commit,
                         "sha256": r.sha256,
-                        "sha256_verified": r.strategy == "archive" && !no_verify,
+                        "sha256_verified": matches!(r.strategy.as_str(), "archive" | "git_bundle") && !no_verify,
                         "in_place": dest.is_none(),
                     })
                 })
@@ -391,6 +468,13 @@ pub(crate) fn restore_cmd(
                             .as_deref()
                             .map(redact_remote)
                             .unwrap_or_default(),
+                        r.commit.as_deref().unwrap_or("-"),
+                        t.display()
+                    );
+                } else if r.strategy == "git_bundle" {
+                    println!(
+                        "[git-bundle] {}: {} -> {}",
+                        r.project,
                         r.commit.as_deref().unwrap_or("-"),
                         t.display()
                     );
@@ -479,6 +563,28 @@ pub(crate) fn restore_cmd(
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
                     restore_git(url, commit, target, &r.project)?;
+                }
+                "git_bundle" => {
+                    let bundle = archive
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("missing Git bundle for {}", r.project))?;
+                    let branch = r
+                        .branch
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("missing branch for {}", r.project))?;
+                    let commit = r
+                        .commit
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("missing commit for {}", r.project))?;
+                    restore_git_bundle(
+                        bundle,
+                        branch,
+                        commit,
+                        r.sha256.as_deref(),
+                        no_verify,
+                        target,
+                        &r.project,
+                    )?;
                 }
                 x => anyhow::bail!("unsupported backup strategy: {x}"),
             };
@@ -663,7 +769,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
-    let temporary = create_restore_temp_dir(parent)?;
+    let temporary = create_private_temp_dir(parent)?;
     let repo = temporary.join("repo");
     let result = (|| -> anyhow::Result<()> {
         let safe_url = redact_remote(url);
@@ -806,6 +912,101 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             target.display()
         );
         fs::rename(&repo, target)?;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&temporary);
+    result
+}
+
+fn restore_git_bundle(
+    bundle: &Path,
+    branch: &str,
+    commit: &str,
+    expected_hash: Option<&str>,
+    no_verify: bool,
+    target: &Path,
+    project: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !target.exists() && !target.is_symlink(),
+        "restore target already exists: {}",
+        target.display()
+    );
+    let parent = target
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let temporary = create_private_temp_dir(parent)?;
+    let result = (|| -> anyhow::Result<()> {
+        let stable_bundle = temporary.join("source.bundle");
+        fs::copy(bundle, &stable_bundle)?;
+        if !no_verify {
+            let expected = expected_hash
+                .filter(|hash| !hash.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("manifest has no sha256 for {project}"))?;
+            let actual = sha256(&stable_bundle)?;
+            anyhow::ensure!(
+                actual.eq_ignore_ascii_case(expected),
+                "sha256 mismatch for {}",
+                bundle.display()
+            );
+        }
+        let mut verify = Command::new("git");
+        verify.args(["bundle", "verify"]).arg(&stable_bundle);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut verify, project, "bundle verify")?.success(),
+            "invalid Git bundle for {project}"
+        );
+        let repo = temporary.join("repo");
+        let mut init = Command::new("git");
+        init.args(["init"]).arg(&repo);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut init, project, "init")?.success(),
+            "cannot initialize Git bundle restore for {project}"
+        );
+        let mut fetch = Command::new("git");
+        fetch
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .arg("-C")
+            .arg(&repo)
+            .args(["fetch", "--no-tags"])
+            .arg(&stable_bundle)
+            .args(["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut fetch, project, "bundle fetch")?.success(),
+            "cannot fetch Git bundle for {project}"
+        );
+        let mut check_branch = Command::new("git");
+        check_branch
+            .arg("-C")
+            .arg(&repo)
+            .args(["check-ref-format", "--branch", branch]);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut check_branch, project, "branch validation")?.success(),
+            "invalid Git bundle branch for {project}"
+        );
+        let mut checkout = Command::new("git");
+        checkout
+            .arg("-C")
+            .arg(&repo)
+            .args(["checkout", "--force", "-B", branch, commit]);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut checkout, project, "checkout")?.success(),
+            "cannot check out Git bundle commit for {project}"
+        );
+        let head = git_output(&repo, &["rev-parse", "HEAD"])
+            .filter(|head| !head.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("cannot verify Git bundle commit for {project}"))?;
+        anyhow::ensure!(
+            head.eq_ignore_ascii_case(commit),
+            "Git bundle commit does not match manifest for {project}"
+        );
+        anyhow::ensure!(
+            !target.exists() && !target.is_symlink(),
+            "restore target already exists: {}",
+            target.display()
+        );
+        fs::rename(repo, target)?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&temporary);

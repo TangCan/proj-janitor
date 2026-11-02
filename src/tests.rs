@@ -8,7 +8,9 @@ use crate::archive::{
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
 use crate::clean::tree_size;
-use crate::project::{github_url, inspect, inspect_recovery, verify_local_tags};
+use crate::project::{
+    github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
+};
 use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
 use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,6 +28,27 @@ fn artifact_matching_uses_cleanup_rules() {
     assert!(!is_artifact("src"));
     assert!(!is_artifact(".git"));
     assert_eq!(is_artifact("NODE_MODULES"), cfg!(windows));
+}
+
+#[test]
+fn bundle_eligibility_accepts_clean_local_branch() {
+    let temp = TestDir::new();
+    let project = temp.0.join("bundle-project");
+    fs::create_dir_all(&project).unwrap();
+    assert!(local_git(&project, &["init", "-q", "-b", "main"]));
+    assert!(local_git(&project, &["config", "user.name", "Test User"]));
+    assert!(local_git(
+        &project,
+        &["config", "user.email", "test@example.invalid"]
+    ));
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("tracked.txt"), "local history\n").unwrap();
+    assert!(local_git(&project, &["add", "."]));
+    assert!(local_git(&project, &["commit", "-q", "-m", "local-only"]));
+    let recovery = inspect_bundle_recovery(&inspect(&project).unwrap())
+        .unwrap_or_else(|reason| panic!("bundle should be eligible: {reason}"));
+    assert_eq!(recovery.branch, "main");
+    assert_eq!(recovery.commit.len(), 40);
 }
 
 #[cfg(not(windows))]

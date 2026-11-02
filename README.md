@@ -5,10 +5,10 @@
 ## 安全原则
 
 - `scan` 只读：报告项目大小、Git 分支和工作区状态。
-- `backup` 优先记录可恢复信息：已推送到 GitHub 的干净项目只写入远程 URL 和提交 SHA；其余项目回退为 `tar.gz` 并记录 SHA-256。
+- `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
-- `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验归档 SHA-256；实际恢复在确认后、写入前预检整批摘要，解包时再用同一文件句柄复核，且不覆盖已有目录。
-- `verify` 命令校验归档 SHA-256；Git 记录只验证 manifest 中的 URL 和提交格式，不联网检查远程。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中。
+- `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
+- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录只验证 manifest 中的 URL 和提交格式，不联网检查远程。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
@@ -36,7 +36,7 @@ cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branc
 
 这会安装 main 当前源码，随后的提交可能改变功能；日常使用建议从 crates.io 安装已发布稳定版。
 
-Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复需本机安装 Git；Git LFS 项目还需将 `git-lfs` 命令安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
+Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：优先选择 GitHub Git-only；不适用时，符合条件的干净本地仓库使用 Git bundle；其余项目创建 `tar.gz`。bundle 保留本地分支、tag 和这些引用可达的提交历史，不保存工作区以外的 Git 配置、reflog、stash、悬空对象、子模块对象或 LFS 对象。bundle 恢复需本机安装 Git。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。GitHub Git-only 恢复需要 Git；使用子模块或 Git LFS 时，还需要可访问对应远端，LFS 项目须将 `git-lfs` 安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
@@ -88,11 +88,12 @@ projjan backup ~/richard_plus
 备份策略按项目自动选择：
 
 - `git`：工作区干净（包含子模块）、无 stash，所有本地分支和本地 tag 均已推送，且远程及子模块远程受支持时，仅记录 Git 远程、分支、上游和提交 SHA，不生成归档。未初始化（目录内无额外文件）或已初始化且干净的子模块均支持；恢复时按主仓库记录的 gitlink 提交递归克隆子模块。含 Git LFS 属性的仓库也支持，但备份与恢复都要求安装 `git-lfs`，并使用默认 GitHub LFS endpoint。
-- `archive`：其余情况回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明回退原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块会回退归档；若需归档时 remote/submodule/LFS URL 含 userinfo、query 或 fragment，或本地 Git 配置含认证 header、密码、内联 helper、认证参数、自定义 SSH command 或项目内 credential 文件，自动备份会失败且不写归档或 manifest。
+- `git_bundle`：Git-only 不适用时，对工作区干净、无 stash、非浅克隆、无子模块且无 LFS 的仓库创建 `.bundle`，保存本地分支、tag 和这些引用可达的历史；校验 SHA-256，恢复时在隔离临时目录校验 bundle 并重建本地分支/tag，不写入 remote URL。bundle 不包括 Git 配置、reflog、stash 或悬空对象；提交历史中已删除的敏感信息仍会保留。使用 `--exclude-git-metadata`、`--always-archive` 或 `--include-artifacts` 时不会选择 bundle。
+- `archive`：Git-only 与 bundle 都不适用时回退为 `tar.gz`，并在清单和 Rust/Python 命令输出中说明原因（例如 `working tree is not clean`、`Git LFS is not installed`、`submodule URL is not a supported GitHub URL`、`remote is not a supported GitHub URL`、`local tag is not pushed: v1`）。修改过或提交位置不匹配的子模块会回退归档；若需归档时 remote/submodule/LFS URL 含 userinfo、query 或 fragment，或本地 Git 配置含认证 header、密码、内联 helper、认证参数、自定义 SSH command 或项目内 credential 文件，自动备份会失败且不写归档或 manifest。
 - 备份会在写入前拒绝 Windows 保留名或其他不可移植的项目目录名，避免生成无法由 restore 接受的 manifest。
 - 存在本地 tag 时，URL-only 判定会执行 `git ls-remote --tags --refs <remote>`，逐个比较远程 tag 对象 ID；远程不可达、tag 缺失或指向不一致都会回退归档。没有本地 tag 时不会发起这次网络查询。
 - 受支持的 GitHub HTTPS 主 remote URL 可以内嵌 PAT（如 `https://user:token@github.com/...` 或 `https://token@github.com/...`）；只有采用 Git-only 时才会安全使用，记录和命令输出会去掉用户名/令牌，只保留 `https://github.com/...`。如果需归档，则不论 fetch/push URL 是否受支持，只要其中含凭据、query 或 fragment，或本地 Git 配置含认证 header、credential password、helper 中无法识别的参数、敏感 service URL 或指向项目内的 credential 文件，自动备份都会报错并且不写 archive/manifest。helper 仅允许标准 `cache --timeout` 和 `store --file` 参数形式；Git helper 由 shell 执行；`store --file` 路径仅接受字面参数，shell 引号、变量、命令替换、named-home、通配符和其它展开语法会被拒绝。独立 `--file ~/path` 形式会按 home 目录展开并检查。其它未识别参数也按可能包含不透明编码凭据处理，避免其随 `.git/config` 落入归档。
-- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。含凭据、query 或 fragment 的 URL 会让自动备份失败，不生成归档/manifest，避免敏感值被二次保存或写入恢复仓库的 `.git/config`。Git 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。
+- 子模块 URL 支持无凭据的 GitHub URL，以及相对于 GitHub 主仓库的 `./` / `../` URL。含凭据、query 或 fragment 的 URL 会让自动备份失败，不生成归档/manifest，避免敏感值被二次保存或写入恢复仓库的 `.git/config`。Git-only 备份只记录主仓库提交，不镜像子模块对象；恢复需要子模块远端仍可访问且固定提交仍存在。恢复会先在临时目录取回全部子模块，成功后才发布目标目录。Git bundle 暂不支持带子模块的仓库。
 - Git LFS 内容与 Git 提交中的指针分开存放。恢复会在临时仓库配置本地 LFS filter 并执行 `git lfs pull`；LFS 对象缺失或不可访问时恢复失败，不创建目标目录。`.lfsconfig` 和自定义 LFS endpoint 暂不支持。
 - 归档会包含 `.git/config` 和项目跟踪文件（包括 `.gitmodules`）。如果其中内嵌凭据，归档也会包含该凭据。显式使用 `--always-archive` 或 `--include-artifacts` 时仍会按要求打包；执行前应清理凭据并限制归档访问。
 
@@ -109,7 +110,7 @@ backups/
     └── manifest-20261023-122832.json
 ```
 
-需要归档的项目也写入同一个项目目录，归档文件名带运行时间戳：
+bundle 或需要归档的项目也写入同一个项目目录，文件名带运行时间戳：
 
 ```text
 backups/
@@ -121,13 +122,24 @@ backups/
     └── another_project-20261023-103117.tar.gz
 ```
 
+Git bundle 示例：
+
+```text
+backups/
+└── local_history/
+    ├── manifest-20261102-120000.json
+    └── local_history-20261102-120000.bundle
+```
+
+使用 Git bundle 时，项目目录中保存 `.bundle` 文件和对应 manifest；manifest 中 `strategy` 为 `git_bundle`，`archive` 字段指向 bundle 文件。
+
 - 一次运行包含多个项目时，每个项目目录各写一份只包含该项目记录的清单。
 - 同一项目不同时间的清单和归档共用项目目录，文件名带时间戳。
 - 不同根目录下存在同名、大小写不同或 Unicode 规范化等价的项目名时，项目目录会追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
 - 同一秒内重复备份同一项目时，文件名会追加 `-2`、`-3`，不会覆盖已有文件。
 - 旧版本生成的 `backup-YYYYmmdd-HHMMSS/` 目录不会被自动迁移或删除。
 
-清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 在项目使用 archive 策略且启用了排除选项时为 `true`；它表示所选策略，不表示源项目一定含有 `.git`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
+清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 在项目使用 archive 策略且启用了排除选项时为 `true`；它表示所选策略，不表示源项目一定含有 `.git`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`git_bundle` 记录在 `archive` 字段保存 bundle 路径，并记录 `branch`、`commit` 和 SHA-256；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
 
 ### 3. 清理
 
@@ -191,13 +203,14 @@ projjan verify <manifest>
 projjan verify <manifest> --project xtask_todo --json
 ```
 
-`verify` 的 Git 结果标记为 `metadata-only`：不会联网确认远程仓库或提交是否仍可用。
+`verify` 的 Git-only 结果标记为 `metadata-only`：不会联网确认远程仓库或提交是否仍可用。`git_bundle` 会校验 bundle 文件的 SHA-256。
 
 恢复规则：
 
 - 省略 `--dest` 时，目标取自每条记录的 `source`；`source` 必须是绝对路径、文件名等于项目名，且不能包含 `..` 或 NUL。伪造或损坏的 manifest 可能指向任意可写路径，因此实际恢复到原始位置前必须确认 manifest 来源可信。
 - 原始位置模式默认要求交互确认；标准输入不是 TTY 时必须显式加 `--yes`，`--json` 的实际恢复也必须加 `--yes`。`--dest` 模式不需要该确认。
 - `git` 策略：初始化仓库，将脱敏 URL 写入 `origin`，再直接从远程 fetch 分支和 tags（不写 `FETCH_HEAD`），最后 `git checkout --detach <commit>`。恢复后是 detached HEAD，不会自动创建或切换原分支；远程必须仍包含该提交。
+- `git_bundle` 策略：校验 SHA-256 和 bundle 结构，从 bundle 取回本地分支与 tags，恢复 manifest 记录的分支和提交；不配置远程。
 - Git 恢复的 init、remote add、fetch、checkout 和 HEAD 校验单步最长等待 10 分钟；超时会尝试终止 Git 进程树并报告失败，目标项目不会发布到最终路径。
 - 远程 URL 带凭据或查询参数时，Git 恢复失败会隐藏原始错误文本，避免错误输出回显敏感 URL。
 - 带认证信息、查询或 fragment 的 URL 通过 Git 的临时配置环境传递；若本机 Git 不支持此方式，工具会拒绝恢复，并提示改用 credential helper/SSH 或升级 Git。
@@ -247,7 +260,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-02）：Python 共 166 项（Linux 本地 165 项通过、1 项 Windows 专属测试跳过）；Rust 0.2.7 通过 43 项单元测试及 16 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。v0.2.7 tag CI [run `41388124197`](https://github.com/TangCan/proj-janitor/actions/runs/41388124197) 18/18 jobs、CodeQL [run `41387715310`](https://github.com/TangCan/proj-janitor/actions/runs/41387715310) 三项分析通过。版本化发布说明见仓库的 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-02，Rust 0.3.0 开发版）：Python 169 项（Linux 本地 168 项通过、1 项 Windows 专属测试跳过）；Rust 44 项单元测试及 17 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust Git bundle 跨语言备份恢复检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
@@ -274,7 +287,6 @@ python3 -m unittest discover -s tests -v
 
 ## 后续计划
 
-- 支持 `git bundle`，保留完整提交历史并减小归档体积。
 - 增量备份与保留策略（例如只保留最近 N 份）。
 - 配置文件（排除规则、备份目标、保留策略）。
 - 恢复时对 Git 远程提交做联网预检。

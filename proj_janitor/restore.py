@@ -53,7 +53,9 @@ def restore_from_manifest(
     results = execute_restore(plans, verify=verify)
     if verify:
         plans = [
-            replace(plan, hash_verified=True) if plan.strategy == "archive" else plan
+            replace(plan, hash_verified=True)
+            if plan.strategy in ("archive", "git_bundle")
+            else plan
             for plan in plans
         ]
     return plans, results
@@ -67,7 +69,7 @@ def execute_restore(
     plan_list = list(plans)
     if verify:
         for plan in plan_list:
-            if plan.strategy == "archive":
+            if plan.strategy in ("archive", "git_bundle"):
                 if plan.archive is None:
                     raise RestoreError(
                         f"incomplete archive restore plan for {plan.project}"
@@ -152,6 +154,32 @@ def plan_restore(
                     target=target,
                     remote_url=remote_url,
                     commit=commit,
+                    in_place=dest is None,
+                )
+            )
+            continue
+
+        if strategy == "git_bundle":
+            bundle = _resolve_archive(record, manifest_path.parent, project)
+            sha256 = record.get("sha256")
+            if not isinstance(sha256, str) or not sha256:
+                raise RestoreError(f"manifest has no sha256 for {project}")
+            branch = _record_string(record, "branch")
+            commit = _record_string(record, "commit")
+            if len(commit) not in (40, 64) or not _COMMIT_RE.fullmatch(commit):
+                raise RestoreError(f"invalid commit for {project}: {commit!r}")
+            if verify:
+                _verify_archive_hash(bundle, project, sha256)
+            plans.append(
+                RestorePlan(
+                    project=project,
+                    strategy="git_bundle",
+                    target=target,
+                    archive=bundle,
+                    branch=branch,
+                    commit=commit,
+                    sha256=sha256,
+                    hash_verified=verify,
                     in_place=dest is None,
                 )
             )
@@ -256,6 +284,22 @@ def verify_manifest(
                     "archive": None,
                     "sha256": None,
                     "commit": commit,
+                }
+            )
+        elif strategy == "git_bundle":
+            bundle = _resolve_archive(record, manifest_path.parent, project)
+            expected = record.get("sha256")
+            if not isinstance(expected, str) or not expected:
+                raise RestoreError(f"manifest has no sha256 for {project}")
+            actual = _verify_archive_hash(bundle, project, expected)
+            results.append(
+                {
+                    "project": project,
+                    "strategy": "git_bundle",
+                    "status": "verified",
+                    "archive": str(bundle),
+                    "sha256": actual,
+                    "commit": _record_string(record, "commit"),
                 }
             )
         else:
@@ -445,6 +489,8 @@ def redact_remote_url(remote: str) -> str:
 def _restore_one(plan: RestorePlan, *, verify: bool) -> RestoreResult:
     if plan.strategy == "git":
         _restore_git(plan)
+    elif plan.strategy == "git_bundle":
+        _restore_git_bundle(plan, verify=verify)
     elif plan.strategy == "archive":
         _restore_archive(plan, verify=verify)
     else:
@@ -632,6 +678,68 @@ def _restore_git(plan: RestorePlan) -> None:
                 f"restored HEAD {head} does not match {plan.commit}"
             )
         _restore_submodules(repo, plan.project)
+        if plan.target.exists() or plan.target.is_symlink():
+            raise RestoreError(f"restore target already exists: {plan.target}")
+        repo.rename(plan.target)
+    finally:
+        _cleanup_restore_temp(temporary)
+
+
+def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
+    if plan.archive is None or plan.commit is None or plan.branch is None:
+        raise RestoreError(f"incomplete git bundle restore plan for {plan.project}")
+    if plan.target.exists() or plan.target.is_symlink():
+        raise RestoreError(f"restore target already exists: {plan.target}")
+    plan.target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{plan.project}-restore-",
+            dir=plan.target.parent,
+        )
+    )
+    repo = temporary / "repo"
+    try:
+        bundle_copy = temporary / "source.bundle"
+        with plan.archive.open("rb") as source, bundle_copy.open("xb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+        if verify and sha256_file(bundle_copy).lower() != (plan.sha256 or "").lower():
+            raise RestoreError(f"sha256 mismatch for {plan.archive}")
+        verified = _run_git(["bundle", "verify", str(bundle_copy)], check=False)
+        if verified.returncode:
+            raise RestoreError(f"invalid Git bundle for {plan.project}")
+        initialized = _run_git(["init", str(repo)], check=False)
+        if initialized.returncode:
+            raise RestoreError(f"cannot initialize Git bundle restore for {plan.project}")
+        fetched = _run_git(
+            [
+                "-C",
+                str(repo),
+                "fetch",
+                "--no-tags",
+                str(bundle_copy),
+                "+refs/heads/*:refs/heads/*",
+                "+refs/tags/*:refs/tags/*",
+            ],
+            check=False,
+        )
+        if fetched.returncode:
+            raise RestoreError(f"cannot fetch Git bundle for {plan.project}")
+        checked = _run_git(
+            ["-C", str(repo), "check-ref-format", "--branch", plan.branch],
+            check=False,
+        )
+        if checked.returncode:
+            raise RestoreError(f"invalid branch in Git bundle manifest for {plan.project}")
+        checkout = _run_git(
+            ["-C", str(repo), "checkout", "--force", "-B", plan.branch, plan.commit],
+            check=False,
+            extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
+        )
+        if checkout.returncode:
+            raise RestoreError(f"cannot check out Git bundle commit for {plan.project}")
+        head = _run_git(["-C", str(repo), "rev-parse", "HEAD"], check=False)
+        if head.returncode or head.stdout.strip().lower() != plan.commit.lower():
+            raise RestoreError(f"Git bundle commit mismatch for {plan.project}")
         if plan.target.exists() or plan.target.is_symlink():
             raise RestoreError(f"restore target already exists: {plan.target}")
         repo.rename(plan.target)

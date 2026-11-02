@@ -341,7 +341,8 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 | 1 | `--include-artifacts` | `archive` | `include_artifacts` |
 | 2 | `--always-archive` | `archive` | `always_archive` |
 | 3 | Git 可恢复性检查通过 | `git` | 无 |
-| 4 | 其他情况 | `archive` | 可恢复性失败原因，或 `not recoverable from GitHub` |
+| 4 | 工作区干净、无 stash、非浅克隆、无子模块/LFS，且提交可由本地 refs 携带 | `git_bundle` | Git-only 不适用原因 |
+| 5 | 其他情况 | `archive` | 可恢复性或 bundle 不适用原因 |
 
 说明：
 
@@ -349,9 +350,11 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
 - `--exclude-git-metadata` 不改变源项目；归档中的 `.git` 目录或文件会被跳过；archive 策略启用此选项时，manifest 顶层记录 `exclude_git_metadata: true`，即使源项目没有 `.git`。需要保留 Git 历史时不要启用此项。
 - 该选项不强制 archive 策略；若最终选择 Git URL-only，则不会生成本地归档。
 - Git 策略记录本地 Git 引用证据（`verified: "local-ref"`）；存在本地 tag 时会联网查询远程 tag，但不抓取远程提交，也不证明远端仍存在该提交。
+- Git bundle 记录本地分支、tag 和这些 refs 可达的提交历史，不保存 remote 配置、reflog、stash 或悬空对象；恢复后检出记录的分支/提交且不配置 remote。为避免凭据落入备份，若 Git-only 可恢复性检查发现敏感远程/配置，bundle 也不会覆盖该阻止结果。
 - HTTPS GitHub URL 可内嵌 PAT；`remote_url` 在写入记录、manifest 和 CLI 输出前会去除用户名、密码/token、查询字符串和片段。
 - 归档策略会记录 `fallback_reason`；如果没有具体原因，使用 `not recoverable from GitHub`。
 - Git 可恢复性检查的完整失败原因见第 13.3 节。
+- Git bundle 命名为 `<项目名>-<时间戳>.bundle`，清单使用 `strategy: "git_bundle"`，bundle 路径复用 `archive` 字段，并记录 `branch`、`commit`、`sha256`、大小和原 Git-only 不适用原因。
 
 ### 6.3 dry-run 行为与输出
 
@@ -378,7 +381,7 @@ Dry run. Manifest would be: /path/to/backups/demo/manifest-20261023-135243.json
 非 dry-run 时调用 `run_backup()`：
 
 1. 再次执行 `prepare_backup()` 计算每个项目的计划、项目目录和唯一文件名。
-2. 对每个项目创建 `DEST/<项目名>/`；Git 策略直接写记录，归档策略写 `tar.gz` 并计算 SHA-256。
+2. 对每个项目创建 `DEST/<项目名>/`；Git-only 策略直接写记录，bundle 策略写 `.bundle`，归档策略写 `tar.gz`，后两者都计算 SHA-256。
 3. 每个项目单独写入 `DEST/<项目名>/manifest-<时间戳>.json`，清单只包含该项目的一条记录。
 4. 输出摘要：
 
@@ -397,6 +400,7 @@ Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 - 每个项目使用稳定目录：`DEST/<项目名>/`，不创建按运行时间命名的运行目录。
 - 不同根目录下项目名相同、大小写不同或 Unicode 规范化等价时，项目目录名追加 8 位路径哈希，例如 `app-1a2b3c4d/`。
 - 归档默认名为 `<项目名>-YYYYmmdd-HHMMSS.tar.gz`，与清单放在同一项目目录。
+- Git bundle 默认名为 `<项目名>-YYYYmmdd-HHMMSS.bundle`；先在私有临时目录生成，再独占创建最终文件并计算 SHA-256。
 - 同一秒内重复备份同一项目时，清单和归档文件名追加 `-2`、`-3` 等后缀，不覆盖已有文件。
 - 归档使用 `tar.add(project.path, arcname=project.name)`，因此归档内顶层目录是项目名。
 - 未使用 `--include-artifacts` 时，按 `artifact_patterns()` 排除构建产物和依赖缓存；匹配的是路径中的任一段名称。
@@ -614,11 +618,12 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 5. 同一批恢复中目标路径重复或在大小写转换/Unicode NFC 规范化后冲突时拒绝，避免跨平台覆盖或中途失败。
 6. 预检所有目标路径后才会开始恢复；任一目标已存在或是符号链接时整批不开始。
 7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用 Git 临时配置环境从原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。旧版 Git 不支持该环境配置时，只有不含敏感信息的 URL 才回退到命令参数传递。
-8. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
-9. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
-10. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
-11. Git 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。
-12. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
+8. `git_bundle` 策略：校验 bundle SHA-256、结构、分支和提交；将 bundle 复制到私有临时目录后 fetch 本地 heads/tags，检出记录的分支与提交并核对 HEAD，最后发布到目标路径。不会写入 remote URL。
+9. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
+10. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
+11. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
+12. Git-only 恢复后是 detached HEAD，不自动创建或切换分支；不联网预检远程是否仍包含该提交。Git bundle 恢复回原始分支并清除远程配置。
+13. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
 ### 8.3 输出
 
@@ -825,12 +830,12 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `dry_run` | boolean | 是否为 dry-run。 |
 | `mode` | string | `"original"`（省略 `--dest`）或 `"dest"`（指定 `--dest`）。 |
 | `projects[].project` | string | 项目名。 |
-| `projects[].strategy` | string | `"git"` 或 `"archive"`。 |
+| `projects[].strategy` | string | `"git"`、`"git_bundle"` 或 `"archive"`。 |
 | `projects[].target` | string | 恢复目标绝对路径。 |
-| `projects[].archive` | string/null | 归档路径；Git 策略为 `null`。 |
-| `projects[].remote_url` | string/null | 脱敏后的远程 URL；归档策略为 `null`。 |
-| `projects[].commit` | string/null | manifest 中的提交号；归档策略为 `null`。 |
-| `projects[].sha256` | string/null | manifest 中的归档哈希；Git 策略为 `null`。 |
+| `projects[].archive` | string/null | artifact 路径；Git-only 策略为 `null`。 |
+| `projects[].remote_url` | string/null | 脱敏后的远程 URL；`git_bundle` 和 archive 为 `null`。 |
+| `projects[].commit` | string/null | manifest 中的提交号；archive 策略为 `null`。 |
+| `projects[].sha256` | string/null | manifest 中的归档或 bundle 哈希；Git-only 策略为 `null`。 |
 | `projects[].sha256_verified` | boolean | dry-run 计划是否已完成哈希校验；非 dry-run 结果不包含该字段。 |
 | `projects[].in_place` | boolean | 是否为原始位置模式；只在 dry-run 计划中出现。 |
 
@@ -865,22 +870,22 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 记录由 `BackupRecord` 经 `dataclasses.asdict()` 序列化，所有记录包含相同字段集合：
 
-| 字段 | 类型 | Git 记录 | 归档记录 |
-| --- | --- | --- | --- |
-| `project` | string | 项目名 | 项目名 |
-| `source` | string | 项目绝对路径；`restore` 省略 `--dest` 时作为恢复目标 | 项目绝对路径；`restore` 省略 `--dest` 时作为恢复目标 |
-| `archive` | string \| null | `null` | 归档绝对路径 |
-| `archive_bytes` | integer | `0` | 归档文件大小 |
-| `source_bytes` | integer | 扫描时源体积 | 扫描时源体积 |
-| `sha256` | string \| null | `null` | 归档完整 SHA-256 |
-| `strategy` | string | `"git"` | `"archive"` |
-| `remote` | string \| null | Git remote 名，如 `origin` | `null` |
-| `remote_url` | string \| null | 通过校验并脱敏的 GitHub URL（不含用户名/token/查询/片段） | `null` |
-| `branch` | string \| null | 本地分支名 | `null` |
-| `commit` | string \| null | `HEAD` 提交 SHA | `null` |
-| `upstream` | string \| null | 上游引用，如 `origin/main` | `null` |
-| `verified` | string \| null | `"local-ref"` | `null` |
-| `fallback_reason` | string \| null | `null` | 归档原因 |
+| 字段 | 类型 | Git 记录 | Git bundle 记录 | 归档记录 |
+| --- | --- | --- | --- | --- |
+| `project` | string | 项目名 | 项目名 | 项目名 |
+| `source` | string | 项目绝对路径 | 项目绝对路径 | 项目绝对路径 |
+| `archive` | string \| null | `null` | bundle 绝对路径 | 归档绝对路径 |
+| `archive_bytes` | integer | `0` | bundle 文件大小 | 归档文件大小 |
+| `source_bytes` | integer | 扫描时源体积 | 扫描时源体积 | 扫描时源体积 |
+| `sha256` | string \| null | `null` | bundle 完整 SHA-256 | 归档完整 SHA-256 |
+| `strategy` | string | `"git"` | `"git_bundle"` | `"archive"` |
+| `remote` | string \| null | Git remote 名，如 `origin` | `null` | `null` |
+| `remote_url` | string \| null | 经校验并脱敏的 GitHub URL | `null` | `null` |
+| `branch` | string \| null | 本地分支名 | bundle 时的活动分支 | `null` |
+| `commit` | string \| null | `HEAD` 提交 SHA | bundle 时的 `HEAD` SHA | `null` |
+| `upstream` | string \| null | 上游引用，如 `origin/main` | `null` | `null` |
+| `verified` | string \| null | `"local-ref"` | `"local-bundle"` | `null` |
+| `fallback_reason` | string \| null | `null` | Git-only 不适用原因 | 归档原因 |
 
 `fallback_reason` 的常见值：
 
@@ -971,13 +976,13 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
-| `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
+| `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
 | `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；Git 策略本身不产生归档。 |
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None, exclude_git_metadata=False) -> BackupRecord` | 归档记录 | `exclude_git_metadata=True` 时输出工作树快照，不含 Git 历史。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
 | `_project_directory_names` | 私有 | 项目路径到稳定目录名的映射 | 同名、大小写不同或 Unicode 规范化等价的项目追加 8 位路径哈希。 |
-| `_unique_file` / `_unique_archive_name` | 私有 | 候选文件路径/归档名 | 已存在时追加 `-2`、`-3`；实际写入采用排他创建，竞态冲突记为该项目失败，不覆盖原文件。 |
+| `_unique_file` / `_unique_artifact_name` | 私有 | 候选文件路径/归档名 | 已存在时追加 `-2`、`-3`；实际写入采用排他创建，竞态冲突记为该项目失败，不覆盖原文件。 |
 
 ### 12.3 清理模块 `proj_janitor.cleaner`
 
@@ -1003,12 +1008,12 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | 函数/类型 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
 | `restore_from_manifest` | `(manifest_path: Path, dest: Path \| None, projects=(), dry_run=False, verify=True) -> tuple[list[RestorePlan], list[RestoreResult]]` | 计划列表和结果列表；失败抛 `RestoreError` | 先规划并校验，再按顺序恢复；`dest=None` 表示原始位置模式；`dry_run=True` 不写文件。 |
-| `plan_restore` | `(manifest_path: Path, dest: Path \| None, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、`source`/目标不存在、目标重复、归档 SHA-256 和 Git 字段；`dest=None` 时使用记录的 `source`。 |
-| `verify_manifest` | `(manifest_path: Path, projects=()) -> list[dict]` | 每项目校验结果；失败抛 `RestoreError` | 只读检查 archive SHA-256；Git 策略只校验 URL/commit 元数据，不联网。 |
+| `plan_restore` | `(manifest_path: Path, dest: Path \| None, projects=(), verify=True) -> list[RestorePlan]` | 恢复计划；失败抛 `RestoreError` | 校验 schema v2、项目名、`source`/目标不存在、目标重复、archive/bundle SHA-256 和 Git 字段；`dest=None` 时使用记录的 `source`。 |
+| `verify_manifest` | `(manifest_path: Path, projects=()) -> list[dict]` | 每项目校验结果；失败抛 `RestoreError` | 只读检查 archive/bundle SHA-256；Git-only 策略只校验 URL/commit 元数据，不联网。 |
 | `execute_restore` | `(plans: Iterable[RestorePlan], verify=True) -> list[RestoreResult]` | 结果列表；文件系统错误抛 `RestoreError` | 先预检待恢复归档的 SHA-256，再创建目标父目录并按顺序执行；解包时对同一文件句柄复核摘要；不做交互确认。 |
 | `load_manifest` | `(path: Path) -> tuple[Path, dict]` | 规范化路径和 JSON 对象 | 要求 `schema_version == 2`、`records` 为非空对象数组。 |
 | `RestoreError` | `RuntimeError` 子类 | 异常 | CLI 捕获后输出 `error: ...` 并返回 `1`。 |
-| `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、SHA-256、是否已校验、是否原始位置模式。 |
+| `RestorePlan` | 数据类 | 不可变 | 项目、策略、目标、归档、远程 URL、提交、分支、SHA-256、是否已校验、是否原始位置模式。 |
 | `RestoreResult` | 数据类 | 不可变 | 项目、策略、恢复目标。 |
 
 内部函数：`_record_source` 校验并规范化原始位置；`_restore_git` init 临时仓库、写入脱敏 origin、通过 Git 临时配置环境 fetch 后 `checkout --detach` 并验证 HEAD，Git 子进程每步超时为 600 秒；fetch 不写入包含 URL 的 `FETCH_HEAD`；旧版 Git 只对不含敏感信息的 URL 回退到参数传递；`_run_git` 遇到敏感 Git URL 时不回显原始错误文本；`_restore_archive` 校验并安全解压；`_safe_extract`、`_archive_parts` 负责成员路径校验；`redact_remote_url` 用于 URL 脱敏。
@@ -1025,7 +1030,7 @@ projjan restore <manifest> --dest ~/restored --json --dry-run
 | `GitRecovery` | `eligible`，`reason`，`remote`，`remote_url`，`branch`，`commit`，`upstream`，`verified` |
 | `BackupRecord` | 第 11.2 节所列 14 个字段 |
 | `BackupPlan` | `project`，`archive_name`，`strategy`，`recovery`，`reason` |
-| `RestorePlan` | `project`，`strategy`，`target`，`archive`，`remote_url`，`commit`，`sha256`，`hash_verified`，`in_place` |
+| `RestorePlan` | `project`，`strategy`，`target`，`archive`，`remote_url`，`commit`，`branch`，`sha256`，`hash_verified`，`in_place` |
 | `RestoreResult` | `project`，`strategy`，`target` |
 | `human_size` | `(size_bytes: int) -> str` |
 

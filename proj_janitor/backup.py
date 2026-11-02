@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import tarfile
+import tempfile
 import unicodedata
 from collections import Counter
 from dataclasses import asdict
@@ -19,11 +22,34 @@ from proj_janitor.config import (
     artifact_patterns,
     is_coverage_artifact,
 )
-from proj_janitor.models import BackupPlan, BackupRecord, Project
-from proj_janitor.scanner import inspect_git_recoverability
+from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
+from proj_janitor.scanner import (
+    inspect_git_bundle_recoverability,
+    inspect_git_recoverability,
+)
 
 _WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
 _WINDOWS_INVALID_CHARS = '<>:"|?*'
+_BLOCKED_BACKUP_REASONS = (
+    "remote URL contains credentials or query data",
+    "submodule URL contains credentials or query data",
+    "Git config contains HTTP extraHeader",
+    "Git config contains credential passwords",
+    "Git config contains an inline credential helper",
+    "Git config contains sensitive credential helper arguments",
+    "Git config contains a custom SSH command",
+    "Git config points to a credential file inside the project",
+    "Git config contains credentials or query data in a service URL",
+    "Git config contains credentials in a URL rewrite",
+    "LFS config contains credentials or query data",
+    "cannot safely inspect LFS config for credentials",
+    "cannot safely inspect .gitmodules for credentials",
+    "cannot safely inspect Git config for credentials",
+)
+
+
+def _is_blocked_backup_reason(reason: str | None) -> bool:
+    return reason is not None and reason.startswith(_BLOCKED_BACKUP_REASONS)
 
 
 def prepare_backup(
@@ -31,6 +57,7 @@ def prepare_backup(
     backup_dest: Path,
     include_artifacts: bool = False,
     always_archive: bool = False,
+    exclude_git_metadata: bool = False,
 ) -> tuple[list[Path], list[BackupPlan]]:
     backup_dest = backup_dest.expanduser().resolve()
     project_list = list(projects)
@@ -72,37 +99,27 @@ def prepare_backup(
             if recovery.eligible:
                 strategy = "git"
                 reason = None
-            elif recovery.reason and recovery.reason.startswith(
-                (
-                    "remote URL contains credentials or query data",
-                    "submodule URL contains credentials or query data",
-                    "Git config contains HTTP extraHeader",
-                    "Git config contains credential passwords",
-                    "Git config contains an inline credential helper",
-                    "Git config contains sensitive credential helper arguments",
-                    "Git config contains a custom SSH command",
-                    "Git config points to a credential file inside the project",
-                    "Git config contains credentials or query data in a service URL",
-                    "Git config contains credentials in a URL rewrite",
-                    "LFS config contains credentials or query data",
-                    "cannot safely inspect LFS config for credentials",
-                    "cannot safely inspect .gitmodules for credentials",
-                    "cannot safely inspect Git config for credentials",
-                )
-            ):
+            elif _is_blocked_backup_reason(recovery.reason):
                 strategy = "blocked"
                 reason = recovery.reason
+            elif not exclude_git_metadata and (
+                bundle := inspect_git_bundle_recoverability(project, patterns)
+            ).eligible:
+                strategy = "git_bundle"
+                reason = recovery.reason or "not recoverable from GitHub"
+                recovery = bundle
             else:
                 strategy = "archive"
                 reason = recovery.reason or "not recoverable from GitHub"
 
         archive_name = None
-        if strategy == "archive":
-            archive_name = _unique_archive_name(
+        if strategy in ("archive", "git_bundle"):
+            archive_name = _unique_artifact_name(
                 project.name or "project",
                 timestamp,
                 backup_dest / project_dir,
                 used_archives,
+                ".bundle" if strategy == "git_bundle" else ".tar.gz",
             )
         plans.append(
             BackupPlan(
@@ -130,6 +147,7 @@ def run_backup(
         backup_dest,
         include_artifacts=include_artifacts,
         always_archive=always_archive,
+        exclude_git_metadata=exclude_git_metadata,
     )
     if dry_run:
         failures = [
@@ -203,25 +221,33 @@ def _backup_one(
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
-    if plan.strategy == "git":
+    if plan.strategy in ("git", "git_bundle"):
         recovery = plan.recovery
         if recovery is None:
             raise RuntimeError("git backup plan is missing recovery details")
-        record = BackupRecord(
-            project=plan.project.name,
-            source=str(plan.project.path),
-            archive=None,
-            archive_bytes=0,
-            source_bytes=plan.project.size_bytes,
-            sha256=None,
-            strategy="git",
-            remote=recovery.remote,
-            remote_url=recovery.remote_url,
-            branch=recovery.branch,
-            commit=recovery.commit,
-            upstream=recovery.upstream,
-            verified=recovery.verified,
-        )
+        if plan.strategy == "git":
+            record = BackupRecord(
+                project=plan.project.name,
+                source=str(plan.project.path),
+                archive=None,
+                archive_bytes=0,
+                source_bytes=plan.project.size_bytes,
+                sha256=None,
+                strategy="git",
+                remote=recovery.remote,
+                remote_url=recovery.remote_url,
+                branch=recovery.branch,
+                commit=recovery.commit,
+                upstream=recovery.upstream,
+                verified=recovery.verified,
+            )
+        else:
+            if plan.archive_name is None or recovery.commit is None:
+                raise RuntimeError("git bundle plan is incomplete")
+            archive_path = manifest_path.parent / plan.archive_name
+            record, archive_identity = _create_git_bundle(
+                plan.project, archive_path, recovery, plan.reason
+            )
     else:
         if plan.archive_name is None:
             raise RuntimeError("archive backup plan is missing an archive name")
@@ -342,6 +368,76 @@ def backup_project(
         exclude_git_metadata=exclude_git_metadata,
     )
     return record
+
+
+def _create_git_bundle(
+    project: Project,
+    bundle_path: Path,
+    recovery: GitRecovery,
+    fallback_reason: str | None,
+) -> tuple[BackupRecord, tuple[int, int]]:
+    temporary = Path(
+        tempfile.mkdtemp(prefix=".projjan-bundle-", dir=bundle_path.parent)
+    )
+    temporary_bundle = temporary / "bundle"
+    identity: tuple[int, int] | None = None
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project.path),
+                "bundle",
+                "create",
+                str(temporary_bundle),
+                "--all",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=600,
+            check=False,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        if result.returncode:
+            raise OSError(result.stderr.strip() or "git bundle creation failed")
+        with temporary_bundle.open("rb") as source, _open_new_file(
+            bundle_path, binary=True
+        ) as target:
+            created = os.fstat(target.fileno())
+            identity = created.st_dev, created.st_ino
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+            target.flush()
+            bundle_bytes = os.fstat(target.fileno()).st_size
+            target.seek(0)
+            digest = sha256_stream(target)
+            current = bundle_path.stat(follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != identity:
+                raise OSError("bundle path changed while it was being written")
+    except BaseException:
+        if identity is not None:
+            _discard_partial_file_if_same(bundle_path, identity)
+        raise
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+    assert identity is not None
+    return (
+        BackupRecord(
+            project=project.name,
+            source=str(project.path),
+            archive=str(bundle_path),
+            archive_bytes=bundle_bytes,
+            source_bytes=project.size_bytes,
+            sha256=digest,
+            strategy="git_bundle",
+            branch=recovery.branch,
+            commit=recovery.commit,
+            verified="local-bundle",
+            fallback_reason=fallback_reason,
+        ),
+        identity,
+    )
 
 
 def _backup_project_with_identity(
@@ -569,17 +665,18 @@ def _project_directory_names(projects: Iterable[Project]) -> dict[Path, str]:
     return names
 
 
-def _unique_archive_name(
+def _unique_artifact_name(
     project_name: str,
     timestamp: str,
-    archive_dir: Path,
+    artifact_dir: Path,
     used: set[Path],
+    suffix: str,
 ) -> str:
-    base = f"{project_name}-{timestamp}.tar.gz"
-    candidate = archive_dir / base
+    base = f"{project_name}-{timestamp}{suffix}"
+    candidate = artifact_dir / base
     counter = 2
     while candidate in used or candidate.exists():
-        candidate = archive_dir / f"{project_name}-{timestamp}-{counter}.tar.gz"
+        candidate = artifact_dir / f"{project_name}-{timestamp}-{counter}{suffix}"
         counter += 1
     used.add(candidate)
     return candidate.name

@@ -721,6 +721,46 @@ class BackupTests(unittest.TestCase):
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitStrategyBackupTests(unittest.TestCase):
+    def test_clean_unpushed_branch_uses_a_git_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "switch", "-c", "feature/local")
+            (project / "feature.py").write_text("local history\n", encoding="utf-8")
+            git(project, "add", "feature.py")
+            git(project, "commit", "-m", "local-only commit")
+            head = git(project, "rev-parse", "HEAD")
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups"
+            )
+
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git_bundle")
+            self.assertEqual(records[0].branch, "feature/local")
+            self.assertEqual(records[0].commit, head)
+            self.assertEqual(records[0].fallback_reason, "branch has no upstream remote")
+            self.assertEqual(Path(records[0].archive or "").suffix, ".bundle")
+            self.assertEqual(sha256_file(Path(records[0].archive or "")), records[0].sha256)
+            self.assertTrue(manifests[0].is_file())
+
+    def test_exclude_git_metadata_forces_archive_for_unpushed_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "switch", "-c", "feature/local")
+            (project / "feature.py").write_text("local history\n", encoding="utf-8")
+            git(project, "add", "feature.py")
+            git(project, "commit", "-m", "local-only commit")
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups", exclude_git_metadata=True
+            )
+
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "archive")
+            self.assertTrue(json.loads(manifests[0].read_text())["exclude_git_metadata"])
+
     def test_credentialed_submodule_url_never_falls_back_to_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

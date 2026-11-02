@@ -13,18 +13,18 @@ use walkdir::WalkDir;
 
 use crate::is_artifact;
 
-static RESTORE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn portable_path_key(value: &str) -> String {
     value.to_lowercase().nfc().collect()
 }
 
-pub(crate) fn create_restore_temp_dir(parent: &Path) -> io::Result<PathBuf> {
+pub(crate) fn create_private_temp_dir(parent: &Path) -> io::Result<PathBuf> {
     loop {
         let path = parent.join(format!(
-            ".projjan-restore-{}-{}",
+            ".projjan-tmp-{}-{}",
             std::process::id(),
-            RESTORE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+            TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let result = {
             #[cfg(unix)]
@@ -65,6 +65,38 @@ pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> io::Result<same_file:
         return Err(error);
     }
     Ok(identity)
+}
+
+pub(crate) fn copy_new_file(
+    source: &Path,
+    destination: &Path,
+) -> io::Result<(String, u64, same_file::Handle)> {
+    let mut input = File::open(source)?;
+    let mut output = create_private_file(destination)?;
+    let identity = same_file::Handle::from_file(output.try_clone()?).map_err(io::Error::other)?;
+    let result = (|| -> io::Result<(String, u64)> {
+        io::copy(&mut input, &mut output)?;
+        output.flush()?;
+        let size = output.metadata()?.len();
+        output.seek(SeekFrom::Start(0))?;
+        let digest = sha256_reader(&mut output).map_err(io::Error::other)?;
+        let current = same_file::Handle::from_path(destination).map_err(io::Error::other)?;
+        if current != identity {
+            return Err(io::Error::other(format!(
+                "output path changed while it was being written: {}",
+                destination.display()
+            )));
+        }
+        Ok((digest, size))
+    })();
+    drop(output);
+    match result {
+        Ok((digest, size)) => Ok((digest, size, identity)),
+        Err(error) => {
+            remove_file_if_same(destination, identity);
+            Err(error)
+        }
+    }
 }
 
 pub(crate) fn remove_file_if_same(path: &Path, identity: same_file::Handle) {
@@ -214,7 +246,7 @@ pub(crate) fn extract_archive_with_hash(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
-    let tmp = create_restore_temp_dir(parent)?;
+    let tmp = create_private_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<()> {
         let dec = GzDecoder::new(f);
         let mut ar = Archive::new(dec);

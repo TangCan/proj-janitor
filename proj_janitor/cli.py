@@ -225,6 +225,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 backup_dest,
                 include_artifacts=args.include_artifacts,
                 always_archive=args.always_archive,
+                exclude_git_metadata=args.exclude_git_metadata,
             )
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -242,6 +243,13 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 url = recovery.remote_url if recovery else "-"
                 commit = recovery.commit[:12] if recovery and recovery.commit else "-"
                 print(f"  [git] {plan.project.name}: {url} @ {commit}")
+            elif plan.strategy == "git_bundle":
+                recovery = plan.recovery
+                commit = recovery.commit[:12] if recovery and recovery.commit else "-"
+                print(
+                    f"  [git-bundle] {plan.project.name}: {commit}"
+                    f" -> {manifest_path.parent / plan.archive_name} ({plan.reason})"
+                )
             elif plan.strategy == "blocked":
                 print(f"  [error] {plan.project.name}: {plan.reason}")
                 blocked = True
@@ -276,6 +284,13 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         if record.strategy == "git":
             commit = record.commit[:12] if record.commit else "-"
             print(f"  [git] {record.project}: {record.remote_url} @ {commit}")
+        elif record.strategy == "git_bundle":
+            commit = record.commit[:12] if record.commit else "-"
+            digest = record.sha256[:12] if record.sha256 else "-"
+            print(
+                f"  [git-bundle] {record.project}: {commit}"
+                f"  sha256:{digest}  {record.archive}"
+            )
         else:
             digest = record.sha256[:12] if record.sha256 else "-"
             reason = (
@@ -417,9 +432,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 0
 
     for result in results:
-        if result["strategy"] == "archive":
+        if result["strategy"] in ("archive", "git_bundle"):
+            label = "git-bundle" if result["strategy"] == "git_bundle" else "archive"
             print(
-                f"[archive] {result['project']}: SHA-256 verified "
+                f"[{label}] {result['project']}: SHA-256 verified "
                 f"{result['archive']}"
             )
         else:
@@ -438,6 +454,14 @@ def _print_restore_plan(plan: RestorePlan) -> None:
         print(
             f"  [git] {plan.project}: {remote} @ {commit} "
             f"-> {plan.target}"
+        )
+        return
+    if plan.strategy == "git_bundle":
+        commit = plan.commit[:12] if plan.commit else "-"
+        verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
+        print(
+            f"  [git-bundle] {plan.project}: {commit} {plan.archive} "
+            f"({verified}) -> {plan.target}"
         )
         return
     verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"

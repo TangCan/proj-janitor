@@ -32,6 +32,10 @@ def run_rejected(command: list[str], reason: str) -> None:
         )
 
 
+def git(path: Path, *args: str) -> str:
+    return run(["git", "-C", str(path), *args]).strip()
+
+
 def assert_restored(path: Path) -> None:
     assert (path / "src/main.py").read_text(encoding="utf-8") == "print('interop')\n"
     assert (path / "src/current.py").is_symlink()
@@ -137,6 +141,43 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not (restored / ".git").exists()
     assert (project / ".git/config").is_file()
 
+    bundle_project = root / "bundle-project"
+    bundle_project.mkdir()
+    (bundle_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (bundle_project / "main.py").write_text("main history\n", encoding="utf-8")
+    git(bundle_project, "init", "-q", "-b", "main")
+    git(bundle_project, "config", "user.name", "Test User")
+    git(bundle_project, "config", "user.email", "test@example.invalid")
+    git(bundle_project, "add", ".")
+    git(bundle_project, "commit", "-q", "-m", "main")
+    git(bundle_project, "switch", "-q", "-c", "feature/local")
+    (bundle_project / "feature.py").write_text("local branch\n", encoding="utf-8")
+    git(bundle_project, "add", ".")
+    git(bundle_project, "commit", "-q", "-m", "local-only")
+    bundle_head = git(bundle_project, "rev-parse", "HEAD")
+    for producer, consumer, suffix in (
+        ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)], "python-to-rust"),
+        ([str(RUST_CLI)], [sys.executable, "-m", "proj_janitor"], "rust-to-python"),
+    ):
+        backup_dest = root / f"git-bundle-{suffix}-backups"
+        run([*producer, "backup", str(bundle_project), "--backup-dest", str(backup_dest)])
+        manifest = next((backup_dest / "bundle-project").glob("manifest-*.json"))
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        record = payload["records"][0]
+        assert record["strategy"] == "git_bundle"
+        assert record["commit"] == bundle_head
+        producer_verify = json.loads(run([*producer, "verify", str(manifest), "--json"]))
+        consumer_verify = json.loads(run([*consumer, "verify", str(manifest), "--json"]))
+        assert producer_verify == consumer_verify, "Git bundle verification differs"
+        destination = root / f"git-bundle-{suffix}-restored"
+        run([*consumer, "restore", str(manifest), "--dest", str(destination)])
+        restored = destination / "bundle-project"
+        assert git(restored, "rev-parse", "HEAD") == bundle_head
+        assert git(restored, "branch", "--show-current") == "feature/local"
+        assert "main" in git(restored, "branch", "--list")
+        assert not git(restored, "remote")
+        assert (restored / "feature.py").read_text(encoding="utf-8") == "local branch\n"
+
     directory_only_project = root / "directory-only"
     (directory_only_project / ".git").mkdir(parents=True)
     for producer, consumer, suffix in (
@@ -229,4 +270,4 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     assert git_verify_results[0] == git_verify_results[1]
     assert git_verify_results[0]["projects"][0]["status"] == "metadata-only"
 
-print("Python and Rust schema v2 archive/restore compatibility passed.")
+print("Python and Rust schema v2 archive/Git bundle compatibility passed.")
