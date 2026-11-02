@@ -262,11 +262,8 @@ def _backup_one(
             if (current.st_dev, current.st_ino) != archive_identity:
                 raise OSError("archive path changed while manifest was written")
     except BaseException:
-        if archive_path is not None:
-            if archive_identity is None:
-                _discard_partial_file(archive_path)
-            else:
-                _discard_partial_file_if_same(archive_path, archive_identity)
+        if archive_path is not None and archive_identity is not None:
+            _discard_partial_file_if_same(archive_path, archive_identity)
         raise
     return record
 
@@ -289,13 +286,6 @@ def _write_reserved_file(path: Path, contents: bytes, identity: tuple[int, int])
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-
-
-def _discard_partial_file(path: Path) -> None:
-    try:
-        path.unlink()
-    except OSError:
-        pass
 
 
 def _discard_partial_file_if_same(path: Path, identity: tuple[int, int]) -> None:
@@ -380,9 +370,7 @@ def _backup_project_with_identity(
             if (current.st_dev, current.st_ino) != archive_identity:
                 raise OSError("archive path changed while it was being written")
     except BaseException:
-        if archive_identity is None:
-            _discard_partial_file(archive)
-        else:
+        if archive_identity is not None:
             _discard_partial_file_if_same(archive, archive_identity)
         raise
 

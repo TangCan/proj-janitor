@@ -155,6 +155,33 @@ class BackupTests(unittest.TestCase):
 
             self.assertEqual(archive.read_bytes(), b"keep existing backup")
 
+    def test_backup_race_preserves_archive_created_after_planning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = scan_project(make_project(root))
+            backup_dest = root / "backups"
+            real_open_new_file = backup_module._open_new_file
+
+            def create_archive_collision_then_fail(path, binary=False):
+                if path.name.endswith(".tar.gz"):
+                    path.write_bytes(b"keep concurrent file")
+                    raise FileExistsError(path)
+                return real_open_new_file(path, binary=binary)
+
+            with mock.patch.object(
+                backup_module, "_open_new_file", side_effect=create_archive_collision_then_fail
+            ):
+                manifests, records, failures = run_backup(
+                    [project], backup_dest, always_archive=True
+                )
+
+            self.assertFalse(manifests)
+            self.assertFalse(records)
+            self.assertEqual(len(failures), 1)
+            archive = next(backup_dest.rglob("*.tar.gz"))
+            self.assertEqual(archive.read_bytes(), b"keep concurrent file")
+            self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+
     @unittest.skipUnless(os.name == "posix", "renaming an open archive is POSIX-specific")
     def test_backup_rejects_archive_path_replaced_before_hashing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
