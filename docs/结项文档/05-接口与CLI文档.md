@@ -1358,4 +1358,4 @@ projjan verify MANIFEST --project NAME --json
 
 ## Rust 0.2.7 开发状态（2026-11-02）
 
-main 当前 Cargo 版本为 `0.2.7` 开发版（最新功能提交 `0a5280c`）；Rust CLI 的 `backup --help` 只显示 `BACKUP_DEST` 环境变量名，不再显示运行环境中的实际路径。Python 备份在 fdopen 失败或归档名被并发占用时只清理身份匹配的输出文件。以上修复尚未包含在 crates.io `0.2.6`。
+main 当前 Cargo 版本为 `0.2.7` 开发版（最新功能提交 `92391fc`）；Rust CLI 的 `backup --help` 只显示 `BACKUP_DEST` 环境变量名，不再显示运行环境中的实际路径。Python 备份清理按身份确认文件；fstat 失败时会关闭新建文件描述符，但保留无法确认身份的空文件。以上修复尚未包含在 crates.io `0.2.6`。
