@@ -24,27 +24,23 @@
 cargo install --locked proj-janitor
 ```
 
-当前 crates.io 已发布版本为 `0.2.5`。需要固定版本时运行：
+当前 crates.io 已发布版本为 `0.2.6`。需要固定版本时运行：
 
 ```bash
-cargo install --locked proj-janitor --version 0.2.5
+cargo install --locked proj-janitor --version 0.2.6
 ```
 
-发布内容与验证信息见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
+发布内容与验证信息见 [Rust 版 0.2.6 发布记录](docs/发布记录/0.2.6-Rust版.md)。
 
 从源码开发安装可运行 `cargo install --locked --path .`。安装后可直接使用 `projjan`。Rust 版与 Python 版共用 CLI 名称，若同时安装，后安装的版本会覆盖同名入口；需要并存时可分别安装到不同 `--root` 并使用对应路径。
 
-需要使用尚未发布到 crates.io 的 0.2.6 候选功能（如 `--exclude-git-metadata`）时，可直接从 Git 安装：
+如需安装 main 的最新开发版本，可直接从 Git 安装：
 
 ```bash
 cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branch main proj-janitor
 ```
 
-这会安装 main 当前源码，随后的提交可能改变功能；稳定安装仍使用上面的 crates.io 版本。
-
-main 当前候选 Cargo 版本号为 `0.2.6`；crates.io 稳定版仍为 `0.2.5`。从 Git 安装 main 时，具体行为仍可能随后续维护提交变化。
-
-Rust `0.2.6` 候选包含 `--exclude-git-metadata`；在正式发布前，crates.io 稳定版仍是 `0.2.5`。候选状态和验证记录见 [0.2.6 发布候选](docs/发布记录/0.2.6-Rust版.md)。
+这会安装 main 当前源码，随后的提交可能改变功能；日常使用建议安装 crates.io 稳定版 `0.2.6`。
 
 Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：有充分本地证据表明可从 GitHub 恢复时仅记录 URL 与提交，否则创建 `tar.gz` 归档。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。Git 策略恢复需本机安装 Git；Git LFS 项目还需将 `git-lfs` 命令安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
 
@@ -83,7 +79,7 @@ projjan backup ~/richard_plus/amp_zk ~/richard_plus/bos_dynamic --backup-dest ~/
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --dry-run
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --include-artifacts
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --always-archive
-# 0.2.6 候选：归档时排除 .git 元数据，恢复后不含 Git 历史
+# 归档时排除 .git 元数据，恢复后不含 Git 历史
 projjan backup ~/richard_plus/bos_dynamic --backup-dest ~/backups/projects --always-archive --exclude-git-metadata
 ```
 
@@ -108,7 +104,7 @@ projjan backup ~/richard_plus
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
-当前 main 另支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。它目前尚未包含在 crates.io `0.2.5` 或 PyPI `0.1.0` 中。需要保留 Git 历史时不要使用。
+Rust `0.2.6` 支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。Python 包 `0.1.0` 尚不包含该选项。需要保留 Git 历史时不要使用。
 
 每个项目使用一个稳定的项目目录，不再创建 `backup-.../` 运行目录。纯 `git` 备份只在该目录下写清单：
 
@@ -257,8 +253,8 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-最近一次本地验证（2026-10-31）：Python 共 162 项（Linux 本地 161 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 43 项单元测试及 15 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。GitHub Actions [run `41195134359`](https://github.com/TangCan/proj-janitor/actions/runs/41195134359) 的 18 个 job 全部通过，覆盖 Python 3.10–3.15 Ubuntu、Python 3.12/3.15 macOS/Windows、Rust stable 三平台及 MSRV 1.88；CodeQL [run `41195134477`](https://github.com/TangCan/proj-janitor/actions/runs/41195134477) 的 Actions/Python/Rust 分析通过。发布候选 `0.2.6` 通过 package、release build、跨版本归档兼容、隔离安装冒烟及 `cargo publish --dry-run`；尚未实际发布。Python 版无第三方运行时依赖，要求 Python 3.10+。
-Rust `0.2.5` 已发布至 crates.io；`cargo fmt --check`、Clippy、stable/MSRV 包构建和安装冒烟通过。详见 [Rust 版 0.2.5 发布记录](docs/发布记录/0.2.5-Rust版.md)。
+最近验证（2026-11-02）：Python 共 162 项（Linux 本地 161 项通过、1 项 Windows 专用测试跳过）；Rust stable 通过 43 项单元测试及 15 项 CLI 集成测试，`cargo fmt --check` 和 Clippy 通过。v0.2.6 tag CI [run `41371758992`](https://github.com/TangCan/proj-janitor/actions/runs/41371758992) 的 18 个 job 全部通过；CodeQL [run `41323539943`](https://github.com/TangCan/proj-janitor/actions/runs/41323539943) 的 Actions/Python/Rust 分析通过。crate 已从 crates.io 安装验证，`projjan --version` 输出 `0.2.6`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+Rust `0.2.6` 已发布至 crates.io；详见 [Rust 版 0.2.6 发布记录](docs/发布记录/0.2.6-Rust版.md)。
 
 Rust 版开发检查：
 
