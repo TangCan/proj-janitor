@@ -270,7 +270,7 @@ python3 -m unittest discover -s tests -v
 
 本项目采用 [MIT License](LICENSE)。
 
-安全漏洞报告方式见 [`SECURITY.md`](SECURITY.md)。
+安全漏洞报告方式见 [`SECURITY.md`](https://github.com/TangCan/proj-janitor/blob/main/SECURITY.md)。
 
 ## 后续计划
 
