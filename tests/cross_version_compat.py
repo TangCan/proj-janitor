@@ -188,6 +188,45 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not old_manifest.exists() and not old_archive.exists()
         assert latest_manifest.is_file() and orphan.is_file()
 
+    invalid_git_record = {"project": "demo", "strategy": "git"}
+    malformed_manifests = (
+        ("float-schema", "manifest-20261101-100000.json", 2.0, "demo", False),
+        ("bool-schema", "manifest-20261101-100000.json", True, "demo", False),
+        ("reserved-name", "manifest-20261101-100000.json", 2, "CON", False),
+        (
+            "oversized-suffix",
+            "manifest-20261101-100000-18446744073709551616.json",
+            2,
+            "demo",
+            True,
+        ),
+    )
+    for name, filename, schema_version, project_name, accepted in malformed_manifests:
+        backup_dest = root / f"prune-invalid-{name}"
+        project_dir = backup_dest / "demo"
+        project_dir.mkdir(parents=True)
+        record = {**invalid_git_record, "project": project_name}
+        (project_dir / filename).write_text(
+            json.dumps({"schema_version": schema_version, "records": [record]}),
+            encoding="utf-8",
+        )
+        plans = []
+        for command in ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)]):
+            result = subprocess.run(
+                [*command, "prune", str(backup_dest), "--keep", "1", "--json"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            assert (result.returncode == 0) is accepted, (
+                f"{name}: Python/Rust retention acceptance differed: "
+                f"exit={result.returncode}, stderr={result.stderr}"
+            )
+            if accepted:
+                plans.append(json.loads(result.stdout))
+        if accepted:
+            assert plans[0] == plans[1], f"Python and Rust differ for {name}"
+
     bundle_project = root / "bundle-project"
     bundle_project.mkdir()
     (bundle_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
