@@ -7,6 +7,8 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from proj_janitor.backup import _safe_windows_component
+
 _MANIFEST_RE = re.compile(r"manifest-(\d{8}-\d{6})(?:-(\d+))?\.json\Z")
 _LEGACY_RUN_DIR_RE = re.compile(r"backup-\d{8}-\d{6}\Z")
 
@@ -184,6 +186,7 @@ def _manifest_record(document: object, path: Path) -> dict:
         or "/" in project
         or "\\" in project
         or "\x00" in project
+        or not _safe_windows_component(project)
     ):
         raise RetentionError(f"invalid project in manifest: {path}")
     strategy = record.get("strategy")

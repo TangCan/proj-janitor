@@ -128,6 +128,24 @@ fn retention_refuses_unknown_manifest_strategy() {
     assert!(plan_retention(&root, 1).is_err());
 }
 
+#[test]
+fn retention_refuses_nonportable_project_name() {
+    let temp = TestDir::new();
+    let root = temp.0.join("backups");
+    let project = root.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("manifest-20261101-100000.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{"project": "CON", "strategy": "git"}],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(plan_retention(&root, 1).is_err());
+}
+
 #[cfg(windows)]
 #[test]
 fn git_file_arguments_remove_windows_verbatim_path_prefix() {
