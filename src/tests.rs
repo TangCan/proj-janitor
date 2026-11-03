@@ -221,6 +221,33 @@ fn backup_rejects_windows_reserved_project_names_before_writing() {
     assert!(!backup_dir.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn backup_rejects_non_utf8_project_paths_before_writing() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp = TestDir::new();
+    let project = temp.0.join(std::ffi::OsStr::from_bytes(b"demo\xff"));
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), b"[package]\nname='demo'\n").unwrap();
+    let backup_dir = temp.0.join("backups");
+    let error = backup_cmd(
+        std::slice::from_ref(&project),
+        Some(backup_dir.clone()),
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("project path is not valid UTF-8")
+    );
+    assert!(!backup_dir.exists());
+}
+
 struct TestDir(PathBuf);
 impl TestDir {
     fn new() -> Self {
@@ -454,6 +481,15 @@ fn archive_paths_and_links_cannot_escape_project_root() {
         Path::new("/etc/passwd"),
         "project"
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn archive_paths_reject_non_utf8_components() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = Path::new(std::ffi::OsStr::from_bytes(b"project/main\xff.py"));
+    assert!(!safe_archive_path(path, "project"));
 }
 
 #[test]

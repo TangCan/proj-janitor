@@ -29,6 +29,44 @@ def make_project(root: Path, name: str = "app") -> Path:
 
 
 class BackupTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "needs POSIX byte paths")
+    def test_backup_rejects_a_non_utf8_project_path_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.fsencode(tmp) + b"/parent\xff"
+            project_path = parent + b"/demo"
+            os.makedirs(project_path)
+            with open(project_path + b"/pyproject.toml", "wb") as marker:
+                marker.write(b"[project]\n")
+            backup_dest = Path(tmp) / "backups"
+
+            with self.assertRaisesRegex(ValueError, "project path is not valid UTF-8"):
+                run_backup([scan_project(Path(os.fsdecode(project_path)))], backup_dest)
+
+            self.assertFalse(backup_dest.exists())
+
+    @unittest.skipUnless(os.name == "posix", "needs POSIX byte paths")
+    def test_backup_rejects_non_utf8_archive_member_without_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_path = os.fsencode(tmp) + b"/demo"
+            os.mkdir(project_path)
+            with open(project_path + b"/pyproject.toml", "wb") as marker:
+                marker.write(b"[project]\n")
+            with open(project_path + b"/main\xff.py", "wb") as source:
+                source.write(b"payload\n")
+            backup_dest = Path(tmp) / "backups"
+
+            manifests, records, failures = run_backup(
+                [scan_project(Path(os.fsdecode(project_path)))],
+                backup_dest,
+                always_archive=True,
+            )
+
+            self.assertEqual(manifests, [])
+            self.assertEqual(records, [])
+            self.assertEqual(len(failures), 1)
+            self.assertFalse(list(backup_dest.rglob("manifest-*.json")))
+            self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
+
     @unittest.skipUnless(GIT_AVAILABLE and os.name != "nt", "needs Git and POSIX names")
     def test_git_only_backup_rejects_a_windows_reserved_project_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

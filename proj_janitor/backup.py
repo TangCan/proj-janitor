@@ -62,6 +62,10 @@ def prepare_backup(
     backup_dest = backup_dest.expanduser().resolve()
     project_list = list(projects)
     for project in project_list:
+        try:
+            str(project.path).encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"project path is not valid UTF-8: {project.path!r}") from exc
         if not safe_archive_member(project.name, project.name):
             raise ValueError(f"unsafe project name: {project.name!r}")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -626,6 +630,7 @@ def _safe_windows_component(part: str) -> bool:
     if (
         not part
         or part.endswith((" ", "."))
+        or any(0xD800 <= ord(char) <= 0xDFFF for char in part)
         or any(
             ord(char) < 32
             or ord(char) == 127

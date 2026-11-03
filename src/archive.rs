@@ -353,7 +353,7 @@ fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
 pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
     !p.is_absolute()
         && p.components().all(|component| {
-            matches!(component, Component::Normal(name) if safe_windows_component(&name.to_string_lossy()))
+            matches!(component, Component::Normal(name) if name.to_str().is_some_and(safe_windows_component))
         })
         && p.components()
             .next()
@@ -388,7 +388,9 @@ fn register_archive_case_path(
 }
 
 pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool {
-    let target = link.to_string_lossy();
+    let Some(target) = link.to_str() else {
+        return false;
+    };
     if link.is_absolute()
         || target.contains(['\0', ':'])
         || target.starts_with(['/', '\\'])

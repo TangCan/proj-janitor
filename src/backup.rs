@@ -110,6 +110,11 @@ pub(crate) fn backup_cmd(
     }
     for project in &projects {
         anyhow::ensure!(
+            project.path.to_str().is_some(),
+            "project path is not valid UTF-8: {}",
+            project.path.display()
+        );
+        anyhow::ensure!(
             safe_windows_component(&project.name),
             "unsafe project name: {}",
             project.name

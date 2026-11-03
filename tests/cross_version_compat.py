@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import io
+import os
 import subprocess
 import sys
 import tarfile
@@ -228,6 +229,24 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
                 plans.append(json.loads(result.stdout))
         if accepted:
             assert plans[0] == plans[1], f"Python and Rust differ for {name}"
+
+    non_utf8_project = root / "non-utf8-project"
+    non_utf8_project.mkdir()
+    (non_utf8_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    non_utf8_member = os.fsencode(non_utf8_project) + b"/main\xff.py"
+    with open(non_utf8_member, "wb") as source:
+        source.write(b"non-UTF-8 filename\n")
+    for name, command in (("python", [sys.executable, "-m", "proj_janitor"]), ("rust", [str(RUST_CLI)])):
+        backup_dest = root / f"non-utf8-{name}-backups"
+        result = subprocess.run(
+            [*command, "backup", str(non_utf8_project), "--backup-dest", str(backup_dest), "--always-archive"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, f"{name} accepted an archive with a non-UTF-8 member"
+        assert not list(backup_dest.rglob("manifest-*.json"))
+        assert not list(backup_dest.rglob("*.tar.gz"))
 
     bundle_project = root / "bundle-project"
     bundle_project.mkdir()
