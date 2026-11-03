@@ -101,7 +101,15 @@ pub(crate) fn prune_cmd(
         if json {
             println!(
                 "{}",
-                serde_json::json!({"dry_run":false,"deleted":[],"errors":[]})
+                serde_json::json!({
+                    "dry_run": false,
+                    "backup_root": plan.backup_root,
+                    "keep": plan.keep,
+                    "kept_manifests": plan.kept_manifests,
+                    "files": [],
+                    "deleted": [],
+                    "errors": [],
+                })
             );
         } else {
             println!("Nothing to prune.");
@@ -131,12 +139,30 @@ pub(crate) fn prune_cmd(
         }
     }
 
+    let backup_root = plan.backup_root.clone();
+    let keep = plan.keep;
+    let kept_manifests = plan.kept_manifests;
+    let files_json = files
+        .iter()
+        .map(|file| {
+            serde_json::json!({
+                "project": file.project,
+                "kind": file.kind,
+                "path": file.path,
+                "size_bytes": file.size_bytes,
+            })
+        })
+        .collect::<Vec<_>>();
     let result = apply_retention_plan(plan);
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "dry_run": false,
+                "backup_root": backup_root,
+                "keep": keep,
+                "kept_manifests": kept_manifests,
+                "files": files_json,
                 "deleted": result.deleted.iter().map(|file| serde_json::json!({
                     "project": file.project,
                     "kind": file.kind,

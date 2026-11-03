@@ -280,7 +280,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-03，Rust 0.4.0 开发版）：Python 175 项（174 通过、1 项 Windows 专属测试跳过）；Rust 46 项单元测试及 18 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention 跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-03，Rust 0.4.0）：Python 175 项（174 通过、1 项 Windows 专属测试跳过）；Rust 46 项单元测试及 18 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention 跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 

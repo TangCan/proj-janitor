@@ -943,6 +943,15 @@ fn prune_previews_and_removes_only_old_manifest_referenced_files() {
     let orphan = project_backup.join("orphan.bundle");
     fs::write(&orphan, b"unreferenced artifact").unwrap();
 
+    let invalid_keep = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--keep", "0"])
+        .output()
+        .unwrap();
+    assert!(!invalid_keep.status.success());
+    assert!(old_manifest.exists());
+
     let preview = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("prune")
         .arg(&backup_dest)

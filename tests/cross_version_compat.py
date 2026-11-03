@@ -167,6 +167,13 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             run([*pruner, "prune", str(backup_dest), "--keep", "1", "--json"])
         )
         assert preview["dry_run"] and len(preview["files"]) == 2
+        python_preview = json.loads(
+            run([sys.executable, "-m", "proj_janitor", "prune", str(backup_dest), "--keep", "1", "--json"])
+        )
+        rust_preview = json.loads(
+            run([str(RUST_CLI), "prune", str(backup_dest), "--keep", "1", "--json"])
+        )
+        assert python_preview == rust_preview, "Python and Rust retention plans differ"
         assert old_manifest.is_file() and old_archive.is_file()
         run([
             *pruner,

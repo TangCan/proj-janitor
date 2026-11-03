@@ -76,8 +76,8 @@ fn retention_keeps_newest_and_only_removes_manifest_referenced_artifacts() {
         .unwrap(),
     )
     .unwrap();
-    let latest_manifest = project.join("manifest-20261102-100000.json");
-    let latest_bundle = project.join("demo-20261102-100000.bundle");
+    let latest_manifest = project.join("manifest-20261101-100000-2.json");
+    let latest_bundle = project.join("demo-20261101-100000-2.bundle");
     fs::write(&latest_bundle, b"latest bundle").unwrap();
     fs::write(
         &latest_manifest,

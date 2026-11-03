@@ -499,7 +499,12 @@ def _cmd_prune(args: argparse.Namespace) -> int:
         if args.json:
             print(
                 json.dumps(
-                    {"dry_run": False, "deleted": [], "errors": []},
+                    {
+                        "dry_run": False,
+                        **_retention_plan_json(plan),
+                        "deleted": [],
+                        "errors": [],
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -535,6 +540,7 @@ def _cmd_prune(args: argparse.Namespace) -> int:
             json.dumps(
                 {
                     "dry_run": False,
+                    **_retention_plan_json(plan),
                     "deleted": [
                         {
                             "project": item.project,

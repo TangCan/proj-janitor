@@ -44,9 +44,9 @@ class RetentionTests(unittest.TestCase):
             old_manifest = write_manifest(directory, "20261101-100000", "archive", old_archive)
             (directory / old_archive).write_bytes(b"old archive")
             git_manifest = write_manifest(directory, "20261101-110000", "git")
-            latest_bundle = "demo-20261102-090000.bundle"
+            latest_bundle = "demo-20261101-110000-2.bundle"
             latest_manifest = write_manifest(
-                directory, "20261102-090000", "git_bundle", latest_bundle
+                directory, "20261101-110000-2", "git_bundle", latest_bundle
             )
             (directory / latest_bundle).write_bytes(b"latest bundle")
             orphan = directory / "orphan.bundle"
@@ -86,6 +86,10 @@ class RetentionTests(unittest.TestCase):
             old_manifest = write_manifest(directory, "20261101-100000", "archive", old_archive)
             (directory / old_archive).write_bytes(b"old archive")
             latest = write_manifest(directory, "20261102-090000", "git")
+
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                main(["prune", str(root), "--keep", "0"])
+            self.assertEqual(error.exception.code, 2)
 
             stdout = io.StringIO()
             with redirect_stdout(stdout):
