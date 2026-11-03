@@ -171,17 +171,18 @@ class RetentionTests(unittest.TestCase):
                 build_retention_plan(root, keep=1)
 
     def test_nonportable_project_name_refuses_to_plan_deletion(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            directory = root / "demo"
-            directory.mkdir()
-            manifest = write_manifest(directory, "20261101-100000", "git")
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-            payload["records"][0]["project"] = "CON"
-            manifest.write_text(json.dumps(payload), encoding="utf-8")
+        for project in ("CON", "demo\x7f"):
+            with self.subTest(project=project), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                directory = root / "demo"
+                directory.mkdir()
+                manifest = write_manifest(directory, "20261101-100000", "git")
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+                payload["records"][0]["project"] = project
+                manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-            with self.assertRaisesRegex(RetentionError, "invalid project"):
-                build_retention_plan(root, keep=1)
+                with self.assertRaisesRegex(RetentionError, "invalid project"):
+                    build_retention_plan(root, keep=1)
 
     def test_manifest_suffix_outside_rust_u64_range_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -626,7 +626,12 @@ def _safe_windows_component(part: str) -> bool:
     if (
         not part
         or part.endswith((" ", "."))
-        or any(ord(char) < 32 or char in _WINDOWS_INVALID_CHARS for char in part)
+        or any(
+            ord(char) < 32
+            or ord(char) == 127
+            or char in _WINDOWS_INVALID_CHARS
+            for char in part
+        )
     ):
         return False
     stem = part.split(".", 1)[0].rstrip(" .").upper()
