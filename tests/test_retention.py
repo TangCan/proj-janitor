@@ -171,7 +171,7 @@ class RetentionTests(unittest.TestCase):
                 build_retention_plan(root, keep=1)
 
     def test_nonportable_project_name_refuses_to_plan_deletion(self) -> None:
-        for project in ("CON", "demo\x7f"):
+        for project in ("CON", "demo\x7f", "CONıN$"):
             with self.subTest(project=project), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 directory = root / "demo"

@@ -144,7 +144,7 @@ fn retention_refuses_noninteger_manifest_schema_version() {
 
 #[test]
 fn retention_refuses_nonportable_project_name() {
-    for name in ["CON", "demo\u{7f}"] {
+    for name in ["CON", "demo\u{7f}", "CONıN$"] {
         let temp = TestDir::new();
         let root = temp.0.join("backups");
         let project = root.join("demo");

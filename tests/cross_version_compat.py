@@ -194,6 +194,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         ("bool-schema", "manifest-20261101-100000.json", True, "demo", False),
         ("reserved-name", "manifest-20261101-100000.json", 2, "CON", False),
         ("del-control", "manifest-20261101-100000.json", 2, "demo\x7f", False),
+        ("unicode-reserved-name", "manifest-20261101-100000.json", 2, "CONıN$", False),
         (
             "oversized-suffix",
             "manifest-20261101-100000-18446744073709551616.json",

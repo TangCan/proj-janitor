@@ -440,7 +440,7 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
         .next()
         .unwrap_or("")
         .trim_end_matches([' ', '.'])
-        .to_ascii_uppercase();
+        .to_uppercase();
     let reserved = matches!(
         stem.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
