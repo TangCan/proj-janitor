@@ -40,6 +40,7 @@ class RetentionTests(unittest.TestCase):
             root = Path(temporary)
             directory = root / "demo"
             directory.mkdir()
+            directory = directory.resolve()
             old_archive = "demo-20261101-100000.tar.gz"
             old_manifest = write_manifest(directory, "20261101-100000", "archive", old_archive)
             (directory / old_archive).write_bytes(b"old archive")
