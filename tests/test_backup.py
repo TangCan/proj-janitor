@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -29,7 +30,7 @@ def make_project(root: Path, name: str = "app") -> Path:
 
 
 class BackupTests(unittest.TestCase):
-    @unittest.skipUnless(os.name == "posix", "needs POSIX byte paths")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")
     def test_backup_rejects_a_non_utf8_project_path_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             parent = os.fsencode(tmp) + b"/parent\xff"
@@ -44,7 +45,7 @@ class BackupTests(unittest.TestCase):
 
             self.assertFalse(backup_dest.exists())
 
-    @unittest.skipUnless(os.name == "posix", "needs POSIX byte paths")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")
     def test_backup_rejects_non_utf8_archive_member_without_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_path = os.fsencode(tmp) + b"/demo"

@@ -221,7 +221,7 @@ fn backup_rejects_windows_reserved_project_names_before_writing() {
     assert!(!backup_dir.exists());
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn backup_rejects_non_utf8_project_paths_before_writing() {
     use std::os::unix::ffi::OsStrExt;
