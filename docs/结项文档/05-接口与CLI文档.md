@@ -8,9 +8,9 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-11-03 Rust 0.4.0 发布补充 |
-| 源码提交 | `TAG_COMMIT_0_4_0`（Rust `v0.4.0` 发布提交） |
+| 源码提交 | `c18fab1ebf7b29a198be3e64845dc374d12fcafc`（Rust `v0.4.0` 发布提交） |
 | 源码标签 | `v0.4.0` 为最新 Rust 发布标签 |
-| 文档日期 | 2026-11-02 |
+| 文档日期 | 2026-11-03 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
@@ -1360,7 +1360,7 @@ projjan prune BACKUP_ROOT --keep N [--apply] [--yes] [--json]
 
 ## 18. Rust 0.4.0 发布状态（2026-11-03）
 
-Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `TAG_COMMIT_0_4_0`。本版本新增 `prune` 命令，CLI 和 manifest schema v2 的其他行为不变；发布验证见 `docs/发布记录/0.4.0-Rust版.md`。
+Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `c18fab1ebf7b29a198be3e64845dc374d12fcafc`。本版本新增 `prune` 命令，CLI 和 manifest schema v2 的其他行为不变；发布验证见 `docs/发布记录/0.4.0-Rust版.md`。
 
 最新接口行为以 `src/main.rs`、`src/restore.rs`、Python `proj_janitor/cli.py` 和 CI 为准。内部函数、未发布 main 提交和格式化文本输出均不构成长期稳定 API 承诺。
 
