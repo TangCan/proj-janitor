@@ -43,7 +43,7 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 
 ### Python 源码版
 
-该 Python 项目当前未发布至 PyPI；`pyproject.toml` 中的 `0.1.0` 是项目元数据版本。克隆仓库后，在仓库根目录运行：
+该 Python 项目当前未发布至 PyPI；`pyproject.toml` 中的 `0.1.0` 是项目元数据版本。PyPI 首次发布流程和待配置项见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。克隆仓库后，在仓库根目录运行：
 
 ```bash
 git clone https://github.com/TangCan/proj-janitor.git

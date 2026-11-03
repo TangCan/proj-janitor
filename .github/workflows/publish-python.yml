@@ -1,0 +1,101 @@
+name: Publish Python package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Python release tag, such as python-v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.verify.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - id: verify
+        name: Verify release tag and version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"python-v\d+\.\d+\.\d+", tag):
+              raise SystemExit("release tag must look like python-v0.1.0")
+          commit = subprocess.check_output(
+              ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+              text=True,
+          ).strip()
+          subprocess.run(
+              ["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+              check=True,
+          )
+          manifest = subprocess.check_output(
+              ["git", "show", f"{tag}:pyproject.toml"], text=True
+          )
+          version = tomllib.loads(manifest)["project"]["version"]
+          if tag != f"python-v{version}":
+              raise SystemExit(f"tag {tag} does not match pyproject version {version}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"commit={commit}\n")
+          PY
+
+  build:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build source and wheel distributions
+        run: |
+          python -m pip install --disable-pip-version-check build==1.6.1 twine==7.0.0
+          python -m build --sdist --wheel
+          python -m twine check dist/*
+      - name: Install the wheel in isolation
+        run: |
+          install_dir="${RUNNER_TEMP}/proj-janitor-install"
+          python -m pip install --no-deps --target "$install_dir" dist/*.whl
+          cd "$RUNNER_TEMP"
+          PYTHONPATH="$install_dir" "$install_dir/bin/projjan" --version
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/proj-janitor
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0

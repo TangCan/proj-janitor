@@ -73,6 +73,8 @@ jobs:
           from pathlib import Path
 
           requirements = tomllib.loads(Path("pyproject.toml").read_text())["build-system"]["requires"]
+          requirements.append("build==1.6.1")
+          requirements.append("twine==7.0.0")
           Path(os.environ["RUNNER_TEMP"], "build-requirements.txt").write_text("\n".join(requirements) + "\n")
           PY
       - uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
