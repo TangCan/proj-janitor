@@ -4,6 +4,14 @@
 
 ## 安装
 
+CLI 应用推荐用 `pipx` 安装到隔离环境：
+
+```bash
+pipx install proj-janitor
+```
+
+也可以安装到当前 Python 环境：
+
 ```bash
 python -m pip install proj-janitor
 ```
