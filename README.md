@@ -42,9 +42,9 @@ Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`rest
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
-### Python 源码版
+### Python 版
 
-该 Python 项目当前未发布至 PyPI；`pyproject.toml` 中的 `0.1.0` 是项目元数据版本。PyPI 首次发布流程和待配置项见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。克隆仓库后，在仓库根目录运行：
+Python 实现支持 Python `>=3.10`，无第三方运行时依赖。克隆仓库后，在仓库根目录运行：
 
 ```bash
 git clone https://github.com/TangCan/proj-janitor.git

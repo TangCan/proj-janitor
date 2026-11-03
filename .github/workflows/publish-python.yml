@@ -4,9 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Python release tag, such as python-v0.1.0
-        required: true
+        description: Optional Python release tag; omit for a main-branch dry run
+        default: ""
+        required: false
         type: string
+      publish:
+        description: Upload to PyPI (requires a configured Trusted Publisher)
+        default: false
+        required: true
+        type: boolean
 
 permissions:
   contents: read
@@ -28,29 +34,38 @@ jobs:
         name: Verify release tag and version
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
         run: |
           python - <<'PY'
           import os
           import re
           import subprocess
           import tomllib
+          from pathlib import Path
 
           tag = os.environ["RELEASE_TAG"]
-          if not re.fullmatch(r"python-v\d+\.\d+\.\d+", tag):
-              raise SystemExit("release tag must look like python-v0.1.0")
-          commit = subprocess.check_output(
-              ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
-              text=True,
-          ).strip()
-          subprocess.run(
-              ["git", "merge-base", "--is-ancestor", commit, "origin/main"],
-              check=True,
-          )
-          manifest = subprocess.check_output(
-              ["git", "show", f"{tag}:pyproject.toml"], text=True
-          )
+          publish = os.environ["PUBLISH_REQUESTED"] == "true"
+          if publish and not tag:
+              raise SystemExit("a python-vX.Y.Z tag is required to publish")
+          if tag:
+              if not re.fullmatch(r"python-v\d+\.\d+\.\d+", tag):
+                  raise SystemExit("release tag must look like python-v0.1.0")
+              commit = subprocess.check_output(
+                  ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+                  text=True,
+              ).strip()
+              subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+                  check=True,
+              )
+              manifest = subprocess.check_output(
+                  ["git", "show", f"{tag}:pyproject.toml"], text=True
+              )
+          else:
+              commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+              manifest = Path("pyproject.toml").read_text(encoding="utf-8")
           version = tomllib.loads(manifest)["project"]["version"]
-          if tag != f"python-v{version}":
+          if tag and tag != f"python-v{version}":
               raise SystemExit(f"tag {tag} does not match pyproject version {version}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"commit={commit}\n")
@@ -86,6 +101,7 @@ jobs:
 
   publish:
     needs: build
+    if: inputs.publish
     runs-on: ubuntu-24.04
     environment:
       name: pypi
