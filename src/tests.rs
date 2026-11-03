@@ -14,6 +14,7 @@ use crate::project::{
     github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
 };
 use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
+use crate::retention::{apply_retention_plan, plan_retention};
 use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fs::File, process::Command};
@@ -51,6 +52,80 @@ fn bundle_eligibility_accepts_clean_local_branch() {
         .unwrap_or_else(|reason| panic!("bundle should be eligible: {reason}"));
     assert_eq!(recovery.branch, "main");
     assert_eq!(recovery.commit.len(), 40);
+}
+
+#[test]
+fn retention_keeps_newest_and_only_removes_manifest_referenced_artifacts() {
+    let temp = TestDir::new();
+    let root = temp.0.join("backups");
+    let project = root.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    let old_archive = project.join("demo-20261101-100000.tar.gz");
+    fs::write(&old_archive, b"old backup").unwrap();
+    let old_manifest = project.join("manifest-20261101-100000.json");
+    fs::write(
+        &old_manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{
+                "project": "demo",
+                "strategy": "archive",
+                "archive": old_archive,
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let latest_manifest = project.join("manifest-20261102-100000.json");
+    let latest_bundle = project.join("demo-20261102-100000.bundle");
+    fs::write(&latest_bundle, b"latest bundle").unwrap();
+    fs::write(
+        &latest_manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{
+                "project": "demo",
+                "strategy": "git_bundle",
+                "archive": latest_bundle,
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let orphan = project.join("orphan.bundle");
+    fs::write(&orphan, b"keep unreferenced files").unwrap();
+
+    let plan = plan_retention(&root, 1).unwrap();
+    assert_eq!(plan.kept_manifests, 1);
+    assert_eq!(plan.manifests.len(), 1);
+    assert_eq!(plan.artifacts.len(), 1);
+
+    let result = apply_retention_plan(plan);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert_eq!(result.deleted.len(), 2);
+    assert!(!old_manifest.exists());
+    assert!(!old_archive.exists());
+    assert!(latest_manifest.exists());
+    assert!(latest_bundle.exists());
+    assert!(orphan.exists());
+}
+
+#[test]
+fn retention_refuses_unknown_manifest_strategy() {
+    let temp = TestDir::new();
+    let root = temp.0.join("backups");
+    let project = root.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("manifest-20261101-100000.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{"project": "demo", "strategy": ["unknown"]}],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(plan_retention(&root, 1).is_err());
 }
 
 #[cfg(windows)]

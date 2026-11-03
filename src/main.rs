@@ -12,6 +12,7 @@ mod backup;
 mod clean;
 mod project;
 mod restore;
+mod retention;
 use backup::backup_cmd;
 use clean::clean_cmd;
 use project::discover;
@@ -67,7 +68,7 @@ static ARTIFACT_GLOBS: OnceLock<Vec<GlobMatcher>> = OnceLock::new();
 #[command(
     name = "projjan",
     version,
-    about = "Scan, back up, restore, and clean old projects safely"
+    about = "Scan, back up, restore, prune, and clean old projects safely"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -111,6 +112,17 @@ enum Action {
         #[arg(long)]
         list_rules: bool,
     },
+    Prune {
+        backup_root: PathBuf,
+        #[arg(long, value_parser = parse_positive_usize)]
+        keep: usize,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Restore {
         manifest: PathBuf,
         #[arg(long)]
@@ -133,6 +145,16 @@ enum Action {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let keep = value
+        .parse::<usize>()
+        .map_err(|_| "must be a positive integer".to_owned())?;
+    if keep == 0 {
+        return Err("must be at least 1".into());
+    }
+    Ok(keep)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -212,6 +234,13 @@ fn run() -> anyhow::Result<()> {
             json,
             list_rules,
         } => clean_cmd(&roots, &rules, apply, yes, json, list_rules),
+        Action::Prune {
+            backup_root,
+            keep,
+            apply,
+            yes,
+            json,
+        } => retention::prune_cmd(&backup_root, keep, apply, yes, json),
         Action::Restore {
             manifest,
             dest,

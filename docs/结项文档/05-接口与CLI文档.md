@@ -115,7 +115,7 @@ exit_code = main(["scan", "/path/to/projects"])
 `main(argv: Sequence[str] | None = None) -> int`：
 
 - `argv` 为 `None` 时使用 `sys.argv[1:]`；
-- 解析参数并分派到 `scan`、`backup`、`restore` 或 `clean`；
+- 解析参数并分派到 `scan`、`backup`、`prune`、`restore`、`verify` 或 `clean`；
 - 返回整数退出码；
 - 参数错误由 `argparse` 直接抛出 `SystemExit`，不会以普通返回值返回。
 
@@ -138,7 +138,9 @@ exit_code = main(["scan", "/path/to/projects"])
 | --- | --- | --- |
 | `scan` | 发现项目，输出体积、修改时间、项目标记和 Git 状态 | 只读 |
 | `backup` | 按 Git 可恢复性记录位置或创建 `tar.gz`，并按项目生成 manifest | 写入备份目录 |
+| `prune` | 保留每个项目目录最新 N 份清单；只删除过期清单及其引用的 bundle/归档 | 默认只预览 |
 | `restore` | 按 manifest 恢复 Git 项目或归档项目 | 写入恢复目标 |
+| `verify` | 校验 archive/bundle SHA-256 或 Git-only manifest 元数据 | 只读 |
 | `clean` | 按白名单生成清理计划；确认后删除构建产物 | 默认 dry-run |
 
 ## 4. `--version`
@@ -1333,6 +1335,28 @@ projjan verify MANIFEST --project NAME --json
 - Git 与归档恢复都在执行前拒绝 Windows 不可移植项目名；包括 `CONIN$` 和 `CONOUT$`。
 - Python 与 Rust 都可恢复仅含目录成员的非空归档；Python↔Rust 双向兼容由 `tests/cross_version_compat.py` 验证。
 - schema v2 仍是文件接口；没有 HTTP/REST 服务。SHA-256 检查保证文件与 manifest 中摘要一致，不提供签名或来源认证。
+
+## 17. `prune` 备份保留
+
+```text
+projjan prune BACKUP_ROOT --keep N [--apply] [--yes] [--json]
+```
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `BACKUP_ROOT` | 是 | 由 `backup` 生成的备份根目录。 |
+| `--keep N` | 是 | 每个项目目录至少保留 N 份最新清单；N 必须大于等于 1。 |
+| `--apply` | 否 | 实际删除预览中的过期清单和它们引用的 artifact；不指定时始终只预览。 |
+| `--yes` | 否 | 跳过交互确认；非交互执行和 JSON apply 必须显式指定。 |
+| `--json` | 否 | 输出纯 JSON 计划或删除结果。 |
+
+处理边界：
+
+- 只扫描备份根目录下的直接项目目录和符合当前 `manifest-YYYYmmdd-HHMMSS[-N].json` 格式的清单；旧版 `backup-YYYYmmdd-HHMMSS/` 运行目录不处理。
+- 清单必须是 schema v2 且每份只含一条记录；无法解析的清单会使计划失败，不删除任何文件。
+- 只删除过期清单直接引用、与清单位于同一项目目录的 `.tar.gz`/`.bundle` 文件；保留清单引用的共享 artifact。孤立 artifact、未知文件和符号链接不会删除。
+- 计划完成后会复核文件身份；备份期间若同权限进程替换目标，工具报告错误并跳过。多个文件删除不是事务，执行中断时可能只删掉部分旧清单/artifact，留下超过 N 份备份；工具不会为凑齐 N 而继续删除。
+- 操作前检查退出码，并保留至少一份清单及其引用文件；备份目录应有独立副本。
 
 最新接口行为以 `src/main.rs`、`src/restore.rs`、Python `proj_janitor/cli.py` 和 CI 为准。内部函数、未发布 main 提交和格式化文本输出均不构成长期稳定 API 承诺。
 

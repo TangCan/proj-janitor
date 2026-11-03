@@ -1,6 +1,6 @@
 # proj-janitor
 
-扫描、备份、恢复并安全清理旧项目的轻量命令行工具。适合在多年积累的项目目录（如 `~/projects`）中先盘点、再归档、需要时恢复，最后删除构建产物或整个已备份项目。
+扫描、备份、恢复、保留和安全清理旧项目的轻量命令行工具。适合在多年积累的项目目录（如 `~/projects`）中盘点、备份、恢复，并按需清理构建产物或过期备份。
 
 ## 安全原则
 
@@ -10,6 +10,7 @@
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
 - `verify` 命令校验 archive/bundle SHA-256；Git-only 记录只验证 manifest 中的 URL 和提交格式，不联网检查远程。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
+- `prune` 默认 dry-run：每个项目保留指定数量的最新备份，只删除过期 manifest 明确引用的归档/bundle；孤立文件不动。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
 - 永远不删除项目根目录，永远跳过 `.git`，不跟随符号链接。
 - 真正删除需要同时提供 `--apply` 和交互确认（或 `--yes`）。
@@ -141,6 +142,23 @@ backups/
 
 清单使用 `schema_version: 2`，顶层记录 `include_artifacts`、`always_archive`、`exclude_git_metadata` 和 `records`。`exclude_git_metadata` 在项目使用 archive 策略且启用了排除选项时为 `true`；它表示所选策略，不表示源项目一定含有 `.git`。`git` 记录包含 `remote_url`、`branch`、`commit`、`upstream`；`git_bundle` 记录在 `archive` 字段保存 bundle 路径，并记录 `branch`、`commit` 和 SHA-256；`archive` 记录包含归档路径、大小、源大小、SHA-256 和可选的 `fallback_reason`。
 
+### 2.4 备份保留
+
+按每个项目目录保留最近 N 份 manifest，默认只预览：
+
+```bash
+projjan prune ~/backups/projects --keep 3
+```
+
+实际删除需显式指定 `--apply`；交互终端会列出所有待删文件并要求确认。非交互或 JSON 执行还要加 `--yes`：
+
+```bash
+projjan prune ~/backups/projects --keep 3 --apply --yes
+projjan prune ~/backups/projects --keep 3 --json
+```
+
+prune 只删除超出保留数量的 manifest，以及这些 manifest 在同一项目目录中明确引用的归档或 bundle。孤立归档、bundle、格式异常的清单和旧版 `backup-YYYYmmdd-HHMMSS/` 目录不会删除。`--keep` 必须至少为 1。
+
 ### 3. 清理
 
 ```bash
@@ -239,6 +257,7 @@ projjan verify <manifest> --project xtask_todo --json
 │   ├── scanner.py      # 项目发现、大小与 Git 状态
 │   ├── backup.py       # URL-only 记录、tar.gz 归档与清单
 │   ├── restore.py      # 清单校验、Git/归档恢复与安全解压
+│   ├── retention.py    # 按项目预览/清理过期备份
 │   ├── cleaner.py      # 清理计划与执行
 │   └── cli.py          # argparse 命令行入口
 ├── src/                # Rust CLI
@@ -247,6 +266,7 @@ projjan verify <manifest> --project xtask_todo --json
 │   ├── backup.rs       # 备份计划执行与 manifest
 │   ├── archive.rs      # 归档、校验与安全解压
 │   ├── restore.rs      # manifest 预检与恢复
+│   ├── retention.rs    # 备份保留计划与执行
 │   ├── clean.rs        # 清理计划与执行
 │   └── tests.rs        # Rust 单元测试
 └── tests/
@@ -260,7 +280,7 @@ projjan verify <manifest> --project xtask_todo --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-02，Rust 0.3.0 开发版）：Python 169 项（Linux 本地 168 项通过、1 项 Windows 专属测试跳过）；Rust 44 项单元测试及 17 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust Git bundle 跨语言备份恢复检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-03，Rust 0.4.0 开发版）：Python 175 项（174 通过、1 项 Windows 专属测试跳过）；Rust 46 项单元测试及 18 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention 跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
@@ -287,6 +307,6 @@ python3 -m unittest discover -s tests -v
 
 ## 后续计划
 
-- 增量备份与保留策略（例如只保留最近 N 份）。
+- 增量备份与自动/定时保留；当前 `prune --keep N` 可手动按项目清理旧快照。
 - 配置文件（排除规则、备份目标、保留策略）。
 - 恢复时对 Git 远程提交做联网预检。

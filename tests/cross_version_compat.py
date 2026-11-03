@@ -141,6 +141,46 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not (restored / ".git").exists()
     assert (project / ".git/config").is_file()
 
+    for producer, pruner, suffix in (
+        ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)], "python-to-rust"),
+        ([str(RUST_CLI)], [sys.executable, "-m", "proj_janitor"], "rust-to-python"),
+    ):
+        backup_dest = root / f"prune-{suffix}"
+        for _ in range(2):
+            run([
+                *producer,
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--always-archive",
+            ])
+        manifests = list((backup_dest / "demo").glob("manifest-*.json"))
+        manifests.sort(key=lambda path: json.loads(path.read_text(encoding="utf-8"))["created_at"])
+        assert len(manifests) == 2
+        old_manifest, latest_manifest = manifests
+        old_record = json.loads(old_manifest.read_text(encoding="utf-8"))["records"][0]
+        old_archive = Path(old_record["archive"])
+        orphan = backup_dest / "demo" / "orphan.bundle"
+        orphan.write_text("keep", encoding="utf-8")
+        preview = json.loads(
+            run([*pruner, "prune", str(backup_dest), "--keep", "1", "--json"])
+        )
+        assert preview["dry_run"] and len(preview["files"]) == 2
+        assert old_manifest.is_file() and old_archive.is_file()
+        run([
+            *pruner,
+            "prune",
+            str(backup_dest),
+            "--keep",
+            "1",
+            "--apply",
+            "--yes",
+            "--json",
+        ])
+        assert not old_manifest.exists() and not old_archive.exists()
+        assert latest_manifest.is_file() and orphan.is_file()
+
     bundle_project = root / "bundle-project"
     bundle_project.mkdir()
     (bundle_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
@@ -270,4 +310,4 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     assert git_verify_results[0] == git_verify_results[1]
     assert git_verify_results[0]["projects"][0]["status"] == "metadata-only"
 
-print("Python and Rust schema v2 archive/Git bundle compatibility passed.")
+print("Python and Rust schema v2 archive/Git bundle/retention compatibility passed.")

@@ -29,6 +29,12 @@ from proj_janitor.restore import (
     redact_remote_url,
     verify_manifest,
 )
+from proj_janitor.retention import (
+    RetentionError,
+    RetentionPlan,
+    apply_retention_plan,
+    build_retention_plan,
+)
 from proj_janitor.scanner import discover_projects, format_projects
 
 
@@ -42,6 +48,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_backup(args)
     if args.command == "clean":
         return _cmd_clean(args)
+    if args.command == "prune":
+        return _cmd_prune(args)
     if args.command == "restore":
         return _cmd_restore(args)
     if args.command == "verify":
@@ -184,6 +192,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="verify only this project (repeatable)",
     )
     verify.add_argument("--json", action="store_true", help="emit JSON")
+
+    prune = subparsers.add_parser(
+        "prune",
+        help="preview or remove old backups while retaining the newest snapshots",
+    )
+    prune.add_argument("backup_root", type=Path)
+    prune.add_argument("--keep", required=True, type=_positive_integer, metavar="N")
+    prune.add_argument("--apply", action="store_true", help="delete the planned backups")
+    prune.add_argument("--yes", action="store_true", help="skip interactive confirmation")
+    prune.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -447,6 +465,117 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_prune(args: argparse.Namespace) -> int:
+    try:
+        plan = build_retention_plan(args.backup_root, args.keep)
+    except (OSError, RetentionError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    files = plan.files
+    if not args.apply:
+        if args.json:
+            print(
+                json.dumps(
+                    {"dry_run": True, **_retention_plan_json(plan)},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        elif files:
+            print(f"Prune plan for {plan.backup_root} (keep {plan.keep} per project):")
+            for item in files:
+                print(f"  [{item.kind}] {item.path}")
+            print(
+                f"{len(plan.manifests)} manifest(s), {len(plan.artifacts)} artifact(s), "
+                f"{human_size(sum(item.size_bytes for item in files))} reclaimable."
+            )
+            print("Dry run. Re-run with --apply to delete these files.")
+        else:
+            print("Nothing to prune.")
+        return 0
+
+    if not files:
+        if args.json:
+            print(
+                json.dumps(
+                    {"dry_run": False, "deleted": [], "errors": []},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print("Nothing to prune.")
+        return 0
+    if args.json and not args.yes:
+        print("error: --yes is required for prune --apply with --json", file=sys.stderr)
+        return 2
+    if not args.json:
+        print("Files to delete:")
+        for item in files:
+            print(f"  [{item.kind}] {item.path}")
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(
+                "error: refusing to prune without --yes in a non-interactive session",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            answer = input(f"Delete {len(files)} file(s)? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Aborted.")
+            return 2
+
+    result = apply_retention_plan(plan)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "dry_run": False,
+                    "deleted": [
+                        {
+                            "project": item.project,
+                            "kind": item.kind,
+                            "path": str(item.path),
+                        }
+                        for item in result.deleted
+                    ],
+                    "errors": list(result.errors),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(
+            f"Deleted {len(result.deleted)} file(s), "
+            f"freed {human_size(sum(item.size_bytes for item in result.deleted))}."
+        )
+        for error in result.errors:
+            print(f"error: {error}", file=sys.stderr)
+    return 1 if result.errors else 0
+
+
+def _retention_plan_json(plan: RetentionPlan) -> dict:
+    return {
+        "backup_root": str(plan.backup_root),
+        "keep": plan.keep,
+        "kept_manifests": plan.kept_manifests,
+        "files": [
+            {
+                "project": item.project,
+                "kind": item.kind,
+                "path": str(item.path),
+                "size_bytes": item.size_bytes,
+            }
+            for item in plan.files
+        ],
+    }
+
+
 def _print_restore_plan(plan: RestorePlan) -> None:
     if plan.strategy == "git":
         remote = redact_remote_url(plan.remote_url or "")
@@ -613,6 +742,16 @@ def _non_empty_path(value: str) -> Path:
     if not value:
         raise argparse.ArgumentTypeError("path must not be empty")
     return Path(value)
+
+
+def _positive_integer(value: str) -> int:
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if count < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return count
 
 
 def _rule_list(value: str) -> list[str]:

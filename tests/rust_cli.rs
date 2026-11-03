@@ -903,6 +903,102 @@ fn backup_can_archive_working_tree_without_git_metadata() {
 }
 
 #[test]
+fn prune_previews_and_removes_only_old_manifest_referenced_files() {
+    let temp = TestDir::new();
+    let backup_dest = temp.0.join("backups");
+    let project_backup = backup_dest.join("demo");
+    fs::create_dir_all(&project_backup).unwrap();
+    let old_archive = project_backup.join("demo-20261101-100000.tar.gz");
+    fs::write(&old_archive, b"old backup").unwrap();
+    let old_manifest = project_backup.join("manifest-20261101-100000.json");
+    fs::write(
+        &old_manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{
+                "project": "demo",
+                "strategy": "archive",
+                "archive": old_archive,
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let newest_manifest = project_backup.join("manifest-20261102-100000.json");
+    let newest_bundle = project_backup.join("demo-20261102-100000.bundle");
+    fs::write(&newest_bundle, b"newest bundle").unwrap();
+    fs::write(
+        &newest_manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{
+                "project": "demo",
+                "strategy": "git_bundle",
+                "archive": newest_bundle,
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let orphan = project_backup.join("orphan.bundle");
+    fs::write(&orphan, b"unreferenced artifact").unwrap();
+
+    let preview = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--keep", "1", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview_json: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview_json["dry_run"], true);
+    assert_eq!(preview_json["files"].as_array().unwrap().len(), 2);
+    assert!(old_manifest.exists());
+    assert!(old_archive.exists());
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--keep", "1", "--apply"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(old_manifest.exists());
+    assert!(old_archive.exists());
+
+    let applied = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--keep", "1", "--apply", "--yes", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    let applied_json: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(applied_json["deleted"].as_array().unwrap().len(), 2);
+    assert!(
+        !old_manifest.exists(),
+        "manifest still exists; prune output: {}",
+        String::from_utf8_lossy(&applied.stdout)
+    );
+    assert!(
+        !old_archive.exists(),
+        "archive still exists; prune output: {}",
+        String::from_utf8_lossy(&applied.stdout)
+    );
+    assert!(newest_manifest.exists());
+    assert!(newest_bundle.exists());
+    assert!(orphan.exists());
+}
+
+#[test]
 fn backup_records_git_exclusion_option_when_project_has_no_git_metadata() {
     let temp = TestDir::new();
     let project = temp.project();
