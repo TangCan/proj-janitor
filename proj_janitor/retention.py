@@ -78,10 +78,10 @@ def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
             match = _MANIFEST_RE.fullmatch(path.name)
             if match is None:
                 continue
-            if match.group(2) is not None and (
-                int(match.group(2)) < 2 or str(int(match.group(2))) != match.group(2)
-            ):
-                continue
+            if match.group(2) is not None:
+                suffix = int(match.group(2))
+                if suffix < 2 or suffix > 0xFFFFFFFFFFFFFFFF or str(suffix) != match.group(2):
+                    continue
             try:
                 info = path.lstat()
             except FileNotFoundError:

@@ -146,6 +146,29 @@ fn retention_refuses_nonportable_project_name() {
     assert!(plan_retention(&root, 1).is_err());
 }
 
+#[test]
+fn retention_ignores_manifest_suffix_outside_u64_range() {
+    let temp = TestDir::new();
+    let root = temp.0.join("backups");
+    let project = root.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    let manifest = project.join("manifest-20261101-100000-18446744073709551616.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{"project": "demo", "strategy": "git"}],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let plan = plan_retention(&root, 1).unwrap();
+    assert_eq!(plan.kept_manifests, 0);
+    assert!(plan.manifests.is_empty());
+    assert!(manifest.exists());
+}
+
 #[cfg(windows)]
 #[test]
 fn git_file_arguments_remove_windows_verbatim_path_prefix() {

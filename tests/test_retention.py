@@ -170,3 +170,18 @@ class RetentionTests(unittest.TestCase):
             with self.assertRaisesRegex(RetentionError, "invalid project"):
                 build_retention_plan(root, keep=1)
 
+    def test_manifest_suffix_outside_rust_u64_range_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "demo"
+            directory.mkdir()
+            invalid = write_manifest(
+                directory, "20261101-100000-18446744073709551616", "git"
+            )
+
+            plan = build_retention_plan(root, keep=1)
+
+            self.assertEqual(plan.kept_manifests, 0)
+            self.assertEqual(plan.files, ())
+            self.assertTrue(invalid.exists())
+
