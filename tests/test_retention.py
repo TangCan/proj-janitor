@@ -131,6 +131,19 @@ class RetentionTests(unittest.TestCase):
             with self.assertRaisesRegex(RetentionError, "cannot read manifest"):
                 build_retention_plan(root, keep=1)
 
+    def test_noninteger_manifest_schema_version_refuses_to_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "demo"
+            directory.mkdir()
+            manifest = write_manifest(directory, "20261101-100000", "git")
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["schema_version"] = 2.0
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(RetentionError, "unsupported manifest"):
+                build_retention_plan(root, keep=1)
+
     def test_unsafe_artifact_path_refuses_to_plan_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

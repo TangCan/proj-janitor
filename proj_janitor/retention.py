@@ -172,7 +172,11 @@ def apply_retention_plan(
 
 
 def _manifest_record(document: object, path: Path) -> dict:
-    if not isinstance(document, dict) or document.get("schema_version") != 2:
+    if (
+        not isinstance(document, dict)
+        or type(document.get("schema_version")) is not int
+        or document["schema_version"] != 2
+    ):
         raise RetentionError(f"unsupported manifest in backup root: {path}")
     records = document.get("records")
     if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):

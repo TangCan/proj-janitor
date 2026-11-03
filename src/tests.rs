@@ -129,6 +129,20 @@ fn retention_refuses_unknown_manifest_strategy() {
 }
 
 #[test]
+fn retention_refuses_noninteger_manifest_schema_version() {
+    let temp = TestDir::new();
+    let root = temp.0.join("backups");
+    let project = root.join("demo");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("manifest-20261101-100000.json"),
+        br#"{"schema_version":2.0,"records":[{"project":"demo","strategy":"git"}]}"#,
+    )
+    .unwrap();
+    assert!(plan_retention(&root, 1).is_err());
+}
+
+#[test]
 fn retention_refuses_nonportable_project_name() {
     let temp = TestDir::new();
     let root = temp.0.join("backups");
