@@ -47,6 +47,12 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 Python 实现支持 Python `>=3.10`，无第三方运行时依赖。源码元数据版本为 `0.1.0`，发行包尚未发布到 PyPI；首发状态见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。目前从 Git 源码安装：
 
 ```bash
+pipx install git+https://github.com/TangCan/proj-janitor.git
+```
+
+开发时需要可编辑源码安装，可克隆仓库并创建虚拟环境：
+
+```bash
 git clone https://github.com/TangCan/proj-janitor.git
 cd proj-janitor
 python3 -m venv .venv
