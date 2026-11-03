@@ -37,16 +37,20 @@ cargo install --locked --git https://github.com/TangCan/proj-janitor.git --branc
 
 这会安装 main 当前源码，随后的提交可能改变功能；日常使用建议从 crates.io 安装已发布稳定版。
 
-Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`clean`。默认备份策略与 Python 版一致：优先选择 GitHub Git-only；不适用时，符合条件的干净本地仓库使用 Git bundle；其余项目创建 `tar.gz`。bundle 保留本地分支、tag 和这些引用可达的提交历史，不保存工作区以外的 Git 配置、reflog、stash、悬空对象、子模块对象或 LFS 对象。bundle 恢复需本机安装 Git。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。GitHub Git-only 恢复需要 Git；使用子模块或 Git LFS 时，还需要可访问对应远端，LFS 项目须将 `git-lfs` 安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
+Rust 版会生成和读取 schema v2 manifest，支持 `scan`、`backup`、`restore`、`verify`、`prune`、`clean`。默认备份策略与 Python 版一致：优先选择 GitHub Git-only；不适用时，符合条件的干净本地仓库使用 Git bundle；其余项目创建 `tar.gz`。bundle 保留本地分支、tag 和这些引用可达的提交历史，不保存工作区以外的 Git 配置、reflog、stash、悬空对象、子模块对象或 LFS 对象。bundle 恢复需本机安装 Git。归档备份会把硬链接按普通文件内容保存，不保留链接关系；FIFO、设备和 socket 不归档。归档恢复拒绝跨平台越界路径、重复成员、硬链接、未知成员类型、大小写或 Unicode 规范化冲突路径和特殊文件；Unix 可恢复项目内符号链接。Windows 也支持文件与目录符号链接恢复，但运行账户必须有创建符号链接的权限。GitHub Git-only 恢复需要 Git；使用子模块或 Git LFS 时，还需要可访问对应远端，LFS 项目须将 `git-lfs` 安装到 PATH，安装方法见 [GitHub 文档](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage)。
 
 Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程序不需要 Python。`backup` 仍可用 `BACKUP_DEST` 或 `--backup-dest` 指定目录。
 
-### Python 版
+### Python 源码版
+
+该 Python 项目当前未发布至 PyPI；`pyproject.toml` 中的 `0.1.0` 是项目元数据版本。克隆仓库后，在仓库根目录运行：
 
 ```bash
+git clone https://github.com/TangCan/proj-janitor.git
+cd proj-janitor
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+python -m pip install -e .
 ```
 
 也可以不安装，直接运行：
@@ -100,7 +104,7 @@ projjan backup ~/richard_plus
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
-Rust `0.2.6` 支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。Python 包 `0.1.0` 尚不包含该选项。需要保留 Git 历史时不要使用。
+Rust `0.2.6` 支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。Python 源码中支持该选项；该 Python 项目尚未发布至 PyPI。需要保留 Git 历史时不要使用。
 
 每个项目使用一个稳定的项目目录，不再创建 `backup-.../` 运行目录。纯 `git` 备份只在该目录下写清单：
 
