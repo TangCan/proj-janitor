@@ -761,6 +761,105 @@ fn backup_with_keep_without_yes_skips_retention_noninteractively() {
 }
 
 #[test]
+fn backup_incremental_creates_delta_and_restore_reconstructs_tree() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    fs::write(project.join("a.txt"), "v1").unwrap();
+    fs::write(project.join("b.txt"), "keep").unwrap();
+    backup_run(&project, &backup_dest, &[]); // full snapshot
+    fs::write(project.join("a.txt"), "v2").unwrap();
+    fs::write(project.join("c.txt"), "new").unwrap();
+    fs::remove_file(project.join("b.txt")).unwrap();
+    backup_run(&project, &backup_dest, &["--incremental"]); // delta
+    let project_backup = backup_dest.join(project.file_name().unwrap());
+    let manifests: Vec<PathBuf> = fs::read_dir(&project_backup)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    assert_eq!(manifests.len(), 2);
+    let mut delta = None;
+    for manifest in &manifests {
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+        if value["records"][0]["incremental"].is_object() {
+            delta = Some(manifest.clone());
+        }
+    }
+    let delta = delta.expect("expected an incremental delta manifest");
+    let delta_json: serde_json::Value = serde_json::from_slice(&fs::read(&delta).unwrap()).unwrap();
+    assert_eq!(
+        delta_json["records"][0]["incremental"]["deleted"],
+        serde_json::json!(["b.txt"])
+    );
+    let base = delta_json["records"][0]["incremental"]["base"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        project_backup.join(&base).exists(),
+        "base manifest {base} must be kept in the same directory"
+    );
+    let restored = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore"])
+        .arg(&delta)
+        .arg("--dest")
+        .arg(&restored)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    let restored_project = restored.join(project.file_name().unwrap());
+    assert_eq!(
+        fs::read_to_string(restored_project.join("a.txt")).unwrap(),
+        "v2"
+    );
+    assert_eq!(
+        fs::read_to_string(restored_project.join("c.txt")).unwrap(),
+        "new"
+    );
+    assert!(
+        !restored_project.join("b.txt").exists(),
+        "deleted b.txt should not be restored"
+    );
+    assert_eq!(
+        fs::read_to_string(restored_project.join("pyproject.toml")).unwrap(),
+        "[project]\n"
+    );
+}
+
+#[test]
+fn retention_keeps_whole_incremental_chain_together() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    backup_run(&project, &backup_dest, &[]); // m1 full
+    for _ in 0..3 {
+        backup_run(&project, &backup_dest, &["--incremental"]); // m2..m4 deltas
+    }
+    let project_backup = backup_dest.join(project.file_name().unwrap());
+    assert_eq!(manifest_count(&project_backup), 4);
+    backup_run(
+        &project,
+        &backup_dest,
+        &["--incremental", "--keep", "1", "--yes"],
+    );
+    assert_eq!(
+        manifest_count(&project_backup),
+        5,
+        "retention must keep the whole incremental chain (keep 1 protects m1..m4)"
+    );
+}
+
+#[test]
 fn backup_and_restore_unpushed_git_history_with_bundle() {
     let temp = TestDir::new();
     let project = temp.project();

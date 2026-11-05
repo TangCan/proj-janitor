@@ -10,7 +10,7 @@ use std::{
 use crate::{
     Manifest, Record,
     archive::{
-        archive_path_matches, copy_new_file, create_archive, create_private_dir,
+        archive_path_matches, copy_new_file, create_incremental_archive, create_private_dir,
         create_private_temp_dir, portable_path_key, remove_file_if_same, safe_windows_component,
         write_new_file,
     },
@@ -72,6 +72,52 @@ fn create_git_bundle(
     result
 }
 
+type PreviousInventory = (Option<String>, Option<HashMap<String, String>>);
+
+fn previous_inventory(dir: &Path) -> anyhow::Result<PreviousInventory> {
+    if !dir.is_dir() {
+        return Ok((None, None));
+    }
+    let mut manifests: Vec<PathBuf> = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("manifest-") && name.ends_with(".json"))
+        })
+        .collect();
+    // Sort by modification time so the newest manifest is last. Lexicographic
+    // ordering is unreliable here: the disambiguated counter suffix ("-1") sorts
+    // BEFORE the plain "manifest-{stamp}.json" because '-' < '.', so a naive
+    // sort would pick the oldest snapshot as the base.
+    manifests.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .unwrap_or(std::time::UNIX_EPOCH)
+    });
+    let Some(path) = manifests.pop() else {
+        return Ok((None, None));
+    };
+    let text = fs::read_to_string(&path)?;
+    let manifest: crate::Manifest = serde_json::from_str(&text)?;
+    let mut map = HashMap::new();
+    for entry in manifest
+        .records
+        .first()
+        .and_then(|record| record.inventory.as_ref())
+        .into_iter()
+        .flatten()
+    {
+        map.insert(entry.path.clone(), entry.sha256.clone());
+    }
+    let base = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned);
+    Ok((base, Some(map)))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn backup_cmd(
     roots: &[PathBuf],
@@ -83,6 +129,7 @@ pub(crate) fn backup_cmd(
     always: bool,
     exclude_git_metadata: bool,
     exclude: &[String],
+    incremental: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -268,6 +315,8 @@ pub(crate) fn backup_cmd(
                     upstream: Some(git.upstream.clone()),
                     verified: Some("local-ref".into()),
                     fallback_reason: None,
+                    inventory: None,
+                    incremental: None,
                 });
             }
             if let Some(bundle) = &bundle_recovery {
@@ -289,15 +338,32 @@ pub(crate) fn backup_cmd(
                     upstream: None,
                     verified: Some("local-bundle".into()),
                     fallback_reason: fallback_reason.clone(),
+                    inventory: None,
+                    incremental: None,
                 })
             } else {
-                let (hash, bytes, identity) = create_archive(
-                    &p.path,
-                    &archive_path,
-                    include_artifacts,
-                    exclude_git_metadata,
-                    exclude,
-                )?;
+                let (hash, bytes, identity, inventory, incremental) = {
+                    let (prev_name, prev_inventory) = if incremental {
+                        previous_inventory(&dir)?
+                    } else {
+                        (None, None)
+                    };
+                    let (hash, bytes, identity, inv, deleted) = create_incremental_archive(
+                        &p.path,
+                        &archive_path,
+                        include_artifacts,
+                        exclude_git_metadata,
+                        exclude,
+                        prev_inventory.as_ref(),
+                        incremental,
+                    )?;
+                    let info = if incremental {
+                        prev_name.map(|base| crate::IncrementalInfo { base, deleted })
+                    } else {
+                        None
+                    };
+                    (hash, bytes, identity, Some(inv), info)
+                };
                 archive_identity = Some(identity);
                 Ok(Record {
                     project: p.name.clone(),
@@ -314,6 +380,8 @@ pub(crate) fn backup_cmd(
                     upstream: None,
                     verified: None,
                     fallback_reason: fallback_reason.clone(),
+                    inventory,
+                    incremental,
                 })
             }
         })();

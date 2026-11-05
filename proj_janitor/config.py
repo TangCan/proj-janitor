@@ -119,17 +119,19 @@ class ConfigError(ValueError):
 
 
 class BackupConfig:
-    __slots__ = ("dest", "keep", "exclude")
+    __slots__ = ("dest", "keep", "exclude", "incremental")
 
     def __init__(
         self,
         dest: Path | None = None,
         keep: int | None = None,
         exclude: tuple[str, ...] = (),
+        incremental: bool = False,
     ) -> None:
         self.dest = dest
         self.keep = keep
         self.exclude = exclude
+        self.incremental = incremental
 
 
 class PruneConfig:
@@ -156,6 +158,12 @@ def _parse_path(value: object, where: str) -> Path:
 def _parse_keep(value: object, where: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"config {where} must be a positive integer")
+    return value
+
+
+def _parse_bool(value: object, where: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"config {where} must be a boolean")
     return value
 
 
@@ -222,10 +230,10 @@ def load_config(path: Path | None = None) -> Config | None:
     backup_data = data.get("backup", {})
     if not isinstance(backup_data, dict):
         raise ConfigError(f"invalid config {path}: [backup] must be a table")
-    if set(backup_data) - {"dest", "keep", "exclude"}:
+    if set(backup_data) - {"dest", "keep", "exclude", "incremental"}:
         raise ConfigError(
             f"invalid config {path}: unknown [backup] key(s) "
-            f"{sorted(set(backup_data) - {'dest', 'keep', 'exclude'})}"
+            f"{sorted(set(backup_data) - {'dest', 'keep', 'exclude', 'incremental'})}"
         )
     backup = BackupConfig(
         dest=_parse_path(backup_data["dest"], "[backup].dest")
@@ -237,6 +245,9 @@ def load_config(path: Path | None = None) -> Config | None:
         exclude=_parse_exclude(backup_data["exclude"], "[backup].exclude")
         if "exclude" in backup_data
         else (),
+        incremental=_parse_bool(backup_data["incremental"], "[backup].incremental")
+        if "incremental" in backup_data
+        else False,
     )
 
     prune_data = data.get("prune", {})

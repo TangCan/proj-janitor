@@ -345,6 +345,9 @@ class CliTests(unittest.TestCase):
                 fallback_reason=None,
                 exclude_git_metadata=False,
                 exclude_patterns=(),
+                incremental=False,
+                base_name=None,
+                previous=None,
             ):
                 if project.name == "bad":
                     raise PermissionError("access denied")
@@ -356,6 +359,9 @@ class CliTests(unittest.TestCase):
                     fallback_reason=fallback_reason,
                     exclude_git_metadata=exclude_git_metadata,
                     exclude_patterns=exclude_patterns,
+                    incremental=incremental,
+                    base_name=base_name,
+                    previous=previous,
                 )
 
             with mock.patch(
@@ -820,6 +826,105 @@ class CliTests(unittest.TestCase):
             self.assertTrue(any(n.endswith("main.py") for n in names))
             self.assertTrue(any(n.endswith("pyproject.toml") for n in names))
             self.assertFalse(any("node_modules" in n for n in names))
+
+    def test_backup_incremental_creates_delta_and_restore_reconstructs_tree(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup", str(project), "--backup-dest", str(backup_dest)
+            )
+            self.assertEqual(code, 0, err)
+            manifests = list((backup_dest / "app").glob("manifest-*.json"))
+            self.assertEqual(len(manifests), 1)
+
+            (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
+            (project / "new.txt").write_text("new content", encoding="utf-8")
+            (project / "node_modules" / "pkg" / "index.js").unlink()
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--incremental",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = list((backup_dest / "app").glob("manifest-*.json"))
+            self.assertEqual(len(manifests), 2)
+            # Select the newest by modification time (the delta), not by name:
+            # a same-second backup gets a "-N" counter suffix that sorts
+            # lexicographically before the plain "manifest-{stamp}.json".
+            delta_manifest = max(manifests, key=lambda p: p.stat().st_mtime)
+            document = json.loads(delta_manifest.read_text(encoding="utf-8"))
+            record = document["records"][0]
+            self.assertIn("incremental", record)
+            self.assertIsInstance(record["incremental"]["base"], str)
+            self.assertIn("inventory", record)
+            self.assertTrue(
+                any(item["path"] == "new.txt" for item in record["inventory"])
+            )
+
+            restored = root / "restored"
+            code, out, err = run_cli(
+                "restore", str(delta_manifest), "--dest", str(restored)
+            )
+            self.assertEqual(code, 0, err)
+            restored_project = restored / "app"
+            self.assertEqual(
+                (restored_project / "main.py").read_text(encoding="utf-8"),
+                "print('bye')\n",
+            )
+            self.assertEqual(
+                (restored_project / "new.txt").read_text(encoding="utf-8"),
+                "new content",
+            )
+            self.assertFalse(
+                (restored_project / "node_modules" / "pkg" / "index.js").exists()
+            )
+            self.assertTrue((restored_project / "pyproject.toml").exists())
+
+    def test_retention_keeps_whole_incremental_chain_together(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup", str(project), "--backup-dest", str(backup_dest)
+            )
+            self.assertEqual(code, 0, err)
+            for _ in range(3):
+                code, out, err = run_cli(
+                    "backup",
+                    str(project),
+                    "--backup-dest",
+                    str(backup_dest),
+                    "--incremental",
+                )
+                self.assertEqual(code, 0, err)
+            self.assertEqual(
+                len(list((backup_dest / "app").glob("manifest-*.json"))), 4
+            )
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--incremental",
+                "--keep",
+                "1",
+                "--yes",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(
+                len(list((backup_dest / "app").glob("manifest-*.json"))), 5
+            )
 
     def test_prune_uses_keep_from_config_file_and_cli_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

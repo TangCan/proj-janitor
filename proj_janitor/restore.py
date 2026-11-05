@@ -227,6 +227,9 @@ def plan_restore(
                     sha256=sha256,
                     hash_verified=hash_verified,
                     in_place=dest is None,
+                    incremental=record.get("incremental"),
+                    inventory=record.get("inventory"),
+                    manifest_dir=manifest_path.parent,
                 )
             )
             continue
@@ -551,7 +554,10 @@ def _restore_one(plan: RestorePlan, *, verify: bool) -> RestoreResult:
     elif plan.strategy == "git_bundle":
         _restore_git_bundle(plan, verify=verify)
     elif plan.strategy == "archive":
-        _restore_archive(plan, verify=verify)
+        if plan.incremental:
+            _restore_incremental(plan, verify=verify)
+        else:
+            _restore_archive(plan, verify=verify)
     else:
         raise RestoreError(f"unsupported strategy: {plan.strategy}")
     return RestoreResult(
@@ -847,6 +853,181 @@ def _restore_archive(plan: RestorePlan, *, verify: bool) -> None:
             extracted.rename(plan.target)
         finally:
             _cleanup_restore_temp(temporary)
+
+
+def _restore_incremental(plan: RestorePlan, *, verify: bool) -> None:
+    if plan.archive is None:
+        raise RestoreError(f"incomplete incremental restore plan for {plan.project}")
+    manifest_dir = plan.manifest_dir
+    if manifest_dir is None:
+        manifest_dir = plan.archive.parent
+    project = plan.project
+
+    chain = [plan]
+    current = plan
+    seen: set[str] = set()
+    while True:
+        incremental = current.incremental
+        if not incremental:
+            break
+        base_name = incremental.get("base")
+        if not isinstance(base_name, str) or not base_name:
+            raise RestoreError(
+                f"incremental snapshot {current.archive} has no base manifest"
+            )
+        if base_name in seen:
+            raise RestoreError(f"incremental chain cycle at {base_name}")
+        seen.add(base_name)
+        base_path = manifest_dir / base_name
+        if not base_path.is_file():
+            raise RestoreError(f"incremental base manifest not found: {base_name}")
+        try:
+            document = json.loads(base_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RestoreError(f"cannot read base manifest {base_path}: {exc}") from exc
+        records = document.get("records")
+        if not isinstance(records, list) or not records or not isinstance(records[0], dict):
+            raise RestoreError(f"invalid base manifest records: {base_path}")
+        base_record = records[0]
+        if base_record.get("strategy") != "archive":
+            raise RestoreError(
+                f"incremental base crosses non-archive snapshot: {base_name}"
+            )
+        base_archive = _resolve_archive(base_record, manifest_dir, project)
+        base_sha256 = base_record.get("sha256")
+        if base_sha256 is not None and not isinstance(base_sha256, str):
+            raise RestoreError(f"invalid sha256 in base manifest: {base_name}")
+        base_plan = RestorePlan(
+            project=project,
+            strategy="archive",
+            target=plan.target,
+            archive=base_archive,
+            sha256=base_sha256,
+            incremental=base_record.get("incremental"),
+            inventory=base_record.get("inventory"),
+            manifest_dir=manifest_dir,
+            in_place=plan.in_place,
+        )
+        chain.insert(0, base_plan)
+        current = base_plan
+
+    _restore_archive(chain[0], verify=verify)
+    for delta_plan in chain[1:]:
+        deleted = (delta_plan.incremental or {}).get("deleted") or []
+        if not isinstance(deleted, list):
+            raise RestoreError(f"invalid deleted list in {delta_plan.incremental}")
+        _remove_deleted_paths(
+            plan.target, [str(item) for item in deleted if isinstance(item, str)]
+        )
+        _extract_incremental_delta(
+            delta_plan.archive,
+            plan.target,
+            project,
+            delta_plan.sha256 if verify else None,
+        )
+
+
+def _remove_deleted_paths(target: Path, paths: list[str]) -> None:
+    for raw in paths:
+        if "\x00" in raw or raw.startswith("/"):
+            raise RestoreError(f"unsafe deleted path: {raw}")
+        parts = tuple(part for part in PurePosixPath(raw).parts if part not in ("", "."))
+        if not parts or any(part == ".." for part in parts):
+            raise RestoreError(f"unsafe deleted path: {raw}")
+        _remove_any(target.joinpath(*parts))
+
+
+def _remove_any(dest: Path) -> None:
+    try:
+        if dest.is_symlink():
+            dest.unlink()
+        elif dest.is_dir():
+            shutil.rmtree(dest)
+        elif dest.exists():
+            dest.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _extract_incremental_delta(
+    archive: Path,
+    target: Path,
+    project: str,
+    expected_hash: str | None,
+) -> None:
+    if expected_hash:
+        actual = sha256_file(archive)
+        if actual.lower() != expected_hash.lower():
+            raise RestoreError(
+                f"sha256 mismatch for {archive}: expected {expected_hash}, got {actual}"
+            )
+    try:
+        with tarfile.open(archive, "r:*") as tar:
+            seen_members: set[tuple[str, ...]] = set()
+            seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
+            for member in tar:
+                parts = _archive_parts(member.name)
+                if parts[0] != project:
+                    raise RestoreError(
+                        f"archive entry is outside project {project}: {member.name}"
+                    )
+                if not safe_archive_member(member.name, project):
+                    raise RestoreError(
+                        f"archive contains an unsafe path: {member.name}"
+                    )
+                if parts in seen_members:
+                    raise RestoreError(
+                        f"archive contains a duplicate path: {member.name}"
+                    )
+                seen_members.add(parts)
+                if not register_archive_path(parts, seen_archive_paths):
+                    raise RestoreError(
+                        "archive paths collide on case-insensitive filesystems "
+                        f"(including Unicode normalization): {member.name}"
+                    )
+                if member.islnk():
+                    raise RestoreError(
+                        f"archive contains unsupported hard link: {member.name}"
+                    )
+                if member.issym():
+                    _validate_archive_link(member)
+                elif member.type not in (
+                    tarfile.REGTYPE,
+                    tarfile.AREGTYPE,
+                    tarfile.DIRTYPE,
+                ):
+                    raise RestoreError(
+                        f"archive contains unsupported entry type: {member.name}"
+                    )
+                relative = parts[1:]
+                dest = target if not relative else target.joinpath(*relative)
+                if member.isdir():
+                    _ensure_dir(dest)
+                else:
+                    _remove_any(dest)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if member.issym():
+                        os.symlink(member.linkname, dest)
+                    else:
+                        source = tar.extractfile(member)
+                        if source is None:
+                            raise RestoreError(
+                                f"cannot read archive member: {member.name}"
+                            )
+                        with source, dest.open("wb") as output:
+                            shutil.copyfileobj(source, output)
+                        try:
+                            os.chmod(dest, member.mode & 0o777)
+                        except OSError:
+                            pass
+    except (OSError, tarfile.TarError, TypeError) as exc:
+        raise RestoreError(f"cannot extract archive {archive}: {exc}") from exc
+
+
+def _ensure_dir(dest: Path) -> None:
+    if dest.is_symlink() or (dest.exists() and not dest.is_dir()):
+        _remove_any(dest)
+    dest.mkdir(parents=True, exist_ok=True)
 
 
 def _safe_extract(

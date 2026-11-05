@@ -145,6 +145,7 @@ def run_backup(
     always_archive: bool = False,
     exclude_git_metadata: bool = False,
     exclude_patterns: Iterable[str] = (),
+    incremental: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -202,6 +203,7 @@ def run_backup(
                 always_archive,
                 exclude_git_metadata,
                 exclude_patterns,
+                incremental,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -225,6 +227,7 @@ def _backup_one(
     always_archive: bool,
     exclude_git_metadata: bool,
     exclude_patterns: Iterable[str] = (),
+    incremental: bool = False,
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -261,6 +264,10 @@ def _backup_one(
         archive_dir = manifest_path.parent
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_path = archive_dir / plan.archive_name
+        base_name: str | None = None
+        previous: dict[str, str] | None = None
+        if incremental:
+            base_name, previous = _previous_inventory(archive_dir)
         record, archive_identity = _backup_project_with_identity(
             plan.project,
             archive_dir,
@@ -269,6 +276,9 @@ def _backup_one(
             fallback_reason=plan.reason,
             exclude_git_metadata=exclude_git_metadata,
             exclude_patterns=exclude_patterns,
+            incremental=incremental,
+            base_name=base_name,
+            previous=previous,
         )
 
     manifest = {
@@ -459,42 +469,29 @@ def _backup_project_with_identity(
     fallback_reason: str | None = None,
     exclude_git_metadata: bool = False,
     exclude_patterns: Iterable[str] = (),
+    incremental: bool = False,
+    base_name: str | None = None,
+    previous: dict[str, str] | None = None,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
     patterns = tuple(patterns)
     exclude_patterns = tuple(exclude_patterns)
 
-    archive_file = _open_new_file(archive, binary=True)
-    archive_identity: tuple[int, int] | None = None
-    try:
-        with archive_file:
-            created = os.fstat(archive_file.fileno())
-            archive_identity = created.st_dev, created.st_ino
-            with tarfile.open(fileobj=archive_file, mode="w:gz") as tar:
-                tar.add(
-                    project.path,
-                    arcname=project.name,
-                    filter=_make_filter(
-                        project.name,
-                        patterns,
-                        project.path,
-                        exclude_git_metadata,
-                        exclude_patterns,
-                    ),
-                )
-            archive_file.flush()
-            archive_bytes = os.fstat(archive_file.fileno()).st_size
-            archive_file.seek(0)
-            digest = sha256_stream(archive_file)
-            current = archive.stat(follow_symlinks=False)
-            if (current.st_dev, current.st_ino) != archive_identity:
-                raise OSError("archive path changed while it was being written")
-    except BaseException:
-        if archive_identity is not None:
-            _discard_partial_file_if_same(archive, archive_identity)
-        raise
-
+    digest, archive_bytes, archive_identity, inventory, deleted = (
+        _create_incremental_archive(
+            project,
+            archive,
+            patterns,
+            exclude_git_metadata,
+            exclude_patterns,
+            previous,
+            delta=incremental,
+        )
+    )
+    incremental_info = (
+        {"base": base_name, "deleted": deleted} if incremental else None
+    )
     return BackupRecord(
         project=project.name,
         source=str(project.path),
@@ -503,7 +500,178 @@ def _backup_project_with_identity(
         source_bytes=project.size_bytes,
         sha256=digest,
         fallback_reason=fallback_reason,
+        inventory=inventory,
+        incremental=incremental_info,
     ), archive_identity
+
+
+def _previous_inventory(backup_dir: Path) -> tuple[str | None, dict[str, str] | None]:
+    """Return the (manifest filename, path->sha256 inventory) of the newest
+    complete snapshot in `backup_dir`, or (None, None) when there is none.
+    Mirrors the Rust `previous_inventory`. Incomplete manifests (empty or
+    unparseable, e.g. a manifest reserved by an in-progress backup) are
+    skipped so they never become a base."""
+    if not backup_dir.is_dir():
+        return None, None
+    try:
+        manifests = sorted(
+            (
+                path
+                for path in backup_dir.glob("manifest-*.json")
+                if path.is_file() and path.stat().st_size > 0
+            ),
+            key=lambda p: p.stat().st_mtime,
+        )
+    except OSError:
+        return None, None
+    for newest in reversed(manifests):
+        try:
+            data = json.loads(newest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        records = data.get("records") or []
+        if not records:
+            continue
+        inventory = records[0].get("inventory")
+        if not isinstance(inventory, list):
+            continue
+        mapping: dict[str, str] = {}
+        for entry in inventory:
+            if (
+                isinstance(entry, dict)
+                and "path" in entry
+                and "sha256" in entry
+            ):
+                mapping[str(entry["path"])] = str(entry["sha256"])
+        return newest.name, (mapping or None)
+    return None, None
+
+
+def _create_incremental_archive(
+    project: Project,
+    archive: Path,
+    patterns: tuple[str, ...],
+    exclude_git_metadata: bool,
+    exclude_patterns: tuple[str, ...],
+    previous: dict[str, str] | None,
+    delta: bool,
+) -> tuple[str, int, tuple[int, int], list[dict], list[str]]:
+    """Create an archive recording the full file inventory and, when `delta`
+    is true, only changed/new files (plus symlinks) plus the sorted deleted
+    paths. Mirrors the Rust `create_incremental_archive`."""
+    name = project.name
+    root = project.path
+    exclude_filter = _make_filter(
+        name, patterns, root, exclude_git_metadata, exclude_patterns
+    )
+    inventory: list[dict] = []
+    archive_file = _open_new_file(archive, binary=True)
+    archive_identity: tuple[int, int] | None = None
+    try:
+        with archive_file:
+            created = os.fstat(archive_file.fileno())
+            archive_identity = created.st_dev, created.st_ino
+            with tarfile.open(fileobj=archive_file, mode="w:gz") as tar:
+                root_info = tar.gettarinfo(root, arcname=name)
+                root_filtered = exclude_filter(root_info)
+                if root_filtered is None:
+                    raise tarfile.ExtractError(f"archive path excluded: {name}")
+                tar.addfile(root_filtered)
+
+                def rel_parts(abs_path: str) -> tuple[str, ...]:
+                    rel = os.path.relpath(abs_path, root)
+                    if rel == ".":
+                        return ()
+                    return tuple(
+                        PurePosixPath(rel.replace(os.sep, "/")).parts
+                    )
+
+                def add_entry(abs_path: str) -> None:
+                    parts = rel_parts(abs_path)
+                    rel_str = "/".join(parts)
+                    info = tar.gettarinfo(
+                        abs_path, arcname=f"{name}/{rel_str}"
+                    )
+                    filtered = exclude_filter(info)
+                    if filtered is None:
+                        return
+                    if info.issym():
+                        target = os.readlink(abs_path)
+                        digest = hashlib.sha256(
+                            target.encode("utf-8", "surrogateescape")
+                        ).hexdigest()
+                        if not (
+                            delta
+                            and previous is not None
+                            and previous.get(rel_str) == digest
+                        ):
+                            tar.addfile(filtered)
+                        inventory.append(
+                            {"path": rel_str, "sha256": digest, "size": 0}
+                        )
+                        return
+                    if info.isdir():
+                        tar.addfile(filtered)
+                        return
+                    with open(abs_path, "rb") as handle:
+                        digest = sha256_stream(handle)
+                    if not (
+                        delta
+                        and previous is not None
+                        and previous.get(rel_str) == digest
+                    ):
+                        with open(abs_path, "rb") as handle:
+                            tar.addfile(filtered, handle)
+                    inventory.append(
+                        {
+                            "path": rel_str,
+                            "sha256": digest,
+                            "size": info.size,
+                        }
+                    )
+
+                for dirpath, dirnames, filenames in os.walk(
+                    root, topdown=True, followlinks=False
+                ):
+                    kept: list[str] = []
+                    for d in dirnames:
+                        full = os.path.join(dirpath, d)
+                        if os.path.islink(full):
+                            add_entry(full)
+                            continue
+                        rel = os.path.relpath(full, root)
+                        if rel == ".":
+                            continue
+                        info = tar.gettarinfo(
+                            full, arcname=f"{name}/{rel.replace(os.sep, '/')}"
+                        )
+                        if exclude_filter(info) is None:
+                            continue
+                        tar.addfile(info)
+                        kept.append(d)
+                    dirnames[:] = kept
+                    for f in filenames:
+                        add_entry(os.path.join(dirpath, f))
+
+                current = {entry["path"] for entry in inventory}
+                deleted = (
+                    sorted(set(previous) - current)
+                    if delta and previous is not None
+                    else []
+                )
+            archive_file.flush()
+            archive_bytes = os.fstat(archive_file.fileno()).st_size
+            archive_file.seek(0)
+            digest = sha256_stream(archive_file)
+            current_stat = archive.stat(follow_symlinks=False)
+            if (current_stat.st_dev, current_stat.st_ino) != archive_identity:
+                raise OSError("archive path changed while it was being written")
+    except BaseException:
+        if archive_identity is not None:
+            _discard_partial_file_if_same(archive, archive_identity)
+        raise
+
+    return digest, archive_bytes, archive_identity, inventory, deleted
 
 
 def sha256_file(path: Path) -> str:

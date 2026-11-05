@@ -52,6 +52,40 @@ class RetentionResult:
     errors: tuple[str, ...]
 
 
+def _protect_incremental_chain(
+    project_dir: Path,
+    manifest_path: Path,
+    record: dict,
+    protected: set[Path],
+    retained_artifacts: set[Path],
+) -> None:
+    incremental = record.get("incremental")
+    seen: set[str] = set()
+    while isinstance(incremental, dict):
+        base_name = incremental.get("base")
+        if not isinstance(base_name, str) or not base_name:
+            break
+        if base_name in seen:
+            break
+        seen.add(base_name)
+        base_path = project_dir / base_name
+        if not base_path.is_file():
+            break
+        try:
+            document = json.loads(base_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            break
+        records = document.get("records")
+        if not isinstance(records, list) or not records or not isinstance(records[0], dict):
+            break
+        base_record = records[0]
+        protected.add(base_path)
+        artifact = _artifact_for_manifest(project_dir, base_path, base_record)
+        if artifact is not None:
+            retained_artifacts.add(artifact)
+        incremental = base_record.get("incremental")
+
+
 def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
     if keep < 1:
         raise RetentionError("--keep must be at least 1")
@@ -102,11 +136,21 @@ def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
         manifests.sort(key=lambda row: row[0], reverse=True)
         kept = manifests[:keep]
         kept_count += len(kept)
+        protected: set[Path] = set()
         for _, path, record, _, _ in kept:
             artifact = _artifact_for_manifest(project_dir, path, record)
             if artifact is not None:
                 retained_artifacts.add(artifact)
+            _protect_incremental_chain(
+                project_dir, path, record, protected, retained_artifacts
+            )
         for _, path, record, identity, size in manifests[keep:]:
+            if path in protected:
+                kept_count += 1
+                artifact = _artifact_for_manifest(project_dir, path, record)
+                if artifact is not None:
+                    retained_artifacts.add(artifact)
+                continue
             artifact = _artifact_for_manifest(project_dir, path, record)
             manifest_rows.append((path, record["project"], artifact, identity, size))
 

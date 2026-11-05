@@ -106,6 +106,8 @@ enum Action {
         always_archive: bool,
         #[arg(long)]
         exclude_git_metadata: bool,
+        #[arg(long)]
+        incremental: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -199,6 +201,28 @@ pub(crate) struct Record {
     pub(crate) upstream: Option<String>,
     pub(crate) verified: Option<String>,
     pub(crate) fallback_reason: Option<String>,
+    /// Full file inventory (path -> sha256/size) for archive snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) inventory: Option<Vec<FileEntry>>,
+    /// Present only for incremental (delta) archive snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) incremental: Option<IncrementalInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct FileEntry {
+    /// Path relative to the project root, using `/` separators.
+    pub(crate) path: String,
+    pub(crate) sha256: String,
+    pub(crate) size: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct IncrementalInfo {
+    /// Filename of the previous snapshot manifest this delta is based on.
+    pub(crate) base: String,
+    /// Paths (relative to the project root) removed since the base snapshot.
+    pub(crate) deleted: Vec<String>,
 }
 
 fn main() {
@@ -235,6 +259,7 @@ fn run() -> anyhow::Result<()> {
             include_artifacts,
             always_archive,
             exclude_git_metadata,
+            incremental,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -245,6 +270,11 @@ fn run() -> anyhow::Result<()> {
                 .as_ref()
                 .map(|cfg| cfg.backup.exclude.clone())
                 .unwrap_or_default();
+            let incremental = incremental
+                || config
+                    .as_ref()
+                    .map(|cfg| cfg.backup.incremental)
+                    .unwrap_or(false);
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -255,6 +285,7 @@ fn run() -> anyhow::Result<()> {
                 always_archive,
                 exclude_git_metadata,
                 &exclude,
+                incremental,
             )
         }
         Action::Clean {

@@ -310,6 +310,33 @@ pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePl
         rows.sort_by(|left, right| (&left.0, left.1).cmp(&(&right.0, right.1)));
         let split = rows.len().saturating_sub(keep);
         let kept_rows = rows.split_off(split);
+        // Scheme A: keep incremental chains whole. A retained snapshot's base
+        // chain (via `incremental.base`) must not be pruned.
+        let mut protected: HashSet<PathBuf> = HashSet::new();
+        for (_, _, row) in &kept_rows {
+            let mut current = row.path.clone();
+            loop {
+                if !protected.insert(current.clone()) {
+                    break;
+                }
+                let text = match fs::read_to_string(&current) {
+                    Ok(text) => text,
+                    Err(_) => break,
+                };
+                let manifest: Value = match serde_json::from_str(&text) {
+                    Ok(manifest) => manifest,
+                    Err(_) => break,
+                };
+                let Some(base) = manifest["records"][0]["incremental"]["base"].as_str() else {
+                    break;
+                };
+                let next = directory.join(base);
+                if next == current {
+                    break;
+                }
+                current = next;
+            }
+        }
         for (_, _, row) in kept_rows {
             if let Some(artifact) = row.artifact {
                 kept_artifacts.insert(artifact);
@@ -317,6 +344,13 @@ pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePl
             kept_manifests += 1;
         }
         for (_, _, row) in rows.drain(..split) {
+            if protected.contains(&row.path) {
+                if let Some(artifact) = row.artifact {
+                    kept_artifacts.insert(artifact);
+                }
+                kept_manifests += 1;
+                continue;
+            }
             if let Some(artifact) = &row.artifact {
                 match fs::symlink_metadata(artifact) {
                     Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {

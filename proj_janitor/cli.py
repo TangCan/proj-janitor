@@ -134,6 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip confirmation when deleting old backups via --keep",
     )
+    backup.add_argument(
+        "--incremental",
+        action="store_true",
+        help="record a delta snapshot (changed/new files) instead of a full archive "
+        "(default: [backup].incremental)",
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -317,6 +323,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         else (config.backup.keep if config else None)
     )
     exclude_patterns = config.backup.exclude if config else ()
+    incremental = args.incremental or (config.backup.incremental if config else False)
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -384,6 +391,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             always_archive=args.always_archive,
             exclude_git_metadata=args.exclude_git_metadata,
             exclude_patterns=exclude_patterns,
+            incremental=incremental,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

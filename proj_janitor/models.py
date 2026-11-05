@@ -76,6 +76,8 @@ class BackupRecord:
     upstream: str | None = None
     verified: str | None = None
     fallback_reason: str | None = None
+    inventory: list | None = None
+    incremental: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,9 @@ class RestorePlan:
     sha256: str | None = None
     hash_verified: bool = False
     in_place: bool = False
+    incremental: dict | None = None
+    inventory: list | None = None
+    manifest_dir: Path | None = None
 
 
 @dataclass(frozen=True)

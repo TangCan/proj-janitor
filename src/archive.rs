@@ -11,11 +11,14 @@ use tar::{Archive, Builder, EntryType, Header};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
-use crate::is_artifact;
+use crate::{FileEntry, is_artifact};
 use anyhow::Context;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) type IncrementalArchiveResult =
+    (String, u64, same_file::Handle, Vec<FileEntry>, Vec<String>);
 
 pub(crate) fn portable_path_key(value: &str) -> String {
     value.to_lowercase().nfc().collect()
@@ -109,6 +112,7 @@ pub(crate) fn remove_file_if_same(path: &Path, identity: same_file::Handle) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn create_archive(
     project: &Path,
     archive: &Path,
@@ -186,6 +190,128 @@ pub(crate) fn create_archive(
     })();
     match result {
         Ok((digest, size)) => Ok((digest, size, identity)),
+        Err(error) => {
+            remove_file_if_same(archive, identity);
+            Err(error)
+        }
+    }
+}
+
+pub(crate) fn create_incremental_archive(
+    project: &Path,
+    archive: &Path,
+    include: bool,
+    exclude_git_metadata: bool,
+    exclude: &[String],
+    previous: Option<&HashMap<String, String>>,
+    delta: bool,
+) -> anyhow::Result<IncrementalArchiveResult> {
+    let f = create_private_file(archive)?;
+    let identity = same_file::Handle::from_file(f.try_clone()?)?;
+    let result = (|| -> anyhow::Result<(String, u64, Vec<FileEntry>, Vec<String>)> {
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut tar = Builder::new(enc);
+        let root = project.file_name().unwrap_or_default();
+        let mut archive_paths = HashMap::new();
+        register_archive_case_path(Path::new(root), &mut archive_paths)?;
+        let exclude_set = build_exclude_globset(exclude)?;
+        tar.append_dir(root, project)?;
+        let mut inventory: Vec<FileEntry> = Vec::new();
+        for e in WalkDir::new(project)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                !archive_excluded(
+                    entry.path(),
+                    project,
+                    include,
+                    exclude_git_metadata,
+                    &exclude_set,
+                )
+            })
+        {
+            let e = e?;
+            let rel = e.path().strip_prefix(project)?;
+            if rel.as_os_str().is_empty() {
+                continue;
+            }
+            let name = Path::new(root).join(rel);
+            anyhow::ensure!(
+                safe_archive_path(&name, &root.to_string_lossy()),
+                "unsafe archive path: {}",
+                name.display()
+            );
+            register_archive_case_path(&name, &mut archive_paths)?;
+            let rel_str = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            if e.file_type().is_symlink() {
+                let target = fs::read_link(e.path())?;
+                anyhow::ensure!(
+                    safe_archive_link(&name, &target, &root.to_string_lossy()),
+                    "archive symlink escapes project: {} -> {}",
+                    name.display(),
+                    target.display()
+                );
+                let digest = format!("{:x}", Sha256::digest(target.to_string_lossy().as_bytes()));
+                if !delta || !previous.is_some_and(|prev| prev.get(&rel_str) == Some(&digest)) {
+                    let mut h = Header::new_gnu();
+                    h.set_entry_type(EntryType::Symlink);
+                    h.set_size(0);
+                    h.set_mode(0o777);
+                    h.set_link_name(&target)?;
+                    h.set_cksum();
+                    tar.append_link(&mut h, name, target)?;
+                }
+                inventory.push(FileEntry {
+                    path: rel_str,
+                    sha256: digest,
+                    size: 0,
+                });
+            } else if e.file_type().is_dir() {
+                tar.append_dir(name, e.path())?;
+            } else if e.file_type().is_file() {
+                let meta = fs::metadata(e.path())?;
+                let mut file = File::open(e.path())?;
+                let mut hasher = Sha256::new();
+                io::copy(&mut file, &mut hasher)?;
+                let digest = format!("{:x}", hasher.finalize());
+                if !delta || !previous.is_some_and(|prev| prev.get(&rel_str) == Some(&digest)) {
+                    tar.append_path_with_name(e.path(), name)?;
+                }
+                inventory.push(FileEntry {
+                    path: rel_str,
+                    sha256: digest,
+                    size: meta.len(),
+                });
+            }
+        }
+        let mut deleted: Vec<String> = Vec::new();
+        if delta && let Some(prev) = previous {
+            let current: HashSet<&String> = inventory.iter().map(|entry| &entry.path).collect();
+            for path in prev.keys() {
+                if !current.contains(path) {
+                    deleted.push(path.clone());
+                }
+            }
+            deleted.sort();
+        }
+        let mut file = tar.into_inner()?.finish()?;
+        let size = file.metadata()?.len();
+        file.seek(SeekFrom::Start(0))?;
+        let digest = sha256_reader(&mut file)?;
+        let current = same_file::Handle::from_path(archive)?;
+        anyhow::ensure!(
+            current == identity,
+            "archive path changed while it was being written: {}",
+            archive.display()
+        );
+        Ok((digest, size, inventory, deleted))
+    })();
+    match result {
+        Ok((digest, size, inventory, deleted)) => Ok((digest, size, identity, inventory, deleted)),
         Err(error) => {
             remove_file_if_same(archive, identity);
             Err(error)
@@ -346,6 +472,142 @@ pub(crate) fn extract_archive_with_hash(
     })();
     let _ = fs::remove_dir_all(&tmp);
     result
+}
+
+fn remove_path(path: &Path) -> anyhow::Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    if meta.is_dir() && !meta.file_type().is_symlink() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_deleted_paths(target: &Path, deleted: &[String]) -> anyhow::Result<()> {
+    for path in deleted {
+        anyhow::ensure!(
+            !path.is_empty() && !path.contains('\\') && !path.starts_with('/'),
+            "unsafe deleted path: {path}"
+        );
+        let rel = Path::new(path);
+        anyhow::ensure!(
+            rel.components().all(|c| matches!(c, Component::Normal(_))),
+            "unsafe deleted path: {path}"
+        );
+        let dest = target.join(rel);
+        if fs::symlink_metadata(&dest).is_ok() {
+            remove_path(&dest)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn extract_incremental_delta(
+    archive: &Path,
+    target: &Path,
+    project: &str,
+    expected_hash: Option<&str>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        target.is_dir() && !target.is_symlink(),
+        "incremental restore target is not a directory: {}",
+        target.display()
+    );
+    let mut f = File::open(archive)?;
+    if let Some(expected) = expected_hash {
+        let actual = sha256_reader(&mut f)?;
+        anyhow::ensure!(
+            actual.eq_ignore_ascii_case(expected),
+            "sha256 mismatch for {}",
+            archive.display()
+        );
+        f.seek(SeekFrom::Start(0))?;
+    }
+    let dec = GzDecoder::new(f);
+    let mut ar = Archive::new(dec);
+    let entries = ar.entries()?;
+    let mut member_count = 0;
+    let mut casefolded_paths = HashMap::new();
+    let mut seen: HashSet<Vec<String>> = HashSet::new();
+    for item in entries {
+        let mut e = item?;
+        member_count += 1;
+        let raw_name = e.path_bytes();
+        anyhow::ensure!(
+            !raw_name.contains(&b'\\'),
+            "archive member path contains a backslash: {}",
+            String::from_utf8_lossy(&raw_name)
+        );
+        let name = e.path()?.into_owned();
+        anyhow::ensure!(
+            safe_archive_path(&name, project),
+            "unsafe archive path: {}",
+            name.display()
+        );
+        let rel = name.strip_prefix(project)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let dest = target.join(rel);
+        let member_path: Vec<_> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        anyhow::ensure!(
+            seen.insert(member_path),
+            "delta archive contains a duplicate path: {}",
+            name.display()
+        );
+        register_archive_case_path(&name, &mut casefolded_paths)?;
+        let ty = e.header().entry_type();
+        let mode = e.header().mode()? & 0o777;
+        if ty.is_dir() {
+            if let Ok(meta) = fs::symlink_metadata(&dest)
+                && (!meta.is_dir() || meta.file_type().is_symlink())
+            {
+                remove_path(&dest)?;
+            }
+            fs::create_dir_all(&dest)?;
+            set_mode(&dest, mode)?;
+        } else if ty.is_symlink() {
+            let link = e
+                .link_name()?
+                .ok_or_else(|| anyhow::anyhow!("symlink has no target"))?;
+            anyhow::ensure!(
+                safe_archive_link(&name, &link, project),
+                "archive symlink escapes project: {}",
+                name.display()
+            );
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            if fs::symlink_metadata(&dest).is_ok() {
+                remove_path(&dest)?;
+            }
+            let target_is_dir = dest
+                .parent()
+                .is_some_and(|parent| parent.join(&link).is_dir());
+            create_symlink(&link, &dest, target_is_dir)?;
+        } else {
+            anyhow::ensure!(
+                ty.is_file(),
+                "archive contains special file: {}",
+                name.display()
+            );
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            if fs::symlink_metadata(&dest).is_ok() {
+                remove_path(&dest)?;
+            }
+            let mut out = File::create(&dest)?;
+            io::copy(&mut e, &mut out)?;
+            set_mode(&dest, mode)?;
+        }
+    }
+    anyhow::ensure!(member_count > 0, "delta archive is empty");
+    Ok(())
 }
 
 #[cfg(unix)]

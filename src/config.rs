@@ -29,6 +29,9 @@ pub(crate) struct BackupConfig {
     /// Exclusion glob patterns for the archive strategy (matched per path component).
     #[serde(default)]
     pub(crate) exclude: Vec<String>,
+    /// Whether to create incremental (delta) backups for the archive strategy.
+    #[serde(default)]
+    pub(crate) incremental: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -175,6 +178,25 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\nexclude = [\"{a,b}\"]\n");
         let err = discover_config(Some(&path)).unwrap_err().to_string();
         assert!(err.contains("brace expansion is not supported"), "{err}");
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_incremental() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nincremental = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.incremental);
+        assert_eq!(config.backup.dest, None);
+        assert_eq!(config.backup.keep, None);
+        assert_eq!(config.backup.exclude, Vec::<String>::new());
+    }
+
+    #[test]
+    fn incremental_defaults_to_false() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\ndest = \"/tmp/x\"\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(!config.backup.incremental);
     }
 
     #[test]

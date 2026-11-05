@@ -729,12 +729,10 @@ class BackupTests(unittest.TestCase):
             bad = make_project(root, "bad")
             dest = root / "backups"
             real_sha256_stream = backup_module.sha256_stream
-            hash_count = 0
 
             def fail_hash_for_bad_project(stream):
-                nonlocal hash_count
-                hash_count += 1
-                if hash_count == 2:
+                name = getattr(stream, "name", None)
+                if name is not None and str(bad) in str(name):
                     raise OSError("disk full")
                 return real_sha256_stream(stream)
 

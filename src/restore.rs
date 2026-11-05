@@ -24,8 +24,9 @@ const REMOTE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 use crate::{
     Manifest, Record,
     archive::{
-        create_private_temp_dir, extract_archive, extract_archive_with_hash, portable_path_key,
-        safe_windows_component, sha256,
+        create_private_temp_dir, extract_archive, extract_archive_with_hash,
+        extract_incremental_delta, portable_path_key, remove_deleted_paths, safe_windows_component,
+        sha256,
     },
     expand,
     project::{git_compatible_path, git_output, submodule_config, submodule_url_supported},
@@ -791,7 +792,15 @@ pub(crate) fn restore_cmd(
                     let archive = archive
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing archive for {}", r.project))?;
-                    if no_verify {
+                    if r.incremental.is_some() {
+                        restore_incremental(
+                            manifest_path.parent().unwrap_or(Path::new(".")),
+                            r,
+                            archive,
+                            target,
+                            no_verify,
+                        )?;
+                    } else if no_verify {
                         extract_archive(archive, target, &r.project)?;
                     } else {
                         extract_archive_with_hash(
@@ -1005,6 +1014,71 @@ fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
         run_git_with_timeout(&mut pull, project, "Git LFS pull")?.success(),
         "cannot restore Git LFS objects for {project}"
     );
+    Ok(())
+}
+
+fn restore_incremental(
+    dir: &Path,
+    record: &Record,
+    archive: &Path,
+    target: &Path,
+    no_verify: bool,
+) -> anyhow::Result<()> {
+    let mut chain: Vec<(Record, PathBuf)> = Vec::new();
+    let mut current = record.clone();
+    let mut current_archive = archive.to_path_buf();
+    loop {
+        let info = current.incremental.clone();
+        let is_base = info.is_none();
+        chain.push((current, current_archive));
+        if is_base {
+            break;
+        }
+        let info = info.expect("checked above");
+        let prev_path = dir.join(&info.base);
+        let (_, prev_manifest) = load_manifest(&prev_path)?;
+        let prev_record = prev_manifest
+            .records
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("base manifest has no records"))?;
+        anyhow::ensure!(
+            prev_record.strategy == "archive",
+            "incremental chain crosses a non-archive snapshot: {}",
+            prev_record.project
+        );
+        let prev_archive = resolve_archive(&prev_record, dir)?;
+        current = prev_record;
+        current_archive = prev_archive;
+    }
+    chain.reverse();
+    let (base_record, base_archive) = &chain[0];
+    anyhow::ensure!(
+        base_record.incremental.is_none(),
+        "incremental chain does not terminate at a full snapshot"
+    );
+    if no_verify {
+        extract_archive(base_archive, target, &base_record.project)?;
+    } else {
+        extract_archive_with_hash(
+            base_archive,
+            target,
+            &base_record.project,
+            base_record.sha256.as_deref(),
+        )?;
+    }
+    for (rec, delta_archive) in &chain[1..] {
+        let info = rec.incremental.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("incremental chain contains a non-incremental snapshot")
+        })?;
+        remove_deleted_paths(target, &info.deleted)?;
+        let expected = if no_verify {
+            None
+        } else {
+            rec.sha256.as_deref()
+        };
+        extract_incremental_delta(delta_archive, target, &rec.project, expected)?;
+    }
     Ok(())
 }
 
