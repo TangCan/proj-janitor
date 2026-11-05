@@ -143,6 +143,8 @@ enum Action {
         #[arg(long = "project")]
         projects: Vec<String>,
         #[arg(long)]
+        check_remote: bool,
+        #[arg(long)]
         json: bool,
     },
 }
@@ -253,8 +255,9 @@ fn run() -> anyhow::Result<()> {
         Action::Verify {
             manifest,
             projects,
+            check_remote,
             json,
-        } => restore::verify_cmd(&manifest, &projects, json),
+        } => restore::verify_cmd(&manifest, &projects, check_remote, json),
     }
 }
 

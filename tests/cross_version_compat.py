@@ -248,6 +248,117 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not list(backup_dest.rglob("manifest-*.json"))
         assert not list(backup_dest.rglob("*.tar.gz"))
 
+    probe_project = root / "probe-project"
+    probe_project.mkdir()
+    (probe_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (probe_project / "main.py").write_text("probe history\n", encoding="utf-8")
+    git(probe_project, "init", "-q", "-b", "main")
+    git(probe_project, "config", "user.name", "Test User")
+    git(probe_project, "config", "user.email", "test@example.invalid")
+    git(probe_project, "add", ".")
+    git(probe_project, "commit", "-q", "-m", "probe")
+    probe_head = git(probe_project, "rev-parse", "HEAD")
+    probe_remote = root / "probe-remote.git"
+    run(["git", "init", "-q", "--bare", str(probe_remote)])
+    git(probe_project, "push", "-q", str(probe_remote), "main")
+    git(probe_project, "tag", "-a", "-m", "release", "v1.0")
+    git(probe_project, "push", "-q", str(probe_remote), "refs/tags/v1.0")
+
+    def probe_record(name: str, remote_url: str, commit: str) -> dict:
+        return {
+            "project": name,
+            "source": str(probe_project),
+            "archive": None,
+            "archive_bytes": 0,
+            "source_bytes": 1,
+            "sha256": None,
+            "strategy": "git",
+            "remote": "origin",
+            "remote_url": remote_url,
+            "branch": "main",
+            "commit": commit,
+            "upstream": "origin/main",
+            "verified": "local-ref",
+            "fallback_reason": None,
+        }
+
+    probe_dir = root / "remote-probe"
+    probe_dir.mkdir()
+    probe_manifest = probe_dir / "manifest.json"
+    probe_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "created_at": "2026-11-04T00:00:00+00:00",
+                "tool": "proj-janitor",
+                "version": "0.4.0",
+                "include_artifacts": False,
+                "always_archive": False,
+                "records": [
+                    probe_record("demo", str(probe_remote), probe_head),
+                    probe_record("second", str(root / "absent-remote.git"), probe_head),
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plain = json.loads(
+        run([sys.executable, "-m", "proj_janitor", "verify", str(probe_manifest), "--json"])
+    )
+    assert [record["status"] for record in plain["projects"]] == [
+        "metadata-only",
+        "metadata-only",
+    ], "verify without --check-remote must stay offline"
+    probe_results = []
+    for command in ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)]):
+        result = subprocess.run(
+            [
+                *command,
+                "verify",
+                str(probe_manifest),
+                "--check-remote",
+                "--json",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1, (
+            f"unreachable remote should exit non-zero: exit={result.returncode}, "
+            f"stderr={result.stderr}"
+        )
+        assert "one or more remotes could not be reached" in result.stderr
+        probe_results.append(json.loads(result.stdout))
+    assert probe_results[0] == probe_results[1], (
+        "Python and Rust remote probe results differ"
+    )
+    assert probe_results[0]["projects"][0]["status"] == "remote-verified"
+    assert probe_results[0]["projects"][0]["remote"]["refs"] == [
+        "refs/heads/main",
+        "refs/tags/v1.0",
+    ]
+    assert probe_results[0]["projects"][1]["status"] == "remote-unreachable"
+    assert probe_results[0]["projects"][1]["remote"]["reason"] == "ls-remote-failed"
+
+    text_reports = []
+    for command in ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)]):
+        result = subprocess.run(
+            [*command, "verify", str(probe_manifest), "--check-remote"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert result.returncode == 1, (
+            f"unreachable remote should exit non-zero: exit={result.returncode}"
+        )
+        text_reports.append(result.stdout)
+    assert text_reports[0] == text_reports[1], (
+        "Python and Rust --check-remote text reports differ:\n"
+        f"{text_reports[0]}\n---\n{text_reports[1]}"
+    )
+    assert "one or more remotes could not be reached" in text_reports[0]
+
     bundle_project = root / "bundle-project"
     bundle_project.mkdir()
     (bundle_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")

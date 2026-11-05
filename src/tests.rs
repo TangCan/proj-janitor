@@ -13,7 +13,7 @@ use crate::project::git_compatible_path;
 use crate::project::{
     github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
 };
-use crate::restore::{redact_remote, restore_cmd, validate_git_restore};
+use crate::restore::{RemoteProbe, probe_remote, redact_remote, restore_cmd, validate_git_restore};
 use crate::retention::{apply_retention_plan, plan_retention};
 use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -2025,4 +2025,97 @@ fn remote_tag_check_uses_remote_refs_and_rejects_a_mismatched_tag() {
         Err(reason) => assert_eq!(reason, "local tag differs from remote: v1"),
         Ok(_) => panic!("mismatched remote tag was accepted"),
     }
+}
+
+fn pushed_remote_fixture(temp: &TestDir) -> Option<(PathBuf, PathBuf, String)> {
+    let project = temp.0.join("probe-source");
+    if !pushed_github_fixture(&project) {
+        return None;
+    }
+    let remote = temp.0.join("probe-remote.git");
+    assert!(git_ok(&remote, &["init", "--bare"]));
+    let remote_arg = remote.to_string_lossy().into_owned();
+    assert!(
+        local_git(&project, &["push", &remote_arg, "main"]),
+        "could not seed remote for probe fixture"
+    );
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(&project)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    let commit = String::from_utf8(head.stdout).unwrap().trim().to_owned();
+    Some((project, remote, commit))
+}
+
+#[test]
+fn remote_probe_lists_refs_at_recorded_commit() {
+    let temp = TestDir::new();
+    let Some((project, remote, commit)) = pushed_remote_fixture(&temp) else {
+        eprintln!("git unavailable; skipping remote probe fixture");
+        return;
+    };
+    let remote_arg = remote.to_string_lossy().into_owned();
+    assert!(local_git(&project, &["tag", "-a", "-m", "release", "v1.0"]));
+    assert!(local_git(
+        &project,
+        &["push", &remote_arg, "refs/tags/v1.0"]
+    ));
+
+    match probe_remote(&remote_arg, &commit).unwrap() {
+        RemoteProbe::Verified(refs) => assert_eq!(
+            refs,
+            vec!["refs/heads/main".to_owned(), "refs/tags/v1.0".to_owned()]
+        ),
+        other => panic!("reachable remote reported {other:?}"),
+    }
+}
+
+#[test]
+fn remote_probe_reports_moved_branch() {
+    let temp = TestDir::new();
+    let Some((project, remote, commit)) = pushed_remote_fixture(&temp) else {
+        eprintln!("git unavailable; skipping remote probe fixture");
+        return;
+    };
+    let remote_arg = remote.to_string_lossy().into_owned();
+    fs::write(project.join("tracked.txt"), "second commit\n").unwrap();
+    assert!(local_git(&project, &["add", "tracked.txt"]));
+    assert!(local_git(
+        &project,
+        &["commit", "-m", "second probe commit"]
+    ));
+    assert!(local_git(&project, &["push", &remote_arg, "main"]));
+
+    match probe_remote(&remote_arg, &commit).unwrap() {
+        RemoteProbe::Moved => {}
+        other => panic!("moved branch reported {other:?}"),
+    }
+}
+
+#[test]
+fn remote_probe_reports_unreachable_remote() {
+    let temp = TestDir::new();
+    if pushed_remote_fixture(&temp).is_none() {
+        eprintln!("git unavailable; skipping remote probe fixture");
+        return;
+    }
+    let missing = temp.0.join("removed-remote.git");
+
+    match probe_remote(&missing.to_string_lossy(), &"a".repeat(40)).unwrap() {
+        RemoteProbe::Unreachable(reason) => assert_eq!(reason, "ls-remote-failed"),
+        other => panic!("missing remote reported {other:?}"),
+    }
+}
+
+#[test]
+fn remote_probe_never_passes_credentials_to_git() {
+    let probe = probe_remote(
+        "https://user:token@github.com/team/demo.git",
+        &"a".repeat(40),
+    );
+
+    assert!(matches!(probe.unwrap(), RemoteProbe::Skipped));
 }

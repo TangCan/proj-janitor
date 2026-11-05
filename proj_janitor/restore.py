@@ -28,9 +28,14 @@ from proj_janitor.scanner import is_supported_submodule_url, submodule_config
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
 _GIT_TIMEOUT_SECONDS = 600
+_REMOTE_PROBE_TIMEOUT_SECONDS = 30
 
 
 class RestoreError(RuntimeError):
+    pass
+
+
+class GitTimeoutError(RestoreError):
     pass
 
 
@@ -232,13 +237,44 @@ def _verify_archive_hash(archive: Path, project: str, expected: str | None) -> s
     return actual
 
 
+def _probe_remote(remote_url: str, commit: str) -> tuple[str, str | None, list[str]]:
+    if redact_remote_url(remote_url) != remote_url:
+        return "remote-skipped", "credentials-in-remote-url", []
+    try:
+        result = _run_git(
+            ["ls-remote", remote_url],
+            timeout=_REMOTE_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except GitTimeoutError:
+        return "remote-unreachable", "ls-remote-timed-out", []
+    except RestoreError:
+        return "remote-unreachable", "ls-remote-failed", []
+    if result.returncode != 0:
+        return "remote-unreachable", "ls-remote-failed", []
+    matched: set[str] = set()
+    for line in result.stdout.splitlines():
+        sha, separator, ref = line.partition("\t")
+        if not separator or sha.strip().lower() != commit.lower():
+            continue
+        ref = ref.strip()
+        if ref.endswith("^{}"):
+            ref = ref[: -len("^{}")]
+        if ref:
+            matched.add(ref)
+    if matched:
+        return "remote-verified", None, sorted(matched)
+    return "remote-moved", "no-ref-matches-commit", []
+
+
 def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
-) -> list[dict[str, str | None]]:
+    check_remote: bool = False,
+) -> list[dict[str, object]]:
     manifest_path, manifest = load_manifest(manifest_path)
     selected = _select_records(manifest["records"], projects)
-    results: list[dict[str, str | None]] = []
+    results: list[dict[str, object]] = []
     seen: set[str] = set()
     for record in selected:
         project = _record_project(record)
@@ -276,16 +312,25 @@ def verify_manifest(
             commit = _record_string(record, "commit")
             if not _COMMIT_RE.fullmatch(commit):
                 raise RestoreError(f"invalid commit for {project}: {commit!r}")
-            results.append(
-                {
-                    "project": project,
-                    "strategy": "git",
-                    "status": "metadata-only",
-                    "archive": None,
-                    "sha256": None,
-                    "commit": commit,
+            branch = record.get("branch")
+            entry: dict[str, object] = {
+                "project": project,
+                "strategy": "git",
+                "status": "metadata-only",
+                "archive": None,
+                "sha256": None,
+                "commit": commit,
+            }
+            if check_remote:
+                status, reason, refs = _probe_remote(remote_url, commit)
+                entry["status"] = status
+                entry["remote"] = {
+                    "url": redact_remote_url(remote_url),
+                    "branch": branch if isinstance(branch, str) and branch else None,
+                    "reason": reason,
+                    "refs": refs,
                 }
-            )
+            results.append(entry)
         elif strategy == "git_bundle":
             bundle = _resolve_archive(record, manifest_path.parent, project)
             expected = record.get("sha256")
@@ -876,7 +921,10 @@ def _run_git(
     extra_env: dict[str, str] | None = None,
     sensitive_remote: str | None = None,
     check: bool = True,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if timeout is None:
+        timeout = _GIT_TIMEOUT_SECONDS
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     if extra_env is not None:
@@ -898,14 +946,14 @@ def _run_git(
     if os.name == "posix" and threading.current_thread() is threading.main_thread():
         previous_sigterm = signal.signal(signal.SIGTERM, _interrupt_git)
     try:
-        stdout, stderr = process.communicate(timeout=_GIT_TIMEOUT_SECONDS)
+        stdout, stderr = process.communicate(timeout=timeout)
     except (KeyboardInterrupt, SystemExit):
         _stop_git_process(process)
         raise
     except subprocess.TimeoutExpired as exc:
         _stop_git_process(process)
-        raise RestoreError(
-            f"git {command} timed out after {_GIT_TIMEOUT_SECONDS} seconds"
+        raise GitTimeoutError(
+            f"git {command} timed out after {timeout} seconds"
         ) from exc
     finally:
         if previous_sigterm is not None:

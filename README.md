@@ -8,7 +8,7 @@
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
-- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录只验证 manifest 中的 URL 和提交格式，不联网检查远程。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中。
+- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote` 目前只在仓库源码中，尚未随 crates.io 或 PyPI 发布。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - `prune` 默认 dry-run：每个项目保留指定数量的最新备份，只删除过期 manifest 明确引用的归档/bundle；孤立文件不动。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
@@ -230,9 +230,21 @@ projjan verify <manifest>
 
 # 只校验指定项目，并输出 JSON
 projjan verify <manifest> --project xtask_todo --json
+
+# 仓库源码版：额外联网确认 Git-only 记录的提交仍被远端引用指向
+projjan verify <manifest> --check-remote --json
 ```
 
 `verify` 的 Git-only 结果标记为 `metadata-only`：不会联网确认远程仓库或提交是否仍可用。`git_bundle` 会校验 bundle 文件的 SHA-256。
+
+加 `--check-remote` 时，Git-only 记录改用下列状态，其它策略的结果不变。该检查只读取远端引用列表（`git ls-remote`，单条最长等待 30 秒），不下载对象：
+
+- `remote-verified`：远端至少有一个引用指向记录的提交。
+- `remote-moved`：远端可达，但没有引用指向该提交。恢复按提交 SHA 抓取，因此提交仍可能从其它引用可达。
+- `remote-unreachable`：`git ls-remote` 失败或超时，无法确认远端。
+- `remote-skipped`：manifest 中的远端 URL 含用户名、口令、查询或 fragment；此时不会把该 URL 传给 Git，也不联网。
+
+任一记录为 `remote-unreachable` 时，命令仍会输出完整报告，并以退出码 1 结束。`--json` 会在 Git-only 记录中增加 `remote` 字段：脱敏后的 `url`、`branch`、`reason`（`no-ref-matches-commit`、`ls-remote-failed`、`ls-remote-timed-out`、`credentials-in-remote-url`）以及匹配到的引用列表 `refs`。不带该选项时输出结构与之前完全一致。
 
 恢复规则：
 
@@ -320,4 +332,4 @@ python3 -m unittest discover -s tests -v
 
 - 增量备份与自动/定时保留；当前 `prune --keep N` 可手动按项目清理旧快照。
 - 配置文件（排除规则、备份目标、保留策略）。
-- 恢复时对 Git 远程提交做联网预检。
+- 恢复流程内置远端预检，并把预检扩展到子模块固定提交和 LFS 对象；当前先用 `verify --check-remote` 手动确认主仓库提交是否仍被远端引用指向。

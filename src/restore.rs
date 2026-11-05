@@ -1,7 +1,7 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     fmt, fs,
-    io::{self, IsTerminal, Write},
+    io::{self, IsTerminal, Read, Write},
     path::{Component, Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     thread,
@@ -19,6 +19,7 @@ use std::{
 };
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(600);
+const REMOTE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 use crate::{
     Manifest, Record,
@@ -150,6 +151,7 @@ fn selected_records<'a>(
 pub(crate) fn verify_cmd(
     manifest_path: &Path,
     projects: &[String],
+    check_remote: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
@@ -183,12 +185,11 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
-                results.push((
+                results.push(VerifyResult::archive(
                     record.project.clone(),
                     "archive",
-                    "verified",
-                    Some(archive),
-                    Some(actual),
+                    archive,
+                    actual,
                     None,
                 ));
             }
@@ -202,14 +203,32 @@ pub(crate) fn verify_cmd(
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
                 validate_git_restore(url, commit)?;
-                results.push((
-                    record.project.clone(),
-                    "git",
-                    "metadata-only",
-                    None,
-                    None,
-                    Some(commit.to_owned()),
-                ));
+                if check_remote {
+                    let probe = probe_remote(url, commit)?;
+                    results.push(VerifyResult {
+                        project: record.project.clone(),
+                        strategy: "git",
+                        status: RemoteCheck::status(&probe).to_owned(),
+                        archive: None,
+                        sha256: None,
+                        commit: Some(commit.to_owned()),
+                        remote: Some(RemoteCheck::new(
+                            url,
+                            record.branch.as_deref().filter(|value| !value.is_empty()),
+                            &probe,
+                        )),
+                    });
+                } else {
+                    results.push(VerifyResult {
+                        project: record.project.clone(),
+                        strategy: "git",
+                        status: "metadata-only".to_owned(),
+                        archive: None,
+                        sha256: None,
+                        commit: Some(commit.to_owned()),
+                        remote: None,
+                    });
+                }
             }
             "git_bundle" => {
                 let bundle =
@@ -237,12 +256,11 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     bundle.display()
                 );
-                results.push((
+                results.push(VerifyResult::archive(
                     record.project.clone(),
                     "git_bundle",
-                    "verified",
-                    Some(bundle),
-                    Some(actual),
+                    bundle,
+                    actual,
                     Some(commit.to_owned()),
                 ));
             }
@@ -250,56 +268,263 @@ pub(crate) fn verify_cmd(
         }
     }
     if json {
-        let projects: Vec<_> = results
-            .iter()
-            .map(|(project, strategy, status, archive, detail, commit)| {
-                let mut value = serde_json::json!({
-                    "project": project,
-                    "strategy": strategy,
-                    "status": status,
-                    "archive": archive
-                        .as_ref()
-                        .map(|path| path.to_string_lossy().into_owned()),
-                });
-                value["sha256"] = if matches!(*strategy, "archive" | "git_bundle") {
-                    serde_json::json!(detail)
-                } else {
-                    serde_json::Value::Null
-                };
-                value["commit"] = serde_json::json!(commit);
-                value
-            })
-            .collect();
+        let entries: Vec<_> = results.iter().map(VerifyResult::json).collect();
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "manifest": manifest_path,
-                "projects": projects,
+                "projects": entries,
             }))?
         );
     } else {
-        for (project, strategy, status, archive, detail, _commit) in &results {
-            if matches!(*strategy, "archive" | "git_bundle") {
-                let label = if *strategy == "git_bundle" {
-                    "git-bundle"
-                } else {
-                    "archive"
-                };
-                println!(
-                    "[{label}] {project}: SHA-256 {status} {}",
-                    archive.as_ref().unwrap().display()
-                );
-            } else {
-                let commit = detail.as_deref().unwrap_or_default();
-                println!(
-                    "[git] {project}: manifest metadata valid (commit {}; remote not checked)",
-                    &commit[..12.min(commit.len())]
-                );
-            }
+        for result in &results {
+            println!("{}", result.line());
         }
         println!("Verified {} project(s).", results.len());
     }
+    if results
+        .iter()
+        .any(|result| result.status == "remote-unreachable")
+    {
+        anyhow::bail!("one or more remotes could not be reached");
+    }
     Ok(())
+}
+
+struct VerifyResult {
+    project: String,
+    strategy: &'static str,
+    status: String,
+    archive: Option<PathBuf>,
+    sha256: Option<String>,
+    commit: Option<String>,
+    remote: Option<RemoteCheck>,
+}
+
+impl VerifyResult {
+    fn archive(
+        project: String,
+        strategy: &'static str,
+        archive: PathBuf,
+        sha256: String,
+        commit: Option<String>,
+    ) -> Self {
+        Self {
+            project,
+            strategy,
+            status: "verified".to_owned(),
+            archive: Some(archive),
+            sha256: Some(sha256),
+            commit,
+            remote: None,
+        }
+    }
+
+    fn json(&self) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "project": self.project,
+            "strategy": self.strategy,
+            "status": self.status,
+            "archive": self
+                .archive
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            "sha256": if matches!(self.strategy, "archive" | "git_bundle") {
+                self.sha256.clone()
+            } else {
+                None
+            },
+            "commit": self.commit,
+        });
+        if let Some(remote) = &self.remote {
+            value["remote"] = serde_json::json!({
+                "url": remote.url,
+                "branch": remote.branch,
+                "reason": remote.reason,
+                "refs": remote.refs,
+            });
+        }
+        value
+    }
+
+    fn line(&self) -> String {
+        if matches!(self.strategy, "archive" | "git_bundle") {
+            let label = if self.strategy == "git_bundle" {
+                "git-bundle"
+            } else {
+                "archive"
+            };
+            return format!(
+                "[{label}] {}: SHA-256 {} {}",
+                self.project,
+                self.status,
+                self.archive.as_ref().unwrap().display()
+            );
+        }
+        let commit = self.commit.as_deref().unwrap_or_default();
+        let short = &commit[..12.min(commit.len())];
+        match &self.remote {
+            Some(remote) => remote.line(&self.project, short),
+            None => format!(
+                "[git] {}: manifest metadata valid (commit {short}; remote not checked)",
+                self.project
+            ),
+        }
+    }
+}
+
+struct RemoteCheck {
+    url: String,
+    branch: Option<String>,
+    status: &'static str,
+    reason: Option<String>,
+    refs: Vec<String>,
+}
+
+impl RemoteCheck {
+    fn new(url: &str, branch: Option<&str>, probe: &RemoteProbe) -> Self {
+        let (status, reason, refs) = match probe {
+            RemoteProbe::Verified(refs) => ("remote-verified", None, refs.clone()),
+            RemoteProbe::Moved => ("remote-moved", Some("no-ref-matches-commit"), Vec::new()),
+            RemoteProbe::Skipped => (
+                "remote-skipped",
+                Some("credentials-in-remote-url"),
+                Vec::new(),
+            ),
+            RemoteProbe::Unreachable(reason) => ("remote-unreachable", Some(*reason), Vec::new()),
+        };
+        Self {
+            url: redact_remote(url),
+            branch: branch.map(str::to_owned),
+            status,
+            reason: reason.map(str::to_owned),
+            refs,
+        }
+    }
+
+    fn status(probe: &RemoteProbe) -> &'static str {
+        match probe {
+            RemoteProbe::Verified(_) => "remote-verified",
+            RemoteProbe::Moved => "remote-moved",
+            RemoteProbe::Skipped => "remote-skipped",
+            RemoteProbe::Unreachable(_) => "remote-unreachable",
+        }
+    }
+
+    fn line(&self, project: &str, commit: &str) -> String {
+        match self.status {
+            "remote-verified" => {
+                let shown = self.refs[..self.refs.len().min(3)].join(", ");
+                let suffix = match self.refs.len().checked_sub(3) {
+                    Some(extra) => format!(" (+{extra} more)"),
+                    None => String::new(),
+                };
+                format!(
+                    "[git] {project}: commit {commit} is at {shown}{suffix} on {}",
+                    self.url
+                )
+            }
+            "remote-moved" => format!(
+                "[git] {project}: remote reachable, but no remote ref points at commit {commit} on {}; \
+                 restore fetches by SHA, so the commit may still be reachable from another ref",
+                self.url
+            ),
+            "remote-unreachable" => format!(
+                "[git] {project}: remote {} for {}",
+                self.reason.as_deref().unwrap_or("unreachable"),
+                self.url
+            ),
+            _ => format!(
+                "[git] {project}: remote {}; not contacted",
+                self.reason.as_deref().unwrap_or("skipped")
+            ),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum RemoteProbe {
+    Verified(Vec<String>),
+    Moved,
+    Skipped,
+    Unreachable(&'static str),
+}
+
+pub(crate) fn probe_remote(url: &str, commit: &str) -> anyhow::Result<RemoteProbe> {
+    if redact_remote(url) != url {
+        return Ok(RemoteProbe::Skipped);
+    }
+    let mut command = Command::new("git");
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .args(["ls-remote", url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    let interrupt = InterruptGuard::new()?;
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => return Ok(RemoteProbe::Unreachable("ls-remote-failed")),
+    };
+    let mut pipe = child.stdout.take();
+    let reader = thread::spawn(move || {
+        let mut output = String::new();
+        if let Some(handle) = &mut pipe {
+            let _ = handle.read_to_string(&mut output);
+        }
+        output
+    });
+    let deadline = Instant::now() + REMOTE_PROBE_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(_) => {
+                let _ = stop_child(&mut child);
+                let _ = reader.join();
+                return Ok(RemoteProbe::Unreachable("ls-remote-failed"));
+            }
+        }
+        #[cfg(unix)]
+        if let Some(signal) = interrupt.requested() {
+            let _ = stop_child(&mut child);
+            let _ = reader.join();
+            return Err(RestoreInterrupted(signal).into());
+        }
+        if Instant::now() >= deadline {
+            let _ = stop_child(&mut child);
+            let _ = reader.join();
+            return Ok(RemoteProbe::Unreachable("ls-remote-timed-out"));
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+    let output = reader.join().unwrap_or_default();
+    if !status.success() {
+        return Ok(RemoteProbe::Unreachable("ls-remote-failed"));
+    }
+    let mut matched = BTreeSet::new();
+    for line in output.lines() {
+        let Some((sha, reference)) = line.split_once('\t') else {
+            continue;
+        };
+        if !sha.trim().eq_ignore_ascii_case(commit) {
+            continue;
+        }
+        let reference = reference.trim();
+        let reference = reference
+            .strip_suffix("^{}")
+            .unwrap_or(reference)
+            .to_owned();
+        if !reference.is_empty() {
+            matched.insert(reference);
+        }
+    }
+    if matched.is_empty() {
+        return Ok(RemoteProbe::Moved);
+    }
+    Ok(RemoteProbe::Verified(matched.into_iter().collect()))
 }
 
 pub(crate) fn restore_cmd(

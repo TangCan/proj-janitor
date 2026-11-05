@@ -1382,3 +1382,110 @@ fn backup_rejects_destination_inside_project() {
     );
     assert!(!backup_dest.exists());
 }
+
+#[test]
+fn verify_check_remote_reports_unreachable_and_keeps_credentials_hidden() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let manifest = temp.0.join("manifest.json");
+    let payload = serde_json::json!({
+        "schema_version": 2,
+        "created_at": "2026-11-04T00:00:00Z",
+        "tool": "proj-janitor",
+        "version": "0.4.0",
+        "include_artifacts": false,
+        "always_archive": false,
+        "records": [
+            {
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": temp.0.join("missing.git").display().to_string(),
+                "branch": "main",
+                "commit": "a".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            },
+            {
+                "project": "second",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": "https://user:token@github.com/team/demo.git",
+                "branch": "main",
+                "commit": "b".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }
+        ]
+    });
+    fs::write(&manifest, serde_json::to_vec(&payload).unwrap()).unwrap();
+
+    let checked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--check-remote")
+        .arg("--json")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&checked.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&checked.stderr).into_owned();
+    assert!(
+        !checked.status.success(),
+        "unreachable remote should exit non-zero"
+    );
+    assert!(
+        stderr.contains("one or more remotes could not be reached"),
+        "{stderr}"
+    );
+    let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(result["projects"][0]["status"], "remote-unreachable");
+    assert_eq!(
+        result["projects"][0]["remote"]["reason"],
+        "ls-remote-failed"
+    );
+    assert_eq!(result["projects"][1]["status"], "remote-skipped");
+    assert_eq!(
+        result["projects"][1]["remote"]["url"],
+        "https://github.com/team/demo.git"
+    );
+    assert!(!stdout.contains("token"), "credential leaked into JSON");
+    assert!(!stderr.contains("token"), "credential leaked into stderr");
+
+    let text = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--check-remote")
+        .output()
+        .unwrap();
+    let text_stdout = String::from_utf8_lossy(&text.stdout).into_owned();
+    assert!(!text.status.success());
+    assert!(
+        text_stdout.contains(&format!(
+            "remote ls-remote-failed for {}",
+            temp.0.join("missing.git").display()
+        )),
+        "{text_stdout}"
+    );
+    assert!(text_stdout.contains("remote credentials-in-remote-url; not contacted"));
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(plain.status.success());
+    let plain_result: serde_json::Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert_eq!(plain_result["projects"][0]["status"], "metadata-only");
+    assert!(plain_result["projects"][0]["remote"].is_null());
+}

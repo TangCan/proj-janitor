@@ -191,6 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="verify only this project (repeatable)",
     )
+    verify.add_argument(
+        "--check-remote",
+        action="store_true",
+        help="contact the recorded remote to confirm the commit is still reachable",
+    )
     verify.add_argument("--json", action="store_true", help="emit JSON")
 
     prune = subparsers.add_parser(
@@ -436,7 +441,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     try:
-        results = verify_manifest(args.manifest, projects=args.project)
+        results = verify_manifest(
+            args.manifest, projects=args.project, check_remote=args.check_remote
+        )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -447,7 +454,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             "projects": results,
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
+        return _verify_exit_code(results)
 
     for result in results:
         if result["strategy"] in ("archive", "git_bundle"):
@@ -456,12 +463,47 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 f"[{label}] {result['project']}: SHA-256 verified "
                 f"{result['archive']}"
             )
+        elif args.check_remote:
+            print(_verify_remote_line(result))
         else:
             print(
                 f"[git] {result['project']}: manifest metadata valid "
-                f"(commit {result['commit'][:12]}; remote not checked)"
+                f"(commit {str(result['commit'])[:12]}; remote not checked)"
             )
     print(f"Verified {len(results)} project(s).")
+    return _verify_exit_code(results)
+
+
+def _verify_remote_line(result: dict) -> str:
+    project = result["project"]
+    commit = str(result["commit"] or "")[:12]
+    remote = result.get("remote")
+    if not isinstance(remote, dict):
+        return f"[git] {project}: manifest metadata valid (commit {commit})"
+    url = str(remote["url"])
+    status = str(result["status"])
+    if status == "remote-verified":
+        refs = [str(ref) for ref in remote["refs"]]
+        shown = ", ".join(refs[:3])
+        if len(refs) > 3:
+            shown += f" (+{len(refs) - 3} more)"
+        return f"[git] {project}: commit {commit} is at {shown} on {url}"
+    if status == "remote-moved":
+        return (
+            f"[git] {project}: remote reachable, but no remote ref points at "
+            f"commit {commit} on {url}; restore fetches by SHA, so the commit "
+            "may still be reachable from another ref"
+        )
+    if status == "remote-unreachable":
+        return f"[git] {project}: remote {remote['reason']} for {url}"
+    return f"[git] {project}: remote {remote['reason']}; not contacted"
+
+
+def _verify_exit_code(results: list[dict]) -> int:
+    if any(result["status"] == "remote-unreachable" for result in results):
+        sys.stdout.flush()
+        print("error: one or more remotes could not be reached", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -37,6 +37,45 @@ def run_cli(*argv: str) -> tuple[int, str, str]:
     return code, stdout.getvalue(), stderr.getvalue()
 
 
+def write_git_manifest(
+    root: Path, project: Path, remote: object, commit: str
+) -> Path:
+    record = {
+        "project": project.name,
+        "source": str(project),
+        "archive": None,
+        "archive_bytes": 0,
+        "source_bytes": 1,
+        "sha256": None,
+        "strategy": "git",
+        "remote": "origin",
+        "remote_url": str(remote),
+        "branch": "main",
+        "commit": commit,
+        "upstream": "origin/main",
+        "verified": "local-ref",
+        "fallback_reason": None,
+    }
+    path = root / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "created_at": "2026-11-04T00:00:00+00:00",
+                "tool": "proj-janitor",
+                "version": "0.1.0",
+                "include_artifacts": False,
+                "always_archive": False,
+                "records": [record],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 class Tty(io.StringIO):
     def isatty(self) -> bool:
         return True
@@ -801,6 +840,57 @@ class GitCliTests(unittest.TestCase):
                 manifest["records"][0]["fallback_reason"],
                 "always_archive",
             )
+
+    def test_verify_check_remote_reports_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+
+            code, out, err = run_cli("verify", str(manifest), "--check-remote")
+
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                f"commit {head[:12]} is at refs/heads/main on {remote}", out
+            )
+
+            code, out, err = run_cli(
+                "verify", str(manifest), "--check-remote", "--json"
+            )
+
+            self.assertEqual(code, 0, err)
+            result = json.loads(out)["projects"][0]
+            self.assertEqual(result["status"], "remote-verified")
+            self.assertEqual(result["remote"]["refs"], ["refs/heads/main"])
+
+    def test_verify_check_remote_exits_one_for_unreachable_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(
+                root, project, root / "gone.git", head
+            )
+
+            code, out, err = run_cli("verify", str(manifest), "--check-remote")
+
+            self.assertEqual(code, 1)
+            self.assertIn(f"remote ls-remote-failed for {root / 'gone.git'}", out)
+            self.assertIn(
+                "error: one or more remotes could not be reached", err
+            )
+
+            code, out, err = run_cli(
+                "verify", str(manifest), "--check-remote", "--json"
+            )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(
+                json.loads(out)["projects"][0]["status"], "remote-unreachable"
+            )
+            self.assertIn("could not be reached", err)
 
 
 if __name__ == "__main__":

@@ -1065,5 +1065,180 @@ class GitRestoreTests(unittest.TestCase):
             )
 
 
+@unittest.skipUnless(GIT_AVAILABLE, "git is not available")
+class RemoteCheckTests(unittest.TestCase):
+    def git_record(
+        self, project: Path, remote: Path | str, commit: str, **overrides: object
+    ) -> dict:
+        record = {
+            "project": project.name,
+            "source": str(project),
+            "archive": None,
+            "archive_bytes": 0,
+            "source_bytes": 1,
+            "sha256": None,
+            "strategy": "git",
+            "remote": "origin",
+            "remote_url": str(remote),
+            "branch": "main",
+            "commit": commit,
+            "upstream": "origin/main",
+            "verified": "local-ref",
+            "fallback_reason": None,
+        }
+        record.update(overrides)
+        return record
+
+    def test_check_remote_lists_refs_at_recorded_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            git(project, "tag", "-a", "-m", "release", "v1.0")
+            git(project, "push", "-q", str(remote), "refs/tags/v1.0")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [self.git_record(project, remote, head)],
+            )
+
+            result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "remote-verified")
+            self.assertEqual(
+                result["remote"]["refs"],
+                ["refs/heads/main", "refs/tags/v1.0"],
+            )
+            self.assertEqual(result["remote"]["branch"], "main")
+            self.assertIsNone(result["remote"]["reason"])
+            self.assertEqual(result["remote"]["url"], str(remote))
+
+    def test_check_remote_reports_moved_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            (project / "later.py").write_text("print('later')\n", encoding="utf-8")
+            git(project, "add", ".")
+            git(project, "commit", "-q", "-m", "later")
+            git(project, "push", "-q", str(remote), "main")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [self.git_record(project, remote, head)],
+            )
+
+            result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "remote-moved")
+            self.assertEqual(
+                result["remote"]["reason"], "no-ref-matches-commit"
+            )
+            self.assertEqual(result["remote"]["refs"], [])
+
+    def test_check_remote_reports_unreachable_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    self.git_record(
+                        project, root / "removed-remote.git", head
+                    )
+                ],
+            )
+
+            result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "remote-unreachable")
+            self.assertEqual(result["remote"]["reason"], "ls-remote-failed")
+
+    def test_check_remote_reports_probe_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [self.git_record(project, root / "app-remote.git", head)],
+            )
+            with mock.patch.object(
+                restore_module,
+                "_run_git",
+                side_effect=restore_module.GitTimeoutError("timed out"),
+            ):
+                result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "remote-unreachable")
+            self.assertEqual(result["remote"]["reason"], "ls-remote-timed-out")
+
+    def test_check_remote_never_passes_credentials_to_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    self.git_record(
+                        project,
+                        "https://user:token@github.com/acme/app.git",
+                        head,
+                    )
+                ],
+            )
+            with mock.patch.object(
+                restore_module,
+                "_run_git",
+                side_effect=AssertionError("remote must not be contacted"),
+            ):
+                result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "remote-skipped")
+            self.assertEqual(
+                result["remote"]["reason"], "credentials-in-remote-url"
+            )
+            self.assertEqual(
+                result["remote"]["url"], "https://github.com/acme/app.git"
+            )
+
+    def test_verify_without_check_remote_makes_no_git_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [self.git_record(project, remote, head)],
+            )
+            with mock.patch.object(
+                restore_module,
+                "_run_git",
+                side_effect=AssertionError("remote must not be contacted"),
+            ):
+                result = verify_manifest(manifest)[0]
+
+            self.assertEqual(result["status"], "metadata-only")
+            self.assertNotIn("remote", result)
+
+    def test_check_remote_leaves_archive_records_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, _ = archive_backup(root)
+
+            with mock.patch.object(
+                restore_module,
+                "_run_git",
+                side_effect=AssertionError("remote must not be contacted"),
+            ):
+                result = verify_manifest(manifest, check_remote=True)[0]
+
+            self.assertEqual(result["status"], "verified")
+            self.assertNotIn("remote", result)
+
+
 if __name__ == "__main__":
     unittest.main()
