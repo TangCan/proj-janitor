@@ -7,8 +7,8 @@
 | 项目名称 | proj-janitor（proj_janitor） |
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | 2026-11-05 `backup --keep` 自动保留（CR-091） |
-| 源码提交 | `4986157`（HEAD，CR-091 自动保留；未随 `v0.5.0` 发布） |
+| 文档版本 | 2026-11-05 `[backup].exclude` 排除规则（CR-092） |
+| 源码提交 | `1241482`（HEAD，CR-092 排除规则；未随 `v0.5.0` 发布） |
 | 源码标签 | `v0.5.0` 为最新 Rust 发布标签；HEAD 已含配置文件与自动保留功能 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
@@ -59,7 +59,7 @@
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
 | 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
-| 配置 | `.proj-janitor.toml` 提供 `backup` 与 `prune` 的默认值（`[backup].dest`、`[prune].keep`）；取值优先级为命令行 > 环境变量 > 配置文件。项目标记和清理规则仍由 `config.py` 静态定义。 |
+| 配置 | `.proj-janitor.toml` 提供 `backup` 与 `prune` 的默认值（`[backup].dest`、`[backup].keep`、`[backup].exclude`、`[prune].keep`）；取值优先级为命令行 > 环境变量 > 配置文件。项目标记和清理规则仍由 `config.py` 静态定义。 |
 | 并发 | 无线程、异步任务、文件锁或事务；备份的归档和 manifest 用排他创建避免覆盖，并发撞名时该项目失败、重跑可使用新后缀；不保证源项目在备份期间保持不变；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
@@ -69,7 +69,7 @@
 - 恢复覆盖、回滚、断点续传、进度显示或远程提交预检；
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
-- 自定义清理规则文件、每项目排除文件或排除规则（`[backup].exclude`）；
+- 自定义清理规则文件、每项目排除文件；
 - tag、detached HEAD 的完整备份；干净仓库可轻量备份 Git LFS 指针及受支持子模块，需安装 Git LFS，且恢复时默认 GitHub endpoint、LFS 对象和子模块固定提交仍可访问；
 - GitHub API 认证、远端提交存在性预检或自动恢复演练；
 - 归档内容秘密扫描；
@@ -83,6 +83,7 @@
 [backup]
 dest = "/data/backups"   # 未传 --backup-dest 且未设 BACKUP_DEST 时使用
 keep = 3                 # 成功备份后每个项目保留的最近 manifest 数；未传 --keep 时使用
+exclude = ["node_modules", "*.log"]   # archive 策略归档时跳过匹配的文件/目录
 
 [prune]
 keep = 3                 # 未传 --keep 时使用
@@ -91,7 +92,7 @@ keep = 3                 # 未传 --keep 时使用
 - **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`；`backup` 的保留数按 命令行 > 配置文件 `[backup].keep` 解析。
 - **严格校验**：未知键、非法值（如 `keep` 为 0 或负数、空 `dest`）会被拒绝并报出文件与原因。
 - **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（Python 3.11+；Python 3.10 由依赖自动安装 `tomli` 回退），除此之外无第三方运行时依赖。
-- 排除规则（`[backup].exclude`）暂不在范围内，见 2.4。
+- **排除规则 `[backup].exclude`**：字符串数组，为 archive（tar.gz）策略在归档时跳过匹配的文件/目录。模式为 glob（`*`、`?`、`[seq]`、`[!seq]`、`**`），按项目根相对路径逐段匹配；匹配到目录则跳过其整个子树。不支持花括号展开（`{a,b}`），空模式被拒绝。`git` 与 `git_bundle` 策略不受影响（`git` 只记录远程信息、`git_bundle` 打包整个仓库历史）。仅通过配置文件设置，无命令行参数。
 
 ## 3. 程序入口
 
@@ -342,7 +343,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
                  [--exclude-git-metadata]
 ```
 
-备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。
+备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。`[backup].exclude` 中的模式会在 archive 策略归档时跳过匹配的文件/目录（glob，按项目根相对路径逐段匹配，目录匹配则跳过整个子树）；`git` 与 `git_bundle` 策略不受影响。
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
@@ -1037,7 +1038,7 @@ Git-only 记录的 `--check-remote` 状态：
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
 | `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
-| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；Git 策略本身不产生归档。 |
+| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False, exclude_patterns=()) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；`exclude_patterns` 为 `[backup].exclude` 的 glob 模式，archive 归档时跳过匹配文件/目录；Git 策略本身不产生归档。 |
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None, exclude_git_metadata=False) -> BackupRecord` | 归档记录 | `exclude_git_metadata=True` 时输出工作树快照，不含 Git 历史。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
@@ -1367,7 +1368,7 @@ tar -xzf <archive>
 | 子命令 | 用法 | 主要参数/语义 |
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
-| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata` |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata`；`[backup].exclude` 通过配置文件设置 archive 排除模式（无命令行参数） |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（仓库源码新增，写入前预检 Git-only 远端）、`--json` |
 | `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向 |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |

@@ -6,7 +6,7 @@
 
 - `scan` 只读：报告项目大小、Git 分支和工作区状态。
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
-- 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定，或从 `.proj-janitor.toml` 的 `[backup].dest` 读取；命令行参数优先，其次环境变量，再次配置文件。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
+- 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定，或从 `.proj-janitor.toml` 的 `[backup].dest` 读取；命令行参数优先，其次环境变量，再次配置文件。空的 `BACKUP_DEST` 按未设置处理。`.proj-janitor.toml` 的 `[backup].exclude` 可为 archive 策略配置排除模式（glob）。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
 - `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）目前只在仓库源码中，尚未随 crates.io 或 PyPI 发布。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
@@ -180,12 +180,13 @@ prune 只删除超出保留数量的 manifest，以及这些 manifest 在同一�
 [backup]
 dest = "/data/backups"   # 备份目标：当未传 --backup-dest 且未设 BACKUP_DEST 时使用
 keep = 3                 # 成功备份后保留的最近快照数：当未传 --keep 时使用
+exclude = ["node_modules", "*.log"]   # 排除模式：归档时跳过匹配的文件/目录（仅 archive 策略）
 
 [prune]
 keep = 3                 # 保留数量：当未传 --keep 时使用
 ```
 
-取值优先级为 **命令行选项 > 环境变量 > 配置文件 > 内置默认/报错**。例如未传 `--backup-dest` 且未设 `BACKUP_DEST` 时会读取 `[backup].dest`；仍未提供则报错并提示 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。未知键或非法值（如 `keep` 为 0 或负数）会在启动时被拒绝。Python 版解析配置用标准库 `tomllib`（Python 3.11+；Python 3.10 自动安装 `tomli` 回退）；Rust 版内置 `toml` 解析。排除规则（`[backup].exclude`）留待后续设计。
+取值优先级为 **命令行选项 > 环境变量 > 配置文件 > 内置默认/报错**。例如未传 `--backup-dest` 且未设 `BACKUP_DEST` 时会读取 `[backup].dest`；仍未提供则报错并提示 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。未知键或非法值（如 `keep` 为 0 或负数）会在启动时被拒绝。`[backup].exclude` 支持 glob 排除模式（`*`、`?`、`[seq]`、`**`），按项目根相对路径逐段匹配；匹配到目录会跳过其整个子树。排除仅作用于 archive（tar.gz）策略的文件收集；`git` 与 `git_bundle` 策略不受影响（`git` 只记录远程信息、`git_bundle` 打包整个仓库历史）。不支持花括号展开（`{a,b}`），空模式会被拒绝。Python 版解析配置用标准库 `tomllib`（Python 3.11+；Python 3.10 自动安装 `tomli` 回退）；Rust 版内置 `toml` 解析。
 
 ### 3. 清理
 
@@ -351,5 +352,5 @@ python3 -m unittest discover -s tests -v
 ## 后续计划
 
 - ~~增量备份与自动/定时保留~~：自动保留已实现——`backup --keep N`（或 `[backup].keep`）在成功备份后按项目仅保留 N 份最新快照；增量备份（差异归档/变更检测）作为后续设计决策。
-- ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest`、`[backup].keep` 与 `[prune].keep` 默认值；`[backup].exclude`（排除规则）仍需在扫描/归档中加入用户自定义排除模式，作为后续设计决策。
+- ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest`、`[backup].keep`、`[backup].exclude` 与 `[prune].keep` 默认值。`[backup].exclude` 为 archive 策略提供用户自定义排除模式（glob，按项目根相对路径逐段匹配，目录匹配则跳过其子树）；`git`/`git_bundle` 策略不受影响。
 - 把远端预检扩展到子模块固定提交和 LFS 对象；当前 `verify --check-remote`/`restore --check-remote` 只确认主仓库提交是否仍被远端引用指向。
