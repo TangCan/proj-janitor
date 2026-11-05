@@ -244,18 +244,18 @@ class CliTests(unittest.TestCase):
 
     def test_backup_destination_is_required_without_environment_variable(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
-            with self.assertRaises(SystemExit) as exc:
-                run_cli("backup", ".")
-        self.assertEqual(exc.exception.code, 2)
+            code, out, err = run_cli("backup", ".")
+        self.assertEqual(code, 1)
+        self.assertIn("configure [backup].dest", err)
 
     def test_backup_treats_empty_backup_dest_environment_as_unset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))
             with mock.patch.dict("os.environ", {"BACKUP_DEST": ""}):
-                with self.assertRaises(SystemExit) as exc:
-                    run_cli("backup", str(project), "--dry-run")
+                code, out, err = run_cli("backup", str(project), "--dry-run")
 
-            self.assertEqual(exc.exception.code, 2)
+            self.assertEqual(code, 1)
+            self.assertIn("configure [backup].dest", err)
 
     def test_backup_dest_option_rejects_legacy_dest(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -690,6 +690,105 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("error:", err)
+
+    def test_backup_uses_dest_from_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            config = root / "cfg.toml"
+            dest = root / "config-backups"
+            config.write_text(
+                f'[backup]\ndest = "{dest}"\n', encoding="utf-8"
+            )
+
+            with mock.patch.dict("os.environ", {}, clear=True):
+                code, out, err = run_cli(
+                    "backup", str(project), "--config", str(config)
+                )
+
+            self.assertEqual(code, 0, err)
+            self.assertEqual(err, "")
+            self.assertTrue(list((dest / "app").glob("manifest-*.json")))
+
+    def test_backup_dest_option_overrides_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            config = root / "cfg.toml"
+            config_dest = root / "config-backups"
+            cli_dest = root / "cli-backups"
+            config.write_text(
+                f'[backup]\ndest = "{config_dest}"\n', encoding="utf-8"
+            )
+
+            with mock.patch.dict("os.environ", {}, clear=True):
+                code, out, err = run_cli(
+                    "backup",
+                    str(project),
+                    "--config",
+                    str(config),
+                    "--backup-dest",
+                    str(cli_dest),
+                )
+
+            self.assertEqual(code, 0, err)
+            self.assertTrue(list((cli_dest / "app").glob("manifest-*.json")))
+            self.assertFalse(config_dest.exists())
+
+    def test_prune_uses_keep_from_config_file_and_cli_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_dest = root / "backups"
+            project_backup = backup_dest / "app"
+            project_backup.mkdir(parents=True)
+            manifest = project_backup / "manifest-20261101-100000.json"
+            archive = project_backup / "app-20261101-100000.tar.gz"
+            archive.write_bytes(b"old backup")
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "records": [
+                            {
+                                "project": "app",
+                                "strategy": "archive",
+                                "archive": str(archive),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = root / "cfg.toml"
+            config.write_text("[prune]\nkeep = 1\n", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "prune", str(backup_dest), "--config", str(config), "--json"
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(out)["keep"], 1)
+
+            code, out, err = run_cli(
+                "prune",
+                str(backup_dest),
+                "--config",
+                str(config),
+                "--keep",
+                "5",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(json.loads(out)["keep"], 5)
+
+    def test_prune_requires_keep_without_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_dest = root / "backups"
+            (backup_dest / "app").mkdir(parents=True)
+
+            code, out, err = run_cli("prune", str(backup_dest))
+            self.assertEqual(code, 1)
+            self.assertIn("configure [prune].keep", err)
 
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")

@@ -10,11 +10,13 @@ use std::{
 mod archive;
 mod backup;
 mod clean;
+mod config;
 mod project;
 mod restore;
 mod retention;
 use backup::backup_cmd;
 use clean::clean_cmd;
+use config::discover_config;
 use project::discover;
 use restore::restore_cmd;
 
@@ -91,6 +93,8 @@ enum Action {
         #[arg(long, env = "BACKUP_DEST", hide_env_values = true)]
         backup_dest: Option<PathBuf>,
         #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
         dry_run: bool,
         #[arg(long)]
         include_artifacts: bool,
@@ -115,7 +119,9 @@ enum Action {
     Prune {
         backup_root: PathBuf,
         #[arg(long, value_parser = parse_positive_usize)]
-        keep: usize,
+        keep: Option<usize>,
+        #[arg(long)]
+        config: Option<PathBuf>,
         #[arg(long)]
         apply: bool,
         #[arg(long)]
@@ -218,18 +224,25 @@ fn run() -> anyhow::Result<()> {
         Action::Backup {
             roots,
             backup_dest,
+            config,
             dry_run,
             include_artifacts,
             always_archive,
             exclude_git_metadata,
-        } => backup_cmd(
-            &roots,
-            backup_dest,
-            dry_run,
-            include_artifacts,
-            always_archive,
-            exclude_git_metadata,
-        ),
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let backup_dest = backup_dest
+                .filter(|path| !path.as_os_str().is_empty())
+                .or_else(|| config.as_ref().and_then(|cfg| cfg.backup.dest.clone()));
+            backup_cmd(
+                &roots,
+                backup_dest,
+                dry_run,
+                include_artifacts,
+                always_archive,
+                exclude_git_metadata,
+            )
+        }
         Action::Clean {
             roots,
             rules,
@@ -241,10 +254,21 @@ fn run() -> anyhow::Result<()> {
         Action::Prune {
             backup_root,
             keep,
+            config,
             apply,
             yes,
             json,
-        } => retention::prune_cmd(&backup_root, keep, apply, yes, json),
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let keep = keep.or_else(|| config.as_ref().and_then(|cfg| cfg.prune.keep));
+            retention::prune_cmd(
+                &backup_root,
+                keep.ok_or_else(|| anyhow::anyhow!("set --keep or configure [prune].keep"))?,
+                apply,
+                yes,
+                json,
+            )
+        }
         Action::Restore {
             manifest,
             dest,

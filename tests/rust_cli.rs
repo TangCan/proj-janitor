@@ -1563,3 +1563,123 @@ fn restore_check_remote_blocks_unreachable_and_keeps_credentials_hidden() {
     assert!(!stdout.contains("token"), "credential leaked into stdout");
     assert!(!stderr.contains("token"), "credential leaked into stderr");
 }
+
+#[test]
+fn backup_uses_dest_from_config_file() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let dest = temp.0.join("config-backups");
+    let config = temp.0.join(".proj-janitor.toml");
+    fs::write(
+        &config,
+        format!("[backup]\ndest = {:?}\n", dest.to_string_lossy()),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg("--dry-run")
+        .arg("--config")
+        .arg(&config)
+        .arg(&project)
+        .env_remove("BACKUP_DEST")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("config-backups"),
+        "config dest not used in output: {stdout}"
+    );
+}
+
+#[test]
+fn backup_without_dest_source_fails_when_not_configured() {
+    let temp = TestDir::new();
+    let project = temp.project();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg("--dry-run")
+        .arg(&project)
+        .env_remove("BACKUP_DEST")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("configure [backup].dest"),
+        "expected config hint in stderr"
+    );
+}
+
+#[test]
+fn prune_uses_keep_from_config_and_cli_overrides() {
+    let temp = TestDir::new();
+    let backup_dest = temp.0.join("backups");
+    let project_backup = backup_dest.join("demo");
+    fs::create_dir_all(&project_backup).unwrap();
+    let manifest = project_backup.join("manifest-20261101-100000.json");
+    let archive = project_backup.join("demo-20261101-100000.tar.gz");
+    fs::write(&archive, b"old backup").unwrap();
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "records": [{
+                "project": "demo",
+                "strategy": "archive",
+                "archive": archive,
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let config = temp.0.join(".proj-janitor.toml");
+    fs::write(&config, "[prune]\nkeep = 1\n").unwrap();
+
+    let no_source = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--json"])
+        .output()
+        .unwrap();
+    assert!(!no_source.status.success());
+
+    let from_config = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args(["--config", config.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        from_config.status.success(),
+        "{}",
+        String::from_utf8_lossy(&from_config.stderr)
+    );
+    let from_config_json: serde_json::Value = serde_json::from_slice(&from_config.stdout).unwrap();
+    assert_eq!(from_config_json["keep"], 1);
+
+    let cli_override = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("prune")
+        .arg(&backup_dest)
+        .args([
+            "--config",
+            config.to_str().unwrap(),
+            "--keep",
+            "5",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cli_override.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cli_override.stderr)
+    );
+    let override_json: serde_json::Value = serde_json::from_slice(&cli_override.stdout).unwrap();
+    assert_eq!(override_json["keep"], 5);
+}

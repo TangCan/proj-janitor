@@ -9,6 +9,7 @@ from typing import Iterable, Sequence
 
 from proj_janitor import __version__
 from proj_janitor.backup import prepare_backup, run_backup
+from proj_janitor.config import ConfigError, load_config
 from proj_janitor.cleaner import (
     apply_cleanup,
     build_cleanup_plan,
@@ -90,10 +91,15 @@ def build_parser() -> argparse.ArgumentParser:
     backup.add_argument("roots", nargs="+", type=Path)
     backup.add_argument(
         "--backup-dest",
-        default=os.environ.get("BACKUP_DEST") or None,
-        required=not bool(os.environ.get("BACKUP_DEST")),
+        default=None,
         type=_non_empty_path,
-        help="backup root directory (default: BACKUP_DEST)",
+        help="backup root directory (default: BACKUP_DEST env, then [backup].dest)",
+    )
+    backup.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
     )
     backup.add_argument(
         "--dry-run",
@@ -208,7 +214,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="preview or remove old backups while retaining the newest snapshots",
     )
     prune.add_argument("backup_root", type=Path)
-    prune.add_argument("--keep", required=True, type=_positive_integer, metavar="N")
+    prune.add_argument("--keep", type=_positive_integer, metavar="N")
+    prune.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
+    )
     prune.add_argument("--apply", action="store_true", help="delete the planned backups")
     prune.add_argument("--yes", action="store_true", help="skip interactive confirmation")
     prune.add_argument("--json", action="store_true", help="emit JSON")
@@ -238,7 +250,23 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         print("No projects found.", file=sys.stderr)
         return 1
 
-    backup_dest = args.backup_dest.expanduser()
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    backup_dest = args.backup_dest or os.environ.get("BACKUP_DEST") or None
+    if backup_dest is None:
+        backup_dest = config.backup.dest if config else None
+    if backup_dest is None:
+        print(
+            "error: set BACKUP_DEST, pass --backup-dest, or configure "
+            "[backup].dest",
+            file=sys.stderr,
+        )
+        return 1
+
+    backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
         print(
             f"error: destination is not a directory: {backup_dest}",
@@ -516,7 +544,21 @@ def _verify_exit_code(results: list[dict]) -> int:
 
 def _cmd_prune(args: argparse.Namespace) -> int:
     try:
-        plan = build_retention_plan(args.backup_root, args.keep)
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    keep = args.keep
+    if keep is None:
+        keep = config.prune.keep if config else None
+    if keep is None:
+        print(
+            "error: set --keep or configure [prune].keep",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        plan = build_retention_plan(args.backup_root, keep)
     except (OSError, RetentionError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
