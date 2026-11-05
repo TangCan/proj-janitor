@@ -26,6 +26,9 @@ pub(crate) struct BackupConfig {
     /// Default retention count for `backup --keep`.
     #[serde(default)]
     pub(crate) keep: Option<usize>,
+    /// Exclusion glob patterns for the archive strategy (matched per path component).
+    #[serde(default)]
+    pub(crate) exclude: Vec<String>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -61,6 +64,19 @@ pub(crate) fn discover_config(explicit: Option<&Path>) -> Result<Option<Config>>
         "invalid config {}: [prune].keep must be a positive integer",
         path.display()
     );
+    for pattern in &config.backup.exclude {
+        anyhow::ensure!(
+            !pattern.is_empty(),
+            "invalid config {}: [backup].exclude entries must not be empty",
+            path.display()
+        );
+        anyhow::ensure!(
+            !pattern.contains('{') && !pattern.contains('}'),
+            "invalid config {}: [backup].exclude brace expansion is not supported: {}",
+            path.display(),
+            pattern
+        );
+    }
     Ok(Some(config))
 }
 
@@ -127,6 +143,38 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\nkeep = 5\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert_eq!(config.backup.keep, Some(5));
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_exclude() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[backup]\nexclude = [\"node_modules\", \"*.log\"]\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert_eq!(config.backup.exclude, vec!["node_modules", "*.log"]);
+        assert_eq!(config.backup.dest, None);
+        assert_eq!(config.backup.keep, None);
+    }
+
+    #[test]
+    fn empty_exclude_entry_is_rejected() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nexclude = [\"\"]\n");
+        let err = discover_config(Some(&path)).unwrap_err().to_string();
+        assert!(
+            err.contains("[backup].exclude entries must not be empty"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn brace_expansion_is_rejected_for_exclude() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nexclude = [\"{a,b}\"]\n");
+        let err = discover_config(Some(&path)).unwrap_err().to_string();
+        assert!(err.contains("brace expansion is not supported"), "{err}");
     }
 
     #[test]

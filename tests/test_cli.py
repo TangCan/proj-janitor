@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import tarfile
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -343,6 +344,7 @@ class CliTests(unittest.TestCase):
                 archive_name=None,
                 fallback_reason=None,
                 exclude_git_metadata=False,
+                exclude_patterns=(),
             ):
                 if project.name == "bad":
                     raise PermissionError("access denied")
@@ -353,6 +355,7 @@ class CliTests(unittest.TestCase):
                     archive_name=archive_name,
                     fallback_reason=fallback_reason,
                     exclude_git_metadata=exclude_git_metadata,
+                    exclude_patterns=exclude_patterns,
                 )
 
             with mock.patch(
@@ -791,6 +794,32 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertTrue(list((cli_dest / "app").glob("manifest-*.json")))
             self.assertFalse(config_dest.exists())
+
+    def test_backup_excludes_patterns_from_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            config = root / "cfg.toml"
+            dest = root / "config-backups"
+            config.write_text(
+                f'[backup]\ndest = "{dest.as_posix()}"\n'
+                'exclude = ["node_modules"]\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict("os.environ", {}, clear=True):
+                code, out, err = run_cli(
+                    "backup", str(project), "--config", str(config)
+                )
+
+            self.assertEqual(code, 0, err)
+            archives = list((dest / "app").glob("app-*.tar.gz"))
+            self.assertEqual(len(archives), 1)
+            with tarfile.open(archives[0], "r:gz") as tf:
+                names = tf.getnames()
+            self.assertTrue(any(n.endswith("main.py") for n in names))
+            self.assertTrue(any(n.endswith("pyproject.toml") for n in names))
+            self.assertFalse(any("node_modules" in n for n in names))
 
     def test_prune_uses_keep_from_config_file_and_cli_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

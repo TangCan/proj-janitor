@@ -12,6 +12,8 @@ use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
 use crate::is_artifact;
+use anyhow::Context;
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -112,6 +114,7 @@ pub(crate) fn create_archive(
     archive: &Path,
     include: bool,
     exclude_git_metadata: bool,
+    exclude: &[String],
 ) -> anyhow::Result<(String, u64, same_file::Handle)> {
     let f = create_private_file(archive)?;
     let identity = same_file::Handle::from_file(f.try_clone()?)?;
@@ -121,12 +124,19 @@ pub(crate) fn create_archive(
         let root = project.file_name().unwrap_or_default();
         let mut archive_paths = HashMap::new();
         register_archive_case_path(Path::new(root), &mut archive_paths)?;
+        let exclude_set = build_exclude_globset(exclude)?;
         tar.append_dir(root, project)?;
         for e in WalkDir::new(project)
             .follow_links(false)
             .into_iter()
             .filter_entry(|entry| {
-                !archive_excluded(entry.path(), project, include, exclude_git_metadata)
+                !archive_excluded(
+                    entry.path(),
+                    project,
+                    include,
+                    exclude_git_metadata,
+                    &exclude_set,
+                )
             })
         {
             let e = e?;
@@ -478,11 +488,27 @@ fn create_symlink(target: &Path, link: &Path, target_is_dir: bool) -> anyhow::Re
 fn create_symlink(_target: &Path, _link: &Path, _target_is_dir: bool) -> anyhow::Result<()> {
     anyhow::bail!("symbolic link restoration is unsupported on this platform")
 }
+fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    for raw in exclude {
+        let pattern = raw.trim().trim_start_matches("./").trim_end_matches('/');
+        if pattern.is_empty() {
+            continue;
+        }
+        let glob = GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .with_context(|| format!("invalid exclude pattern: {raw}"))?;
+        builder.add(glob);
+    }
+    builder.build().context("invalid exclude patterns")
+}
 fn archive_excluded(
     path: &Path,
     project: &Path,
     include: bool,
     exclude_git_metadata: bool,
+    exclude: &GlobSet,
 ) -> bool {
     if path == project {
         return false;
@@ -495,6 +521,12 @@ fn archive_excluded(
             .components()
             .any(|component| component.as_os_str() == ".git")
     {
+        return true;
+    }
+    if relative.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        exclude.is_match(name.as_ref())
+    }) {
         return true;
     }
     if include {

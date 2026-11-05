@@ -316,6 +316,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         if args.keep is not None
         else (config.backup.keep if config else None)
     )
+    exclude_patterns = config.backup.exclude if config else ()
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -382,6 +383,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             include_artifacts=args.include_artifacts,
             always_archive=args.always_archive,
             exclude_git_metadata=args.exclude_git_metadata,
+            exclude_patterns=exclude_patterns,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

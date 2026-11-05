@@ -144,6 +144,7 @@ def run_backup(
     dry_run: bool = False,
     always_archive: bool = False,
     exclude_git_metadata: bool = False,
+    exclude_patterns: Iterable[str] = (),
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -200,6 +201,7 @@ def run_backup(
                 include_artifacts,
                 always_archive,
                 exclude_git_metadata,
+                exclude_patterns,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -222,6 +224,7 @@ def _backup_one(
     include_artifacts: bool,
     always_archive: bool,
     exclude_git_metadata: bool,
+    exclude_patterns: Iterable[str] = (),
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -265,6 +268,7 @@ def _backup_one(
             archive_name=plan.archive_name,
             fallback_reason=plan.reason,
             exclude_git_metadata=exclude_git_metadata,
+            exclude_patterns=exclude_patterns,
         )
 
     manifest = {
@@ -454,10 +458,12 @@ def _backup_project_with_identity(
     archive_name: str | None = None,
     fallback_reason: str | None = None,
     exclude_git_metadata: bool = False,
+    exclude_patterns: Iterable[str] = (),
 ) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
     patterns = tuple(patterns)
+    exclude_patterns = tuple(exclude_patterns)
 
     archive_file = _open_new_file(archive, binary=True)
     archive_identity: tuple[int, int] | None = None
@@ -470,7 +476,11 @@ def _backup_project_with_identity(
                     project.path,
                     arcname=project.name,
                     filter=_make_filter(
-                        project.name, patterns, project.path, exclude_git_metadata
+                        project.name,
+                        patterns,
+                        project.path,
+                        exclude_git_metadata,
+                        exclude_patterns,
                     ),
                 )
             archive_file.flush()
@@ -513,6 +523,7 @@ def _make_filter(
     patterns: tuple[str, ...],
     project_path: Path,
     exclude_git_metadata: bool = False,
+    exclude_patterns: tuple[str, ...] = (),
 ):
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
     seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
@@ -521,6 +532,12 @@ def _make_filter(
         parts = PurePosixPath(info.name).parts
         relative = parts[1:] if parts and parts[0] == arc_root else parts
         if exclude_git_metadata and ".git" in relative:
+            return None
+        if any(
+            fnmatch(part, pattern)
+            for part in relative
+            for pattern in exclude_patterns
+        ):
             return None
         for index, part in enumerate(relative if patterns else ()):
             if part == COVERAGE_DIR:

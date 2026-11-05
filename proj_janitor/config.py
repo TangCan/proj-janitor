@@ -119,11 +119,17 @@ class ConfigError(ValueError):
 
 
 class BackupConfig:
-    __slots__ = ("dest", "keep")
+    __slots__ = ("dest", "keep", "exclude")
 
-    def __init__(self, dest: Path | None = None, keep: int | None = None) -> None:
+    def __init__(
+        self,
+        dest: Path | None = None,
+        keep: int | None = None,
+        exclude: tuple[str, ...] = (),
+    ) -> None:
         self.dest = dest
         self.keep = keep
+        self.exclude = exclude
 
 
 class PruneConfig:
@@ -151,6 +157,22 @@ def _parse_keep(value: object, where: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"config {where} must be a positive integer")
     return value
+
+
+def _parse_exclude(value: object, where: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ConfigError(f"config {where} must be a list of strings")
+    normalized: list[str] = []
+    for item in value:
+        pattern = item.strip().lstrip("./").rstrip("/")
+        if not pattern:
+            raise ConfigError(f"config {where} entries must not be empty")
+        if "{" in pattern or "}" in pattern:
+            raise ConfigError(
+                f"config {where} brace expansion is not supported: {item}"
+            )
+        normalized.append(pattern)
+    return tuple(normalized)
 
 
 def _load_toml(path: Path) -> dict:
@@ -200,10 +222,10 @@ def load_config(path: Path | None = None) -> Config | None:
     backup_data = data.get("backup", {})
     if not isinstance(backup_data, dict):
         raise ConfigError(f"invalid config {path}: [backup] must be a table")
-    if set(backup_data) - {"dest", "keep"}:
+    if set(backup_data) - {"dest", "keep", "exclude"}:
         raise ConfigError(
             f"invalid config {path}: unknown [backup] key(s) "
-            f"{sorted(set(backup_data) - {'dest', 'keep'})}"
+            f"{sorted(set(backup_data) - {'dest', 'keep', 'exclude'})}"
         )
     backup = BackupConfig(
         dest=_parse_path(backup_data["dest"], "[backup].dest")
@@ -212,6 +234,9 @@ def load_config(path: Path | None = None) -> Config | None:
         keep=_parse_keep(backup_data["keep"], "[backup].keep")
         if "keep" in backup_data
         else None,
+        exclude=_parse_exclude(backup_data["exclude"], "[backup].exclude")
+        if "exclude" in backup_data
+        else (),
     )
 
     prune_data = data.get("prune", {})

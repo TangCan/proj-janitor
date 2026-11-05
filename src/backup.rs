@@ -82,6 +82,7 @@ pub(crate) fn backup_cmd(
     include_artifacts: bool,
     always: bool,
     exclude_git_metadata: bool,
+    exclude: &[String],
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -295,6 +296,7 @@ pub(crate) fn backup_cmd(
                     &archive_path,
                     include_artifacts,
                     exclude_git_metadata,
+                    exclude,
                 )?;
                 archive_identity = Some(identity);
                 Ok(Record {

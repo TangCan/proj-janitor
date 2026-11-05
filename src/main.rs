@@ -241,6 +241,10 @@ fn run() -> anyhow::Result<()> {
                 .filter(|path| !path.as_os_str().is_empty())
                 .or_else(|| config.as_ref().and_then(|cfg| cfg.backup.dest.clone()));
             let keep = keep.or_else(|| config.as_ref().and_then(|cfg| cfg.backup.keep));
+            let exclude = config
+                .as_ref()
+                .map(|cfg| cfg.backup.exclude.clone())
+                .unwrap_or_default();
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -250,6 +254,7 @@ fn run() -> anyhow::Result<()> {
                 include_artifacts,
                 always_archive,
                 exclude_git_metadata,
+                &exclude,
             )
         }
         Action::Clean {

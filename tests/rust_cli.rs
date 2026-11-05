@@ -1681,6 +1681,66 @@ fn backup_uses_dest_from_config_file() {
 }
 
 #[test]
+fn backup_excludes_patterns_from_config_file() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("keep.txt"), "keep me\n").unwrap();
+    fs::create_dir_all(project.join("node_modules")).unwrap();
+    fs::write(project.join("node_modules/dep.js"), "ignored\n").unwrap();
+    let dest = temp.0.join("exclude-backups");
+    let config = temp.0.join(".proj-janitor.toml");
+    fs::write(
+        &config,
+        format!(
+            "[backup]\ndest = {:?}\nexclude = [\"node_modules\"]\n",
+            dest.to_string_lossy()
+        ),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg("--config")
+        .arg(&config)
+        .arg(&project)
+        .env_remove("BACKUP_DEST")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let project_dir = dest.join("demo");
+    let archive = fs::read_dir(&project_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| path.to_string_lossy().ends_with(".tar.gz"))
+        .expect("archive produced");
+    let listing = Command::new("tar")
+        .arg("-tzf")
+        .arg(&archive)
+        .output()
+        .unwrap();
+    assert!(
+        listing.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listing.stderr)
+    );
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    assert!(
+        listing.contains("keep.txt"),
+        "keep.txt missing from archive: {listing}"
+    );
+    assert!(
+        !listing.contains("node_modules"),
+        "node_modules not excluded from archive: {listing}"
+    );
+}
+
+#[test]
 fn backup_without_dest_source_fails_when_not_configured() {
     let temp = TestDir::new();
     let project = temp.project();

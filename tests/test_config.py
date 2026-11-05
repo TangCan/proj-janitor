@@ -84,6 +84,39 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "positive integer"):
                 load_config(path)
 
+    def test_loads_backup_exclude_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                '[backup]\nexclude = ["node_modules", "*.log"]\n', encoding="utf-8"
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertEqual(config.backup.exclude, ("node_modules", "*.log"))
+            self.assertIsNone(config.backup.dest)
+            self.assertIsNone(config.backup.keep)
+
+    def test_exclude_non_list_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text('[backup]\nexclude = "node_modules"\n', encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "must be a list of strings"):
+                load_config(path)
+
+    def test_exclude_empty_entry_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text('[backup]\nexclude = [""]\n', encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "must not be empty"):
+                load_config(path)
+
+    def test_exclude_brace_expansion_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text('[backup]\nexclude = ["{a,b}"]\n', encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "brace expansion"):
+                load_config(path)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
