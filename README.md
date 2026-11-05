@@ -6,7 +6,7 @@
 
 - `scan` 只读：报告项目大小、Git 分支和工作区状态。
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
-- 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
+- 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定，或从 `.proj-janitor.toml` 的 `[backup].dest` 读取；命令行参数优先，其次环境变量，再次配置文件。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
 - `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）目前只在仓库源码中，尚未随 crates.io 或 PyPI 发布。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
@@ -169,6 +169,20 @@ projjan prune ~/backups/projects --keep 3 --json
 ```
 
 prune 只删除超出保留数量的 manifest，以及这些 manifest 在同一项目目录中明确引用的归档或 bundle。孤立归档、bundle、格式异常的清单和旧版 `backup-YYYYmmdd-HHMMSS/` 目录不会删除。`--keep` 必须至少为 1。
+
+### 2.5 配置文件
+
+`.proj-janitor.toml` 提供常用选项的默认值，减少重复传参。`backup` 与 `prune` 都接受 `--config <PATH>` 显式指定；否则从当前目录向上逐级查找 `.proj-janitor.toml`（找不到则使用内置默认）。当前支持：
+
+```toml
+[backup]
+dest = "/data/backups"   # 备份目标：当未传 --backup-dest 且未设 BACKUP_DEST 时使用
+
+[prune]
+keep = 3                 # 保留数量：当未传 --keep 时使用
+```
+
+取值优先级为 **命令行选项 > 环境变量 > 配置文件 > 内置默认/报错**。例如未传 `--backup-dest` 且未设 `BACKUP_DEST` 时会读取 `[backup].dest`；仍未提供则报错并提示 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。未知键或非法值（如 `keep` 为 0 或负数）会在启动时被拒绝。Python 版解析配置需要 Python 3.11+（`tomllib`，3.10 可用 `tomli` 替代）；Rust 版无额外要求。排除规则（`[backup].exclude`）留待后续设计。
 
 ### 3. 清理
 
@@ -334,5 +348,5 @@ python3 -m unittest discover -s tests -v
 ## 后续计划
 
 - 增量备份与自动/定时保留；当前 `prune --keep N` 可手动按项目清理旧快照。
-- 配置文件（排除规则、备份目标、保留策略）。
+- ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest` 与 `[prune].keep` 默认值；`[backup].exclude`（排除规则）仍需在扫描/归档中加入用户自定义排除模式，作为后续设计决策。
 - 把远端预检扩展到子模块固定提交和 LFS 对象；当前 `verify --check-remote`/`restore --check-remote` 只确认主仓库提交是否仍被远端引用指向。

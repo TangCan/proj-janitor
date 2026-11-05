@@ -7,9 +7,9 @@
 | 项目名称 | proj-janitor（proj_janitor） |
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | 2026-11-05 `restore --check-remote` 恢复前远端预检补充 |
-| 源码提交 | `d2c329e16170649724a2ac702ef5b3bf03ee3070`（Rust `v0.5.0` 发布提交） |
-| 源码标签 | `v0.5.0` 为最新 Rust 发布标签 |
+| 文档版本 | 2026-11-05 `.proj-janitor.toml` 配置文件默认值补充（CR-090） |
+| 源码提交 | `1986883`（HEAD，CR-090 配置文件；未随 `v0.5.0` 发布） |
+| 源码标签 | `v0.5.0` 为最新 Rust 发布标签；HEAD 已含配置文件功能 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
@@ -59,7 +59,7 @@
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
 | 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
-| 配置 | 无配置文件；`BACKUP_DEST` 环境变量可提供默认备份目录。项目标记和清理规则由 `config.py` 静态定义。 |
+| 配置 | `.proj-janitor.toml` 提供 `backup` 与 `prune` 的默认值（`[backup].dest`、`[prune].keep`）；取值优先级为命令行 > 环境变量 > 配置文件。项目标记和清理规则仍由 `config.py` 静态定义。 |
 | 并发 | 无线程、异步任务、文件锁或事务；备份的归档和 manifest 用排他创建避免覆盖，并发撞名时该项目失败、重跑可使用新后缀；不保证源项目在备份期间保持不变；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
@@ -69,11 +69,28 @@
 - 恢复覆盖、回滚、断点续传、进度显示或远程提交预检；
 - HTTP、RPC、WebSocket、GUI 或数据库接口；
 - 远程备份上传、云对象存储、增量备份、加密、压缩算法选择；
-- 自定义清理规则文件、配置文件或每项目排除文件；
+- 自定义清理规则文件、每项目排除文件或排除规则（`[backup].exclude`）；
 - tag、detached HEAD 的完整备份；干净仓库可轻量备份 Git LFS 指针及受支持子模块，需安装 Git LFS，且恢复时默认 GitHub endpoint、LFS 对象和子模块固定提交仍可访问；
 - GitHub API 认证、远端提交存在性预检或自动恢复演练；
 - 归档内容秘密扫描；
 - Windows/macOS 的正式兼容性承诺。
+
+### 2.5 配置文件
+
+`.proj-janitor.toml` 提供常用选项的默认值，`backup` 与 `prune` 均接受 `--config PATH` 显式指定；未指定时从当前目录向上逐级查找，找不到则使用内置默认。
+
+```toml
+[backup]
+dest = "/data/backups"   # 未传 --backup-dest 且未设 BACKUP_DEST 时使用
+
+[prune]
+keep = 3                 # 未传 --keep 时使用
+```
+
+- **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`。
+- **严格校验**：未知键、非法值（如 `keep` 为 0 或负数、空 `dest`）会被拒绝并报出文件与原因。
+- **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（3.11+，3.10 需 `tomli`），无第三方运行时依赖。
+- 排除规则（`[backup].exclude`）暂不在范围内，见 2.4。
 
 ## 3. 程序入口
 
@@ -318,17 +335,18 @@ projjan scan ~/projects ~/archive --json
 ### 6.1 语法与参数
 
 ```text
-projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--dry-run]
+projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--dry-run]
                  [--include-artifacts] [--always-archive]
                  [--exclude-git-metadata]
 ```
 
-`--backup-dest` 与环境变量 `BACKUP_DEST` 二选一；同时指定时命令行参数优先。空的 `BACKUP_DEST` 按未设置处理，需提供有效目录。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。
+备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同，但不启用“未标记目录”。 |
-| `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` | 备份根目录；未设置环境变量时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
+| `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` → `[backup].dest` | 备份根目录；三者均未提供时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
+| `--config PATH` | 否 | 自动发现 `.proj-janitor.toml` | 显式指定配置文件；未指定时从当前目录向上逐级查找。 |
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
@@ -416,7 +434,7 @@ Manifest: /path/to/backups/old-tool/manifest-20261023-135243.json
 | 没有发现项目 | `1` | 标准错误输出 `No projects found.`。 |
 | `DEST` 存在但不是目录 | `1` | 标准错误输出 `error: destination is not a directory: {dest}`。 |
 | 某项目归档或写 manifest 失败 | `1` | 报错后继续处理其他项目；失败项目的部分输出会尝试清理。 |
-| 未提供 `--backup-dest` 且未设置 `BACKUP_DEST` | `2` | `argparse` 报必填参数缺失。 |
+| 未提供 `--backup-dest`、未设置 `BACKUP_DEST` 且配置文件无 `[backup].dest` | `1` | 标准错误输出 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。 |
 | 参数缺失或非法 | `2` | `argparse` 用法错误。 |
 
 ### 6.7 示例
@@ -1078,6 +1096,12 @@ Git-only 记录的 `--check-remote` 状态：
 | 名称 | 类型 | 说明 |
 | --- | --- | --- |
 | `PROJECT_MARKERS` | `tuple[str, ...]` | 16 个项目标记。 |
+| `CONFIG_NAME` | `str` | 配置文件默认名 `.proj-janitor.toml`。 |
+| `ConfigError` | `ValueError` 子类 | 配置缺失、解析失败或未知键时抛出。 |
+| `BackupConfig` | 数据类 | `dest: Path \| None`。 |
+| `PruneConfig` | 数据类 | `keep: int \| None`。 |
+| `Config` | 数据类 | `backup: BackupConfig`，`prune: PruneConfig`。 |
+| `load_config` | `(path: Path \| None = None) -> Config \| None` | 显式路径或从当前目录向上发现；找不到返回 `None`；配置非法抛 `ConfigError`。 |
 | `ARTIFACT_RULES` | `dict[str, tuple[str, ...]]` | 5 组清理规则，顺序固定。 |
 | `ALL_RULES` | `tuple[str, ...]` | 规则名元组。 |
 | `artifact_patterns` | `(include_artifacts=False) -> tuple[str, ...]` | 展开并去重所有排除模式；`True` 返回空元组。 |
@@ -1382,13 +1406,16 @@ projjan verify MANIFEST --check-remote --json
 ## 17. `prune` 备份保留
 
 ```text
-projjan prune BACKUP_ROOT --keep N [--apply] [--yes] [--json]
+projjan prune BACKUP_ROOT [--keep N] [--config PATH] [--apply] [--yes] [--json]
 ```
+
+`--keep` 按 **命令行 > 配置文件 `[prune].keep`** 的优先级解析；两者均未提供时报错 `set --keep or configure [prune].keep`。
 
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `BACKUP_ROOT` | 是 | 由 `backup` 生成的备份根目录。 |
-| `--keep N` | 是 | 每个项目目录至少保留 N 份最新清单；N 必须大于等于 1。 |
+| `--keep N` | 条件必填 | 每个项目目录至少保留 N 份最新清单；N 必须大于等于 1。未传时使用配置文件 `[prune].keep`。 |
+| `--config PATH` | 否 | 显式指定配置文件；未指定时从当前目录向上逐级查找 `.proj-janitor.toml`。 |
 | `--apply` | 否 | 实际删除预览中的过期清单和它们引用的 artifact；不指定时始终只预览。 |
 | `--yes` | 否 | 跳过交互确认；非交互执行和 JSON apply 必须显式指定。 |
 | `--json` | 否 | 输出纯 JSON 计划或删除结果。 |
