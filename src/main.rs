@@ -94,6 +94,10 @@ enum Action {
         backup_dest: Option<PathBuf>,
         #[arg(long)]
         config: Option<PathBuf>,
+        #[arg(long, value_parser = parse_positive_usize)]
+        keep: Option<usize>,
+        #[arg(long)]
+        yes: bool,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -225,6 +229,8 @@ fn run() -> anyhow::Result<()> {
             roots,
             backup_dest,
             config,
+            keep,
+            yes,
             dry_run,
             include_artifacts,
             always_archive,
@@ -234,9 +240,12 @@ fn run() -> anyhow::Result<()> {
             let backup_dest = backup_dest
                 .filter(|path| !path.as_os_str().is_empty())
                 .or_else(|| config.as_ref().and_then(|cfg| cfg.backup.dest.clone()));
+            let keep = keep.or_else(|| config.as_ref().and_then(|cfg| cfg.backup.keep));
             backup_cmd(
                 &roots,
                 backup_dest,
+                keep,
+                yes,
                 dry_run,
                 include_artifacts,
                 always_archive,

@@ -23,6 +23,9 @@ pub(crate) struct BackupConfig {
     /// Default destination for `backup --backup-dest`.
     #[serde(default)]
     pub(crate) dest: Option<PathBuf>,
+    /// Default retention count for `backup --keep`.
+    #[serde(default)]
+    pub(crate) keep: Option<usize>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -48,6 +51,16 @@ pub(crate) fn discover_config(explicit: Option<&Path>) -> Result<Option<Config>>
         .with_context(|| format!("cannot read config {}", path.display()))?;
     let config: Config =
         toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))?;
+    anyhow::ensure!(
+        config.backup.keep.is_none_or(|keep| keep >= 1),
+        "invalid config {}: [backup].keep must be a positive integer",
+        path.display()
+    );
+    anyhow::ensure!(
+        config.prune.keep.is_none_or(|keep| keep >= 1),
+        "invalid config {}: [prune].keep must be a positive integer",
+        path.display()
+    );
     Ok(Some(config))
 }
 
@@ -106,6 +119,31 @@ mod tests {
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert_eq!(config.prune.keep, Some(7));
         assert_eq!(config.backup.dest, None);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_keep() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nkeep = 5\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert_eq!(config.backup.keep, Some(5));
+    }
+
+    #[test]
+    fn zero_keep_is_rejected_for_backup_and_prune() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nkeep = 0\n");
+        let err = discover_config(Some(&path)).unwrap_err().to_string();
+        assert!(
+            err.contains("[backup].keep must be a positive integer"),
+            "{err}"
+        );
+        let path = write_config(temp.0.as_path(), "[prune]\nkeep = 0\n");
+        let err = discover_config(Some(&path)).unwrap_err().to_string();
+        assert!(
+            err.contains("[prune].keep must be a positive integer"),
+            "{err}"
+        );
     }
 
     #[test]

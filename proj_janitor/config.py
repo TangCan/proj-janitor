@@ -119,10 +119,11 @@ class ConfigError(ValueError):
 
 
 class BackupConfig:
-    __slots__ = ("dest",)
+    __slots__ = ("dest", "keep")
 
-    def __init__(self, dest: Path | None = None) -> None:
+    def __init__(self, dest: Path | None = None, keep: int | None = None) -> None:
         self.dest = dest
+        self.keep = keep
 
 
 class PruneConfig:
@@ -199,15 +200,18 @@ def load_config(path: Path | None = None) -> Config | None:
     backup_data = data.get("backup", {})
     if not isinstance(backup_data, dict):
         raise ConfigError(f"invalid config {path}: [backup] must be a table")
-    if set(backup_data) - {"dest"}:
+    if set(backup_data) - {"dest", "keep"}:
         raise ConfigError(
             f"invalid config {path}: unknown [backup] key(s) "
-            f"{sorted(set(backup_data) - {'dest'})}"
+            f"{sorted(set(backup_data) - {'dest', 'keep'})}"
         )
     backup = BackupConfig(
         dest=_parse_path(backup_data["dest"], "[backup].dest")
         if "dest" in backup_data
-        else None
+        else None,
+        keep=_parse_keep(backup_data["keep"], "[backup].keep")
+        if "keep" in backup_data
+        else None,
     )
 
     prune_data = data.get("prune", {})

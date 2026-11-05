@@ -16,7 +16,7 @@ use crate::{
     },
     expand, human,
     project::{discover, git_compatible_path, inspect_bundle_recovery, inspect_recovery},
-    resolve_for_creation,
+    resolve_for_creation, retention,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -72,9 +72,12 @@ fn create_git_bundle(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn backup_cmd(
     roots: &[PathBuf],
     dest: Option<PathBuf>,
+    keep: Option<usize>,
+    yes: bool,
     dry: bool,
     include_artifacts: bool,
     always: bool,
@@ -412,6 +415,9 @@ pub(crate) fn backup_cmd(
     }
     if failed {
         anyhow::bail!("one or more backup operations failed")
+    }
+    if let Some(keep) = keep.filter(|_| !dry) {
+        retention::retain_after_backup(&dest, keep, yes)?;
     }
     Ok(())
 }

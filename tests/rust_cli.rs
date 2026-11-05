@@ -677,6 +677,89 @@ fn backup_cli_creates_an_archive_and_manifest() {
     assert!(restored_dest.join("demo/.git/config").is_file());
 }
 
+fn backup_run(project: &Path, dest: &Path, extra: &[&str]) {
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(project)
+        .arg("--backup-dest")
+        .arg(dest)
+        .args(extra)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "backup failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn manifest_count(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .count()
+}
+
+#[test]
+fn backup_with_keep_yes_retains_only_latest_manifests() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    for _ in 0..3 {
+        backup_run(&project, &backup_dest, &[]);
+    }
+    let project_backup = backup_dest.join(project.file_name().unwrap());
+    assert_eq!(manifest_count(&project_backup), 3);
+    backup_run(&project, &backup_dest, &["--keep", "2", "--yes"]);
+    assert_eq!(
+        manifest_count(&project_backup),
+        2,
+        "backup --keep 2 --yes should retain only the latest 2 manifests"
+    );
+}
+
+#[test]
+fn backup_with_keep_without_yes_skips_retention_noninteractively() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    for _ in 0..3 {
+        backup_run(&project, &backup_dest, &[]);
+    }
+    let project_backup = backup_dest.join(project.file_name().unwrap());
+    assert_eq!(manifest_count(&project_backup), 3);
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .arg("--keep")
+        .arg("2")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Non-interactive; skipping retention"),
+        "expected a non-interactive skip message, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(
+        manifest_count(&project_backup),
+        4,
+        "backup --keep 2 without --yes should not delete in a non-interactive session"
+    );
+}
+
 #[test]
 fn backup_and_restore_unpushed_git_history_with_bundle() {
     let temp = TestDir::new();

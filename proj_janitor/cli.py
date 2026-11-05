@@ -121,6 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="omit .git metadata from archives; restored archives have no Git history",
     )
+    backup.add_argument(
+        "--keep",
+        type=_positive_integer,
+        default=None,
+        metavar="N",
+        help="after a successful backup, retain only N newest manifests per project "
+        "(default: [backup].keep)",
+    )
+    backup.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip confirmation when deleting old backups via --keep",
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -244,6 +257,39 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def _retain_after_backup(backup_root: Path, keep: int, yes: bool) -> int:
+    """Apply automatic retention after a backup, mirroring the Rust behavior."""
+    try:
+        plan = build_retention_plan(backup_root, keep)
+    except (OSError, RetentionError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    files = list(plan.files)
+    if not files:
+        return 0
+    total = sum(item.size_bytes for item in files)
+    print(f"Retention (keep {keep}):")
+    for item in files:
+        print(f"  [{item.kind}] {item.path}")
+    print(f"{len(files)} file(s), {human_size(total)} would be removed.")
+    if not yes:
+        if not sys.stdin.isatty():
+            print("Non-interactive; skipping retention (use --yes to delete).")
+            return 0
+        try:
+            answer = input(f"Delete {len(files)} file(s)? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Retention skipped.")
+            return 0
+    result = apply_retention_plan(plan)
+    print(f"Deleted {len(result.deleted)} file(s).")
+    for err in result.errors:
+        print(f"error: {err}", file=sys.stderr)
+    return 1 if result.errors else 0
+
+
 def _cmd_backup(args: argparse.Namespace) -> int:
     projects, failures = _collect_projects(args.roots, include_unmarked=False)
     if not projects:
@@ -265,6 +311,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    keep = (
+        args.keep
+        if args.keep is not None
+        else (config.backup.keep if config else None)
+    )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -368,6 +419,13 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         _print_manifests(manifest_paths)
     for project, error in backup_failures:
         print(f"error: {project}: {error}", file=sys.stderr)
+    if (
+        keep is not None
+        and not args.dry_run
+        and not failures
+        and not backup_failures
+    ):
+        return _retain_after_backup(backup_dest, keep, args.yes)
     return 1 if failures or backup_failures else 0
 
 

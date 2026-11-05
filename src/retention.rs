@@ -189,6 +189,52 @@ pub(crate) fn prune_cmd(
     Ok(())
 }
 
+pub(crate) fn retain_after_backup(root: &Path, keep: usize, yes: bool) -> anyhow::Result<()> {
+    let plan = plan_retention(root, keep)?;
+    let files: Vec<_> = plan
+        .manifests
+        .iter()
+        .chain(plan.artifacts.iter().map(|artifact| &artifact.file))
+        .collect();
+    if files.is_empty() {
+        return Ok(());
+    }
+    println!("Retention (keep {keep}):");
+    for file in &files {
+        println!("  [{}] {}", file.kind, file.path.display());
+    }
+    let total_bytes: u64 = files.iter().map(|file| file.size_bytes).sum();
+    println!(
+        "{} file(s), {} would be removed.",
+        files.len(),
+        human(total_bytes)
+    );
+    if !yes {
+        if !io::stdin().is_terminal() {
+            println!("Non-interactive; skipping retention (use --yes to delete).");
+            return Ok(());
+        }
+        eprint!("Delete {} file(s)? [y/N] ", files.len());
+        io::stderr().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("Retention skipped.");
+            return Ok(());
+        }
+    }
+    let result = apply_retention_plan(plan);
+    println!("Deleted {} file(s).", result.deleted.len());
+    for error in &result.errors {
+        eprintln!("error: {error}");
+    }
+    anyhow::ensure!(
+        result.errors.is_empty(),
+        "one or more retention operations failed"
+    );
+    Ok(())
+}
+
 struct ManifestRow {
     path: PathBuf,
     project: String,

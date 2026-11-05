@@ -68,6 +68,22 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "positive integer"):
                 load_config(path)
 
+    def test_loads_backup_keep_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\nkeep = 4\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertEqual(config.backup.keep, 4)
+            self.assertIsNone(config.backup.dest)
+
+    def test_non_positive_backup_keep_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\nkeep = 0\n", encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "positive integer"):
+                load_config(path)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

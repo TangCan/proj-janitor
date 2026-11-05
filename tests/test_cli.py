@@ -193,6 +193,63 @@ class CliTests(unittest.TestCase):
             self.assertIn("Backed up 1 project(s).", out)
             self.assertEqual(len(list((backup_dest / "app").glob("manifest-*.json"))), 1)
 
+    def test_backup_keep_yes_retains_only_latest_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            for _ in range(3):
+                code, out, err = run_cli(
+                    "backup", str(project), "--backup-dest", str(backup_dest)
+                )
+                self.assertEqual(code, 0, err)
+            self.assertEqual(
+                len(list((backup_dest / "app").glob("manifest-*.json"))), 3
+            )
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--keep",
+                "2",
+                "--yes",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("Deleted ", out)
+            self.assertEqual(
+                len(list((backup_dest / "app").glob("manifest-*.json"))), 2
+            )
+
+    def test_backup_keep_without_yes_skips_retention_noninteractively(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+
+            for _ in range(3):
+                code, out, err = run_cli(
+                    "backup", str(project), "--backup-dest", str(backup_dest)
+                )
+                self.assertEqual(code, 0, err)
+
+            with mock.patch("sys.stdin", io.StringIO()):
+                code, out, err = run_cli(
+                    "backup",
+                    str(project),
+                    "--backup-dest",
+                    str(backup_dest),
+                    "--keep",
+                    "2",
+                )
+            self.assertEqual(code, 0, err)
+            self.assertIn("Non-interactive; skipping retention", out)
+            self.assertEqual(
+                len(list((backup_dest / "app").glob("manifest-*.json"))), 4
+            )
+
     def test_backup_rejects_destination_inside_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))
