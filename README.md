@@ -8,7 +8,7 @@
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定；命令行参数优先。空的 `BACKUP_DEST` 按未设置处理。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
-- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote` 目前只在仓库源码中，尚未随 crates.io 或 PyPI 发布。
+- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）目前只在仓库源码中，尚未随 crates.io 或 PyPI 发布。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - `prune` 默认 dry-run：每个项目保留指定数量的最新备份，只删除过期 manifest 明确引用的归档/bundle；孤立文件不动。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
@@ -225,6 +225,9 @@ projjan restore <manifest> --dest ~/restored --project xtask_todo
 # 输出纯 JSON
 projjan restore <manifest> --dest ~/restored --dry-run --json
 
+# 恢复前确认每个 Git-only 远端仍可访问；不可达则整批不开始（仓库源码）
+projjan restore <manifest> --dest ~/restored --check-remote
+
 # Rust 0.2.5 及更新版本：校验归档 SHA-256，并检查 Git 备份元数据（不联网）
 projjan verify <manifest>
 
@@ -332,4 +335,4 @@ python3 -m unittest discover -s tests -v
 
 - 增量备份与自动/定时保留；当前 `prune --keep N` 可手动按项目清理旧快照。
 - 配置文件（排除规则、备份目标、保留策略）。
-- 恢复流程内置远端预检，并把预检扩展到子模块固定提交和 LFS 对象；当前先用 `verify --check-remote` 手动确认主仓库提交是否仍被远端引用指向。
+- 把远端预检扩展到子模块固定提交和 LFS 对象；当前 `verify --check-remote`/`restore --check-remote` 只确认主仓库提交是否仍被远端引用指向。

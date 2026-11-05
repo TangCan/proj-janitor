@@ -45,6 +45,7 @@ def restore_from_manifest(
     projects: Iterable[str] = (),
     dry_run: bool = False,
     verify: bool = True,
+    check_remote: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
         manifest_path,
@@ -55,7 +56,7 @@ def restore_from_manifest(
     if dry_run:
         return plans, []
 
-    results = execute_restore(plans, verify=verify)
+    results = execute_restore(plans, verify=verify, check_remote=check_remote)
     if verify:
         plans = [
             replace(plan, hash_verified=True)
@@ -70,6 +71,7 @@ def execute_restore(
     plans: Iterable[RestorePlan],
     *,
     verify: bool = True,
+    check_remote: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
     if verify:
@@ -80,6 +82,18 @@ def execute_restore(
                         f"incomplete archive restore plan for {plan.project}"
                     )
                 _verify_archive_hash(plan.archive, plan.project, plan.sha256)
+    if check_remote:
+        for plan in plan_list:
+            if plan.strategy != "git":
+                continue
+            if plan.remote_url is None or plan.commit is None:
+                raise RestoreError(f"incomplete git restore plan for {plan.project}")
+            status, reason, _refs = _probe_remote(plan.remote_url, plan.commit)
+            if status == "remote-unreachable":
+                raise RestoreError(
+                    f"cannot restore {plan.project}: remote "
+                    f"{redact_remote_url(plan.remote_url)} is unreachable ({reason})"
+                )
     try:
         for plan in plan_list:
             plan.target.parent.mkdir(parents=True, exist_ok=True)

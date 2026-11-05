@@ -20,7 +20,13 @@ from unittest import mock
 from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
 import proj_janitor.scanner as scanner_module
-from proj_janitor.restore import RestoreError, restore_from_manifest, verify_manifest
+from proj_janitor.restore import (
+    RestoreError,
+    execute_restore,
+    plan_restore,
+    restore_from_manifest,
+    verify_manifest,
+)
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, init_repo, make_pushed_repo
 
@@ -1238,6 +1244,181 @@ class RemoteCheckTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "verified")
             self.assertNotIn("remote", result)
+
+
+class RestoreRemoteCheckTests(unittest.TestCase):
+    """execute_restore / restore --check-remote precheck."""
+
+    def test_execute_restore_check_remote_blocks_unreachable_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(root / "removed-remote.git"),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                    }
+                ],
+            )
+            restored = root / "restored"
+            plans = plan_restore(manifest, restored)
+
+            with self.assertRaisesRegex(
+                RestoreError,
+                r"cannot restore app: remote .*removed-remote\.git is unreachable",
+            ):
+                execute_restore(plans, check_remote=True)
+
+            self.assertFalse((restored / "app").exists())
+
+    def test_execute_restore_check_remote_proceeds_when_remote_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(root / "app-remote.git"),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                    }
+                ],
+            )
+            restored = root / "restored"
+            plans = plan_restore(manifest, restored)
+
+            results = execute_restore(plans, check_remote=True)
+
+            self.assertEqual(results[0].project, "app")
+            target = restored / "app"
+            self.assertEqual(git(target, "rev-parse", "HEAD"), head)
+
+    def test_execute_restore_check_remote_incomplete_git_plan(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        plans = [
+            RestorePlan(
+                project="app",
+                strategy="git",
+                target=Path("/nowhere/app"),
+                remote_url=None,
+                commit=None,
+            )
+        ]
+        with self.assertRaisesRegex(RestoreError, "incomplete git restore plan"):
+            execute_restore(plans, check_remote=True)
+
+    def test_execute_restore_check_remote_reports_probe_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(root / "app-remote.git"),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                    }
+                ],
+            )
+            restored = root / "restored"
+            plans = plan_restore(manifest, restored)
+            with mock.patch.object(
+                restore_module,
+                "_run_git",
+                side_effect=restore_module.GitTimeoutError("timed out"),
+            ):
+                with self.assertRaisesRegex(RestoreError, "is unreachable"):
+                    execute_restore(plans, check_remote=True)
+
+            self.assertFalse((restored / "app").exists())
+
+    def test_execute_restore_check_remote_ignores_archive_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, manifest, record = archive_backup(root)
+            restored = root / "restored"
+            plans = plan_restore(manifest, restored)
+
+            with mock.patch.object(
+                restore_module,
+                "_probe_remote",
+                side_effect=AssertionError("remote must not be contacted"),
+            ):
+                results = execute_restore(plans, check_remote=True)
+
+            self.assertEqual(results[0].project, "app")
+            self.assertTrue((restored / "app" / "src" / "main.py").exists())
+            self.assertEqual(record["strategy"], "archive")
+
+    def test_restore_from_manifest_check_remote_blocks_unreachable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "source": str(project),
+                        "archive": None,
+                        "archive_bytes": 0,
+                        "source_bytes": 1,
+                        "sha256": None,
+                        "strategy": "git",
+                        "remote": "origin",
+                        "remote_url": str(root / "removed-remote.git"),
+                        "branch": "main",
+                        "commit": head,
+                        "upstream": "origin/main",
+                        "verified": "local-ref",
+                    }
+                ],
+            )
+            restored = root / "restored"
+            with self.assertRaisesRegex(RestoreError, "is unreachable"):
+                restore_from_manifest(manifest, restored, check_remote=True)
+
+            self.assertFalse((restored / "app").exists())
 
 
 if __name__ == "__main__":

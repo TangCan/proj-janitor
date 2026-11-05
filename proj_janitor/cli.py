@@ -177,6 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip confirmation when restoring to original locations",
     )
+    restore.add_argument(
+        "--check-remote",
+        action="store_true",
+        help="fail before restoring a Git-only project when its remote is unreachable",
+    )
     restore.add_argument("--json", action="store_true", help="emit JSON")
 
     verify = subparsers.add_parser(
@@ -419,7 +424,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             return 2
 
     try:
-        results = execute_restore(plans, verify=not args.no_verify)
+        results = execute_restore(
+            plans, verify=not args.no_verify, check_remote=args.check_remote
+        )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

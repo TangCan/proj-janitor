@@ -136,6 +136,8 @@ enum Action {
         #[arg(long)]
         yes: bool,
         #[arg(long)]
+        check_remote: bool,
+        #[arg(long)]
         json: bool,
     },
     Verify {
@@ -250,8 +252,18 @@ fn run() -> anyhow::Result<()> {
             dry_run,
             no_verify,
             yes,
+            check_remote,
             json,
-        } => restore_cmd(&manifest, dest, &projects, dry_run, no_verify, yes, json),
+        } => restore_cmd(
+            &manifest,
+            dest,
+            &projects,
+            dry_run,
+            no_verify,
+            yes,
+            check_remote,
+            json,
+        ),
         Action::Verify {
             manifest,
             projects,

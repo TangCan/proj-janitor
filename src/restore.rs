@@ -527,6 +527,7 @@ pub(crate) fn probe_remote(url: &str, commit: &str) -> anyhow::Result<RemoteProb
     Ok(RemoteProbe::Verified(matched.into_iter().collect()))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn restore_cmd(
     manifest_path: &Path,
     dest: Option<PathBuf>,
@@ -534,6 +535,7 @@ pub(crate) fn restore_cmd(
     dry: bool,
     no_verify: bool,
     yes: bool,
+    check_remote: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
@@ -750,6 +752,28 @@ pub(crate) fn restore_cmd(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
                     archive.display()
+                );
+            }
+        }
+    }
+    if check_remote {
+        for (record, _, _) in &plans {
+            if record.strategy != "git" {
+                continue;
+            }
+            let url = record
+                .remote_url
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("missing remote_url for {}", record.project))?;
+            let commit = record
+                .commit
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("missing commit for {}", record.project))?;
+            if let RemoteProbe::Unreachable(reason) = probe_remote(url, commit)? {
+                anyhow::bail!(
+                    "cannot restore {}: remote {} is unreachable ({reason})",
+                    record.project,
+                    redact_remote(url)
                 );
             }
         }

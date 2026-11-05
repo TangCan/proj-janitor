@@ -892,6 +892,58 @@ class GitCliTests(unittest.TestCase):
             )
             self.assertIn("could not be reached", err)
 
+    def test_restore_check_remote_blocks_unreachable_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(
+                root, project, root / "gone.git", head
+            )
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn(
+                f"cannot restore {project.name}: remote {root / 'gone.git'} "
+                "is unreachable",
+                err,
+            )
+            self.assertFalse((restored / "app").exists())
+            self.assertEqual(out, "")
+
+    def test_restore_check_remote_proceeds_when_remote_reachable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(
+                root, project, root / "app-remote.git", head
+            )
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("Restored 1 project(s)", out)
+            self.assertEqual(err, "")
+            self.assertEqual(
+                git(restored / "app", "rev-parse", "HEAD"), head
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

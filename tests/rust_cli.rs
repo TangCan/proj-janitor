@@ -1489,3 +1489,77 @@ fn verify_check_remote_reports_unreachable_and_keeps_credentials_hidden() {
     assert_eq!(plain_result["projects"][0]["status"], "metadata-only");
     assert!(plain_result["projects"][0]["remote"].is_null());
 }
+
+#[test]
+fn restore_check_remote_blocks_unreachable_and_keeps_credentials_hidden() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let manifest = temp.0.join("manifest.json");
+    let payload = serde_json::json!({
+        "schema_version": 2,
+        "created_at": "2026-11-05T00:00:00Z",
+        "tool": "proj-janitor",
+        "version": "0.4.0",
+        "include_artifacts": false,
+        "always_archive": false,
+        "records": [
+            {
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": temp.0.join("missing.git").display().to_string(),
+                "branch": "main",
+                "commit": "a".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            },
+            {
+                "project": "second",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": "https://user:token@github.com/team/demo.git",
+                "branch": "main",
+                "commit": "b".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }
+        ]
+    });
+    fs::write(&manifest, serde_json::to_vec(&payload).unwrap()).unwrap();
+    let restored = temp.0.join("restored");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored)
+        .arg("--check-remote")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        !output.status.success(),
+        "unreachable remote should block restore"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "cannot restore demo: remote {} is unreachable",
+            temp.0.join("missing.git").display()
+        )),
+        "{stderr}"
+    );
+    assert!(!restored.exists(), "no target should be created");
+    assert!(!stdout.contains("token"), "credential leaked into stdout");
+    assert!(!stderr.contains("token"), "credential leaked into stderr");
+}

@@ -1477,6 +1477,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
     )
     .unwrap();
     assert_eq!(
@@ -1490,6 +1491,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1509,6 +1511,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1617,6 +1620,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         false,
         false,
         true,
+        false,
         false,
     )
     .unwrap();
@@ -1732,8 +1736,17 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
     let dest = temp.0.join("restored");
 
     for destination in [Some(dest.clone()), None] {
-        let error =
-            restore_cmd(&manifest_path, destination, &[], true, false, true, false).unwrap_err();
+        let error = restore_cmd(
+            &manifest_path,
+            destination,
+            &[],
+            true,
+            false,
+            true,
+            false,
+            false,
+        )
+        .unwrap_err();
         let error = error.to_string();
         assert!(
             error.contains("case-insensitive filesystems")
@@ -1788,6 +1801,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             true,
             false,
             true,
+            false,
             false,
         )
         .unwrap_err();
@@ -2118,4 +2132,116 @@ fn remote_probe_never_passes_credentials_to_git() {
     );
 
     assert!(matches!(probe.unwrap(), RemoteProbe::Skipped));
+}
+
+#[test]
+fn restore_check_remote_blocks_unreachable_remote() {
+    let temp = TestDir::new();
+    let manifest_path = temp.0.join("manifest.json");
+    let manifest = Manifest {
+        schema_version: 2,
+        created_at: "2026-11-05T00:00:00+00:00".into(),
+        tool: "proj-janitor".into(),
+        version: "0.4.0".into(),
+        include_artifacts: false,
+        always_archive: false,
+        exclude_git_metadata: false,
+        records: vec![Record {
+            project: "demo".into(),
+            source: temp.0.join("original/demo").to_string_lossy().into_owned(),
+            archive: None,
+            archive_bytes: 0,
+            source_bytes: 0,
+            sha256: None,
+            strategy: "git".into(),
+            remote: Some("origin".into()),
+            remote_url: Some(
+                temp.0
+                    .join("removed-remote.git")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            branch: Some("main".into()),
+            commit: Some("a".repeat(40)),
+            upstream: Some("origin/main".into()),
+            verified: Some("local-ref".into()),
+            fallback_reason: None,
+        }],
+    };
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let dest = temp.0.join("restored");
+
+    let error = restore_cmd(
+        &manifest_path,
+        Some(dest.clone()),
+        &[],
+        false,
+        false,
+        true,
+        true,
+        false,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("is unreachable"));
+    assert!(error.to_string().contains("removed-remote.git"));
+    assert!(!dest.exists());
+}
+
+#[test]
+fn restore_check_remote_proceeds_when_remote_verified() {
+    let temp = TestDir::new();
+    let Some((project, remote, commit)) = pushed_remote_fixture(&temp) else {
+        eprintln!("git unavailable; skipping restore check-remote fixture");
+        return;
+    };
+    let manifest_path = temp.0.join("manifest.json");
+    let manifest = Manifest {
+        schema_version: 2,
+        created_at: "2026-11-05T00:00:00+00:00".into(),
+        tool: "proj-janitor".into(),
+        version: "0.4.0".into(),
+        include_artifacts: false,
+        always_archive: false,
+        exclude_git_metadata: false,
+        records: vec![Record {
+            project: "demo".into(),
+            source: project.to_string_lossy().into_owned(),
+            archive: None,
+            archive_bytes: 0,
+            source_bytes: 0,
+            sha256: None,
+            strategy: "git".into(),
+            remote: Some("origin".into()),
+            remote_url: Some(remote.to_string_lossy().into_owned()),
+            branch: Some("main".into()),
+            commit: Some(commit.clone()),
+            upstream: Some("origin/main".into()),
+            verified: Some("local-ref".into()),
+            fallback_reason: None,
+        }],
+    };
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let dest = temp.0.join("restored");
+
+    restore_cmd(
+        &manifest_path,
+        Some(dest.clone()),
+        &[],
+        false,
+        false,
+        true,
+        true,
+        false,
+    )
+    .unwrap();
+
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(dest.join("demo"))
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), commit);
 }
