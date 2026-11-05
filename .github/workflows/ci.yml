@@ -46,6 +46,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
+      - if: matrix.python-version == '3.10'
+        name: Install tomli backport for config file tests
+        run: python -m pip install 'tomli>=2'
       - run: python -m unittest discover -s tests -v
       - if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.10'
         name: Build and install Python wheel
