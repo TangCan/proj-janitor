@@ -730,10 +730,19 @@ class BackupTests(unittest.TestCase):
             dest = root / "backups"
             real_sha256_stream = backup_module.sha256_stream
 
+            def _norm_for_compare(value) -> str:
+                s = os.fspath(value)
+                if s.startswith("\\\\?\\"):
+                    s = s[4:]
+                return os.path.normcase(os.path.normpath(s.replace("/", os.sep)))
+
             def fail_hash_for_bad_project(stream):
                 name = getattr(stream, "name", None)
-                if name is not None and str(bad) in str(name):
-                    raise OSError("disk full")
+                if isinstance(name, (str, os.PathLike)):
+                    n = _norm_for_compare(name)
+                    b = _norm_for_compare(bad)
+                    if n == b or n.startswith(b + os.sep):
+                        raise OSError("disk full")
                 return real_sha256_stream(stream)
 
             with mock.patch(
