@@ -87,6 +87,8 @@ projjan backup ~/richard_plus --backup-dest ~/backups/projects --include-artifac
 projjan backup ~/richard_plus --backup-dest ~/backups/projects --always-archive
 # 归档时排除 .git 元数据，恢复后不含 Git 历史
 projjan backup ~/richard_plus/bos_dynamic --backup-dest ~/backups/projects --always-archive --exclude-git-metadata
+# 成功备份后每个项目仅保留最近 3 份快照（非交互执行需加 --yes）
+projjan backup ~/richard_plus --backup-dest ~/backups/projects --keep 3 --yes
 ```
 
 也可设置默认备份目录，之后省略选项：
@@ -177,6 +179,7 @@ prune 只删除超出保留数量的 manifest，以及这些 manifest 在同一�
 ```toml
 [backup]
 dest = "/data/backups"   # 备份目标：当未传 --backup-dest 且未设 BACKUP_DEST 时使用
+keep = 3                 # 成功备份后保留的最近快照数：当未传 --keep 时使用
 
 [prune]
 keep = 3                 # 保留数量：当未传 --keep 时使用
@@ -347,6 +350,6 @@ python3 -m unittest discover -s tests -v
 
 ## 后续计划
 
-- 增量备份与自动/定时保留；当前 `prune --keep N` 可手动按项目清理旧快照。
-- ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest` 与 `[prune].keep` 默认值；`[backup].exclude`（排除规则）仍需在扫描/归档中加入用户自定义排除模式，作为后续设计决策。
+- ~~增量备份与自动/定时保留~~：自动保留已实现——`backup --keep N`（或 `[backup].keep`）在成功备份后按项目仅保留 N 份最新快照；增量备份（差异归档/变更检测）作为后续设计决策。
+- ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest`、`[backup].keep` 与 `[prune].keep` 默认值；`[backup].exclude`（排除规则）仍需在扫描/归档中加入用户自定义排除模式，作为后续设计决策。
 - 把远端预检扩展到子模块固定提交和 LFS 对象；当前 `verify --check-remote`/`restore --check-remote` 只确认主仓库提交是否仍被远端引用指向。

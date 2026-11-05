@@ -7,9 +7,9 @@
 | 项目名称 | proj-janitor（proj_janitor） |
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
-| 文档版本 | 2026-11-05 `.proj-janitor.toml` 配置文件默认值补充（CR-090） |
-| 源码提交 | `831bca1`（HEAD，CR-090 配置文件；未随 `v0.5.0` 发布） |
-| 源码标签 | `v0.5.0` 为最新 Rust 发布标签；HEAD 已含配置文件功能 |
+| 文档版本 | 2026-11-05 `backup --keep` 自动保留（CR-091） |
+| 源码提交 | `4986157`（HEAD，CR-091 自动保留；未随 `v0.5.0` 发布） |
+| 源码标签 | `v0.5.0` 为最新 Rust 发布标签；HEAD 已含配置文件与自动保留功能 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
@@ -82,12 +82,13 @@
 ```toml
 [backup]
 dest = "/data/backups"   # 未传 --backup-dest 且未设 BACKUP_DEST 时使用
+keep = 3                 # 成功备份后每个项目保留的最近 manifest 数；未传 --keep 时使用
 
 [prune]
 keep = 3                 # 未传 --keep 时使用
 ```
 
-- **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`。
+- **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`；`backup` 的保留数按 命令行 > 配置文件 `[backup].keep` 解析。
 - **严格校验**：未知键、非法值（如 `keep` 为 0 或负数、空 `dest`）会被拒绝并报出文件与原因。
 - **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（Python 3.11+；Python 3.10 由依赖自动安装 `tomli` 回退），除此之外无第三方运行时依赖。
 - 排除规则（`[backup].exclude`）暂不在范围内，见 2.4。
@@ -335,19 +336,22 @@ projjan scan ~/projects ~/archive --json
 ### 6.1 语法与参数
 
 ```text
-projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--dry-run]
+projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
+                 [--yes] [--dry-run]
                  [--include-artifacts] [--always-archive]
                  [--exclude-git-metadata]
 ```
 
-备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。
+备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同，但不启用“未标记目录”。 |
 | `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` → `[backup].dest` | 备份根目录；三者均未提供时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
 | `--config PATH` | 否 | 自动发现 `.proj-janitor.toml` | 显式指定配置文件；未指定时从当前目录向上逐级查找。 |
-| `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest。 |
+| `--keep N` | 否 | `[backup].keep` | 成功备份后每个项目保留的最近 manifest 数（含本次）；不传且配置未设置则不保留。必须 ≥ 1。 |
+| `--yes` | 否 | 关闭 | `--keep` 生效时跳过交互确认；非交互执行且未加 `--yes` 时只打印保留计划、不删除。 |
+| `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest（`--keep` 不生效）。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
 | `--exclude-git-metadata` | 否 | 关闭 | Rust 0.2.6 起支持；仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。Python 0.1.0 尚不支持。 |
@@ -1363,7 +1367,7 @@ tar -xzf <archive>
 | 子命令 | 用法 | 主要参数/语义 |
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
-| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata` |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata` |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（仓库源码新增，写入前预检 Git-only 远端）、`--json` |
 | `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向 |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
@@ -1427,6 +1431,7 @@ projjan prune BACKUP_ROOT [--keep N] [--config PATH] [--apply] [--yes] [--json]
 - 只删除过期清单直接引用、与清单位于同一项目目录的 `.tar.gz`/`.bundle` 文件；保留清单引用的共享 artifact。孤立 artifact、未知文件和符号链接不会删除。
 - 计划完成后会复核文件身份；备份期间若同权限进程替换目标，工具报告错误并跳过。多个文件删除不是事务，执行中断时可能只删掉部分旧清单/artifact，留下超过 N 份备份；工具不会为凑齐 N 而继续删除。
 - 操作前检查退出码，并保留至少一份清单及其引用文件；备份目录应有独立副本。
+- `backup --keep N` 复用同一保留逻辑，在成功备份后对备份根目录自动执行；非交互执行需加 `--yes`，否则只打印计划不删除（详见 6.1）。
 
 ## 18. Rust 0.5.0 发布状态（2026-11-05）
 
