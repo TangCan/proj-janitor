@@ -89,7 +89,7 @@ keep = 3                 # 未传 --keep 时使用
 
 - **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`。
 - **严格校验**：未知键、非法值（如 `keep` 为 0 或负数、空 `dest`）会被拒绝并报出文件与原因。
-- **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（3.11+，3.10 需 `tomli`），无第三方运行时依赖。
+- **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（Python 3.11+；Python 3.10 由依赖自动安装 `tomli` 回退），除此之外无第三方运行时依赖。
 - 排除规则（`[backup].exclude`）暂不在范围内，见 2.4。
 
 ## 3. 程序入口
@@ -1249,7 +1249,7 @@ Git-only 记录的 `--check-remote` 状态：
 | 项目 | 说明 |
 | --- | --- |
 | Python | `>=3.10`；开发和自测使用 Python 3.12.3。 |
-| 依赖 | 仅 Python 标准库；无第三方运行时依赖。 |
+| 依赖 | 仅 Python 标准库（Python 3.10 另加 `tomli`）；无其它第三方运行时依赖。 |
 | 构建 | `setuptools>=77`；`pyproject.toml` 声明项目元数据。 |
 | 外部命令 | Git 状态和可恢复性检查需要本机 `git`；含 Git LFS 属性的仓库还需 `git-lfs`；清理不需要 Git。 |
 | 操作系统 | 正式自测环境为 Linux；Windows/macOS 未做正式验证。 |

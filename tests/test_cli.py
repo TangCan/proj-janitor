@@ -698,7 +698,7 @@ class CliTests(unittest.TestCase):
             config = root / "cfg.toml"
             dest = root / "config-backups"
             config.write_text(
-                f'[backup]\ndest = "{dest}"\n', encoding="utf-8"
+                f'[backup]\ndest = "{dest.as_posix()}"\n', encoding="utf-8"
             )
 
             with mock.patch.dict("os.environ", {}, clear=True):
@@ -718,7 +718,7 @@ class CliTests(unittest.TestCase):
             config_dest = root / "config-backups"
             cli_dest = root / "cli-backups"
             config.write_text(
-                f'[backup]\ndest = "{config_dest}"\n', encoding="utf-8"
+                f'[backup]\ndest = "{config_dest.as_posix()}"\n', encoding="utf-8"
             )
 
             with mock.patch.dict("os.environ", {}, clear=True):

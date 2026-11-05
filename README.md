@@ -44,7 +44,7 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 
 ### Python 版
 
-Python 实现支持 Python `>=3.10`，无第三方运行时依赖。源码元数据版本为 `0.1.0`，发行包尚未发布到 PyPI；首发状态见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。目前从 Git 源码安装：
+Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.0`，发行包尚未发布到 PyPI；首发状态见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。目前从 Git 源码安装：
 
 ```bash
 pipx install git+https://github.com/TangCan/proj-janitor.git
@@ -182,7 +182,7 @@ dest = "/data/backups"   # 备份目标：当未传 --backup-dest 且未设 BACK
 keep = 3                 # 保留数量：当未传 --keep 时使用
 ```
 
-取值优先级为 **命令行选项 > 环境变量 > 配置文件 > 内置默认/报错**。例如未传 `--backup-dest` 且未设 `BACKUP_DEST` 时会读取 `[backup].dest`；仍未提供则报错并提示 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。未知键或非法值（如 `keep` 为 0 或负数）会在启动时被拒绝。Python 版解析配置需要 Python 3.11+（`tomllib`，3.10 可用 `tomli` 替代）；Rust 版无额外要求。排除规则（`[backup].exclude`）留待后续设计。
+取值优先级为 **命令行选项 > 环境变量 > 配置文件 > 内置默认/报错**。例如未传 `--backup-dest` 且未设 `BACKUP_DEST` 时会读取 `[backup].dest`；仍未提供则报错并提示 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。未知键或非法值（如 `keep` 为 0 或负数）会在启动时被拒绝。Python 版解析配置用标准库 `tomllib`（Python 3.11+；Python 3.10 自动安装 `tomli` 回退）；Rust 版内置 `toml` 解析。排除规则（`[backup].exclude`）留待后续设计。
 
 ### 3. 清理
 
@@ -320,7 +320,7 @@ projjan verify <manifest> --check-remote --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-05，Rust 0.5.0）：Python 197 项（196 通过、1 项 Windows 专属测试跳过）；Rust 57 项单元测试及 20 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention 及远端预检跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-05，Rust 0.5.0）：Python 197 项（196 通过、1 项 Windows 专属测试跳过）；Rust 57 项单元测试及 20 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention 及远端预检跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
