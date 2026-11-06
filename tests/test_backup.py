@@ -740,7 +740,11 @@ class BackupTests(unittest.TestCase):
                 name = getattr(stream, "name", None)
                 if isinstance(name, (str, os.PathLike)):
                     n = _norm_for_compare(name)
-                    b = _norm_for_compare(bad)
+                    # scan_project resolves the project path; on macOS /var ->
+                    # /private/var and on Windows short 8.3 names mean the raw
+                    # Path differs from the resolved walk root, so compare
+                    # against the resolved path.
+                    b = _norm_for_compare(bad.resolve())
                     if n == b or n.startswith(b + os.sep):
                         raise OSError("disk full")
                 return real_sha256_stream(stream)
