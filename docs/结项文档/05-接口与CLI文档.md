@@ -8,15 +8,15 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-11-05 `backup --incremental` 增量备份（CR-093） |
-| 源码提交 | `096f08ad4310ae329948bf9c6c3f06884463a3b6`（v0.6.0 发布提交，含 CR-090~CR-093） |
-| 源码标签 | `v0.6.0` 为最新 Rust 发布标签；HEAD 已含配置文件、自动保留、排除规则与增量备份功能 |
+| 源码提交 | `d5eadb764d30b7b260516348b6030e11ec56252e`（v0.7.0 发布提交，含 CR-094） |
+| 源码标签 | `v0.7.0` 为最新 Rust 发布标签；HEAD 已含配置文件、自动保留、排除规则、增量备份与子模块/LFS 远端预检功能 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.6.0（`v0.6.0`），Python 源码元数据版本为 0.1.0，未发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
+> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.0（`v0.7.0`），Python 源码元数据版本为 0.1.0，未发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -1379,7 +1379,7 @@ tar -xzf <archive>
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata`、`--incremental`（archive 策略差异快照）；`[backup].exclude` 通过配置文件设置 archive 排除模式（无命令行参数） |
-| `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（仓库源码新增，写入前预检 Git-only 远端及记录的子模块远端）、`--json` |
+| `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（自 Rust 0.5.0 起发布；写入前预检 Git-only 远端及记录的子模块远端，子模块预检自 0.7.0 起）、`--json` |
 | `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向（含记录的子模块远端） |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
@@ -1409,7 +1409,7 @@ projjan verify MANIFEST --check-remote --json
 
 `--check-remote` 让 Git-only 记录改用第 10.4 节的 `remote-*` 状态：对每个远端执行一次 `git ls-remote`（单条最长等待 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表，不下载对象。manifest 中的 URL 含用户名、口令、query 或 fragment 时状态为 `remote-skipped`，该 URL 不会传给 Git。任一记录 `remote-unreachable` 时仍输出完整报告，并以退出码 `1` 结束。含子模块的 Git-only 记录还会对每个子模块的 URL+固定提交执行一次相同预检，JSON 增加 `submodules` 数组（每项 `{path,url,branch,reason,refs,status}`），任一子模块远端不可达时项目级 `status` 同样为 `remote-unreachable`。
 
-该选项目前已随 Rust `0.5.0` 发布到 crates.io；Python 发行包尚未上传到 PyPI（tag `python-v0.1.0` 处于待配置状态）。不带该选项时，文本与 JSON 输出结构和之前完全一致。
+该选项已随 Rust `0.5.0` 发布到 crates.io（子模块预检随 Rust `0.7.0` 发布）；Python 发行包尚未上传到 PyPI（tag `python-v0.1.0` 处于待配置状态）。不带该选项时，文本与 JSON 输出结构和之前完全一致。
 
 ## 16.3 当前安全与文件接口
 
@@ -1498,3 +1498,7 @@ Rust `0.3.0` 已发布至 crates.io 与 GitHub Release，tag 为 `v0.3.0`。新�
 ## 19. Rust 0.6.0 发布状态（2026-11-06）
 
 Rust `0.6.0` 已发布至 crates.io 和 GitHub Release，tag `v0.6.0`（注释对象 `269c0f83ae074eec2ef9aa25eae5d79fbc958dff`）指向 `096f08ad4310ae329948bf9c6c3f06884463a3b6`。本版本新增 `.proj-janitor.toml` 配置文件默认值（CR-090）、`backup --keep` 自动保留（CR-091）、`[backup].exclude` 排除规则（CR-092）与 `backup --incremental` 增量备份（CR-093）；manifest schema v2 行为不变（新增可选字段 `inventory` 与 `incremental`，向后兼容）。发布验证见 `docs/发布记录/0.6.0-Rust版.md`。
+
+## 20. Rust 0.7.0 发布状态（2026-11-06）
+
+Rust `0.7.0` 已发布至 crates.io 和 GitHub Release，tag `v0.7.0`（注释对象 `a2ab6dbb356552c978de720f82201fe3d949fa90`）指向 `d5eadb764d30b7b260516348b6030e11ec56252e`。本版本把 `verify`/`restore --check-remote` 远端预检扩展到子模块并记录 LFS 指针 OID（CR-094）；manifest schema v2 行为不变（新增可选字段 `submodules` 与 `lfs_objects`，向后兼容）。发布验证见 `docs/发布记录/0.7.0-Rust版.md`。
