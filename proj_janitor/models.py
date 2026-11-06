@@ -78,6 +78,8 @@ class BackupRecord:
     fallback_reason: str | None = None
     inventory: list | None = None
     incremental: dict | None = None
+    submodules: list | None = None
+    lfs_objects: list | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,7 @@ class RestorePlan:
     incremental: dict | None = None
     inventory: list | None = None
     manifest_dir: Path | None = None
+    submodules: list | None = None
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,8 @@ from proj_janitor.config import (
 )
 from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
 from proj_janitor.scanner import (
+    collect_lfs_objects,
+    collect_submodules,
     inspect_git_bundle_recoverability,
     inspect_git_recoverability,
 )
@@ -250,6 +252,8 @@ def _backup_one(
                 commit=recovery.commit,
                 upstream=recovery.upstream,
                 verified=recovery.verified,
+                submodules=collect_submodules(plan.project.path, recovery.commit),
+                lfs_objects=collect_lfs_objects(plan.project.path),
             )
         else:
             if plan.archive_name is None or recovery.commit is None:

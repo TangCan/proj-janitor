@@ -206,10 +206,19 @@ pub(crate) fn verify_cmd(
                 validate_git_restore(url, commit)?;
                 if check_remote {
                     let probe = probe_remote(url, commit)?;
+                    let submodules = probe_submodules(record)?;
+                    let status = if submodules
+                        .iter()
+                        .any(|module| module.remote.status == "remote-unreachable")
+                    {
+                        "remote-unreachable".to_owned()
+                    } else {
+                        RemoteCheck::status(&probe).to_owned()
+                    };
                     results.push(VerifyResult {
                         project: record.project.clone(),
                         strategy: "git",
-                        status: RemoteCheck::status(&probe).to_owned(),
+                        status,
                         archive: None,
                         sha256: None,
                         commit: Some(commit.to_owned()),
@@ -218,6 +227,7 @@ pub(crate) fn verify_cmd(
                             record.branch.as_deref().filter(|value| !value.is_empty()),
                             &probe,
                         )),
+                        submodules,
                     });
                 } else {
                     results.push(VerifyResult {
@@ -228,6 +238,7 @@ pub(crate) fn verify_cmd(
                         sha256: None,
                         commit: Some(commit.to_owned()),
                         remote: None,
+                        submodules: Vec::new(),
                     });
                 }
             }
@@ -300,6 +311,21 @@ struct VerifyResult {
     sha256: Option<String>,
     commit: Option<String>,
     remote: Option<RemoteCheck>,
+    submodules: Vec<SubmoduleCheck>,
+}
+
+struct SubmoduleCheck {
+    path: String,
+    remote: RemoteCheck,
+}
+
+impl SubmoduleCheck {
+    fn new(path: &str, url: &str, probe: &RemoteProbe) -> Self {
+        Self {
+            path: path.to_owned(),
+            remote: RemoteCheck::new(url, None, probe),
+        }
+    }
 }
 
 impl VerifyResult {
@@ -318,6 +344,7 @@ impl VerifyResult {
             sha256: Some(sha256),
             commit,
             remote: None,
+            submodules: Vec::new(),
         }
     }
 
@@ -345,6 +372,23 @@ impl VerifyResult {
                 "refs": remote.refs,
             });
         }
+        if !self.submodules.is_empty() {
+            value["submodules"] = serde_json::Value::Array(
+                self.submodules
+                    .iter()
+                    .map(|sub| {
+                        serde_json::json!({
+                            "path": sub.path,
+                            "url": sub.remote.url,
+                            "branch": sub.remote.branch,
+                            "reason": sub.remote.reason,
+                            "refs": sub.remote.refs,
+                            "status": sub.remote.status,
+                        })
+                    })
+                    .collect(),
+            );
+        }
         value
     }
 
@@ -364,13 +408,18 @@ impl VerifyResult {
         }
         let commit = self.commit.as_deref().unwrap_or_default();
         let short = &commit[..12.min(commit.len())];
-        match &self.remote {
+        let mut line = match &self.remote {
             Some(remote) => remote.line(&self.project, short),
             None => format!(
                 "[git] {}: manifest metadata valid (commit {short}; remote not checked)",
                 self.project
             ),
+        };
+        for sub in &self.submodules {
+            line.push('\n');
+            line.push_str(&sub.remote.submodule_line(&sub.path));
         }
+        line
     }
 }
 
@@ -440,6 +489,34 @@ impl RemoteCheck {
                 self.reason.as_deref().unwrap_or("skipped")
             ),
         }
+    }
+
+    fn submodule_line(&self, path: &str) -> String {
+        let status = self.status;
+        let detail = match status {
+            "remote-verified" => {
+                let shown = self.refs[..self.refs.len().min(3)].join(", ");
+                let suffix = match self.refs.len().checked_sub(3) {
+                    Some(extra) => format!(" (+{extra} more)"),
+                    None => String::new(),
+                };
+                format!("at {shown}{suffix} on {}", self.url)
+            }
+            "remote-moved" => format!(
+                "remote reachable, but no remote ref points at the pinned commit on {}",
+                self.url
+            ),
+            "remote-unreachable" => format!(
+                "remote {} for {}",
+                self.reason.as_deref().unwrap_or("unreachable"),
+                self.url
+            ),
+            _ => format!(
+                "remote {}; not contacted",
+                self.reason.as_deref().unwrap_or("skipped")
+            ),
+        };
+        format!("  submodule {path}: {status} {detail}")
     }
 }
 
@@ -526,6 +603,19 @@ pub(crate) fn probe_remote(url: &str, commit: &str) -> anyhow::Result<RemoteProb
         return Ok(RemoteProbe::Moved);
     }
     Ok(RemoteProbe::Verified(matched.into_iter().collect()))
+}
+
+/// Probe every recorded submodule remote for a git-strategy record.
+/// Returns one `SubmoduleCheck` per entry, in manifest order.
+fn probe_submodules(record: &crate::Record) -> anyhow::Result<Vec<SubmoduleCheck>> {
+    let mut checks = Vec::new();
+    if let Some(submodules) = &record.submodules {
+        for sub in submodules {
+            let probe = probe_remote(&sub.url, &sub.commit)?;
+            checks.push(SubmoduleCheck::new(&sub.path, &sub.url, &probe));
+        }
+    }
+    Ok(checks)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -776,6 +866,18 @@ pub(crate) fn restore_cmd(
                     record.project,
                     redact_remote(url)
                 );
+            }
+            if let Some(submodules) = &record.submodules {
+                for sub in submodules {
+                    if let RemoteProbe::Unreachable(reason) = probe_remote(&sub.url, &sub.commit)? {
+                        anyhow::bail!(
+                            "cannot restore {}: submodule {} remote {} is unreachable ({reason})",
+                            record.project,
+                            sub.path,
+                            redact_remote(&sub.url)
+                        );
+                    }
+                }
             }
         }
     }

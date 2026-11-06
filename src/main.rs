@@ -207,6 +207,21 @@ pub(crate) struct Record {
     /// Present only for incremental (delta) archive snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) incremental: Option<IncrementalInfo>,
+    /// Submodule URL -> pinned commit map for git-strategy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) submodules: Option<Vec<SubmoduleInfo>>,
+    /// Git LFS pointer object OIDs for git-strategy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lfs_objects: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct SubmoduleInfo {
+    /// Submodule path relative to the project root, using `/` separators.
+    pub(crate) path: String,
+    pub(crate) url: String,
+    /// Pinned gitlink commit recorded in the parent tree.
+    pub(crate) commit: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

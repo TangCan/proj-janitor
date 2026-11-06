@@ -342,6 +342,72 @@ pub(crate) fn submodule_config(path: &Path) -> Result<Vec<Submodule>, String> {
         .collect()
 }
 
+/// Collect the pinned gitlink commits for every configured submodule at the
+/// recorded commit, producing the manifest `submodules` payload for a git
+/// strategy record. Submodule URLs were already validated by
+/// `inspect_submodules` (no credentials/query data, supported scheme).
+pub(crate) fn collect_submodules(
+    path: &Path,
+    commit: &str,
+) -> Result<Vec<crate::SubmoduleInfo>, String> {
+    let configured = submodule_config(path)?;
+    let mut out = Vec::new();
+    for module in configured {
+        let relative = module
+            .path
+            .to_str()
+            .filter(|value| !value.is_empty() && !value.contains('\\'))
+            .ok_or_else(|| "invalid submodule path".to_owned())?
+            .replace('\\', "/");
+        let entry = git_output(
+            path,
+            &["ls-tree", commit, "--", relative.trim_start_matches("./")],
+        )
+        .ok_or_else(|| format!("cannot inspect submodule gitlink: {relative}"))?;
+        let mut fields = entry.split_whitespace();
+        let (mode, kind, sha) = (
+            fields.next().unwrap_or_default(),
+            fields.next().unwrap_or_default(),
+            fields.next().unwrap_or_default(),
+        );
+        if mode != "160000" || kind != "commit" {
+            return Err(format!("submodule path is not a gitlink: {relative}"));
+        }
+        if !(40..=64).contains(&sha.len()) || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("invalid submodule commit: {relative}"));
+        }
+        out.push(crate::SubmoduleInfo {
+            path: relative.to_owned(),
+            url: module.url,
+            commit: sha.to_owned(),
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// Collect the Git LFS pointer object OIDs for a git strategy record, or None
+/// when the project has no LFS-tracked objects. LFS object *availability* is
+/// not probed here (that requires the LFS batch API); this only records the
+/// OIDs so a restore can later verify the objects it needs.
+pub(crate) fn collect_lfs_objects(path: &Path) -> Option<Vec<String>> {
+    // `--long` prints the full 64-hex OID; the default abbreviates to 10 hex.
+    let output = git_output(path, &["lfs", "ls-files", "--long"])?;
+    let mut oids = Vec::new();
+    for line in output.lines() {
+        // Format: `<oid> <mode> <path>` (the OID is the first field).
+        let mut fields = line.split_whitespace();
+        let oid = fields.next().unwrap_or_default();
+        let _mode = fields.next();
+        if oid.len() == 64 && oid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            oids.push(oid.to_owned());
+        }
+    }
+    oids.sort();
+    oids.dedup();
+    if oids.is_empty() { None } else { Some(oids) }
+}
+
 pub(crate) fn submodule_url_supported(url: &str) -> bool {
     if url.starts_with("./") || url.starts_with("../") {
         !url.chars()

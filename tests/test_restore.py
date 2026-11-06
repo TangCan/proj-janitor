@@ -824,6 +824,8 @@ class GitRestoreTests(unittest.TestCase):
             self.assertFalse(failures)
             self.assertEqual(records[0].strategy, "git", records[0].fallback_reason)
             self.assertIsNone(records[0].archive)
+            object_hash = hashlib.sha256(payload).hexdigest()
+            self.assertIn(object_hash, records[0].lfs_objects or [])
 
             restored_dest = root / "restored"
             remote_url = remote.resolve().as_uri()
@@ -956,6 +958,96 @@ class GitRestoreTests(unittest.TestCase):
             with mock.patch.dict(os.environ, broken_config):
                 with self.assertRaises(RestoreError):
                     restore_from_manifest(manifests[0], failed_dest)
+            self.assertFalse((failed_dest / "app").exists())
+
+    def test_verify_and_restore_check_remote_probes_submodules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = make_pushed_repo(root, "child")
+            child_commit = git(child, "rev-parse", "HEAD")
+            child_remote = root / "child-remote.git"
+
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            (project / ".gitmodules").write_text(
+                '[submodule "vendor/child"]\n'
+                "\tpath = vendor/child\n"
+                "\turl = https://github.com/acme/child.git\n",
+                encoding="utf-8",
+            )
+            init_repo(project)
+            git(project, "add", ".")
+            git(project, "commit", "-m", "parent")
+            git(
+                project,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{child_commit},vendor/child",
+            )
+            git(project, "commit", "-m", "add submodule")
+            (project / "vendor" / "child").mkdir(parents=True)
+
+            parent_remote = root / "app-remote.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(parent_remote)],
+                check=True,
+                capture_output=True,
+            )
+            git(project, "remote", "add", "origin", str(parent_remote))
+            git(project, "push", "-u", "origin", "main")
+            git(project, "remote", "set-url", "origin", "https://github.com/acme/app.git")
+
+            backup_dir = root / "backups"
+            manifests, records, failures = run_backup(
+                [scan_project(project)], backup_dir
+            )
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git", records[0].fallback_reason)
+            self.assertEqual(
+                records[0].submodules,
+                [
+                    {
+                        "path": "vendor/child",
+                        "url": "https://github.com/acme/child.git",
+                        "commit": child_commit,
+                    }
+                ],
+            )
+
+            parent_url = parent_remote.resolve().as_uri()
+            submodule_remote = child_remote.resolve().as_uri()
+            reachable_config = {
+                "GIT_CONFIG_COUNT": "3",
+                "GIT_CONFIG_KEY_0": f"url.{parent_url}.insteadOf",
+                "GIT_CONFIG_VALUE_0": "https://github.com/acme/app.git",
+                "GIT_CONFIG_KEY_1": f"url.{submodule_remote}.insteadOf",
+                "GIT_CONFIG_VALUE_1": "https://github.com/acme/child.git",
+                "GIT_CONFIG_KEY_2": "protocol.file.allow",
+                "GIT_CONFIG_VALUE_2": "always",
+            }
+            with mock.patch.dict(os.environ, reachable_config):
+                verified = verify_manifest(manifests[0], check_remote=True)
+            self.assertEqual(verified[0]["status"], "remote-verified")
+            checked = verified[0]["submodules"]
+            self.assertEqual(len(checked), 1)
+            self.assertEqual(checked[0]["path"], "vendor/child")
+            self.assertEqual(checked[0]["status"], "remote-verified")
+
+            unreachable_config = reachable_config | {
+                "GIT_CONFIG_VALUE_1": (root / "missing-child.git").as_uri()
+            }
+            with mock.patch.dict(os.environ, unreachable_config):
+                unreachable = verify_manifest(manifests[0], check_remote=True)
+            self.assertEqual(unreachable[0]["status"], "remote-unreachable")
+            self.assertEqual(unreachable[0]["submodules"][0]["status"], "remote-unreachable")
+
+            failed_dest = root / "failed-restore"
+            with mock.patch.dict(os.environ, unreachable_config):
+                with self.assertRaises(RestoreError) as context:
+                    restore_from_manifest(manifests[0], failed_dest, check_remote=True)
+            self.assertIn("submodule vendor/child", str(context.exception))
             self.assertFalse((failed_dest / "app").exists())
 
     def test_restore_git_clones_and_checks_out_commit(self) -> None:

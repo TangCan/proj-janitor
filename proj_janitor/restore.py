@@ -94,6 +94,20 @@ def execute_restore(
                     f"cannot restore {plan.project}: remote "
                     f"{redact_remote_url(plan.remote_url)} is unreachable ({reason})"
                 )
+            for submodule in plan.submodules or []:
+                if not isinstance(submodule, dict):
+                    continue
+                sub_url = submodule.get("url")
+                sub_commit = submodule.get("commit")
+                sub_path = submodule.get("path", "")
+                if not isinstance(sub_url, str) or not isinstance(sub_commit, str):
+                    continue
+                sub_status, sub_reason, _ = _probe_remote(sub_url, sub_commit)
+                if sub_status == "remote-unreachable":
+                    raise RestoreError(
+                        f"cannot restore {plan.project}: submodule {sub_path} remote "
+                        f"{redact_remote_url(sub_url)} is unreachable ({sub_reason})"
+                    )
     try:
         for plan in plan_list:
             plan.target.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +188,11 @@ def plan_restore(
                     remote_url=remote_url,
                     commit=commit,
                     in_place=dest is None,
+                    submodules=(
+                        record.get("submodules")
+                        if isinstance(record.get("submodules"), list)
+                        else None
+                    ),
                 )
             )
             continue
@@ -347,6 +366,36 @@ def verify_manifest(
                     "reason": reason,
                     "refs": refs,
                 }
+                submodule_checks: list[dict[str, object]] = []
+                for submodule in record.get("submodules") or []:
+                    if not isinstance(submodule, dict):
+                        continue
+                    sub_url = submodule.get("url")
+                    sub_commit = submodule.get("commit")
+                    sub_path = submodule.get("path", "")
+                    if not isinstance(sub_url, str) or not isinstance(sub_commit, str):
+                        continue
+                    sub_status, sub_reason, sub_refs = _probe_remote(
+                        sub_url, sub_commit
+                    )
+                    submodule_checks.append(
+                        {
+                            "path": sub_path,
+                            "url": redact_remote_url(sub_url),
+                            "branch": None,
+                            "reason": sub_reason,
+                            "refs": sub_refs,
+                            "status": sub_status,
+                        }
+                    )
+                entry["submodules"] = submodule_checks
+                if any(
+                    check.get("status") == "remote-unreachable"
+                    for check in submodule_checks
+                ):
+                    entry["status"] = "remote-unreachable"
+                if not submodule_checks:
+                    del entry["submodules"]
             results.append(entry)
         elif strategy == "git_bundle":
             bundle = _resolve_archive(record, manifest_path.parent, project)

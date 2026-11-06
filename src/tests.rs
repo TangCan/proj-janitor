@@ -1496,6 +1496,8 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         verified: None,
         inventory: None,
         incremental: None,
+        submodules: None,
+        lfs_objects: None,
         fallback_reason: Some("fixture".into()),
     };
     let second_source = temp.0.join("second");
@@ -1666,6 +1668,8 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
             verified: Some("local-ref".into()),
             inventory: None,
             incremental: None,
+            submodules: None,
+            lfs_objects: None,
             fallback_reason: None,
         }],
     };
@@ -1782,6 +1786,8 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
         verified: None,
         inventory: None,
         incremental: None,
+        submodules: None,
+        lfs_objects: None,
         fallback_reason: None,
     };
     let manifest = Manifest {
@@ -1852,6 +1858,8 @@ fn restore_git_rejects_windows_invalid_project_names() {
                 verified: None,
                 inventory: None,
                 incremental: None,
+                submodules: None,
+                lfs_objects: None,
                 fallback_reason: None,
             }],
         };
@@ -2235,6 +2243,8 @@ fn restore_check_remote_blocks_unreachable_remote() {
             verified: Some("local-ref".into()),
             inventory: None,
             incremental: None,
+            submodules: None,
+            lfs_objects: None,
             fallback_reason: None,
         }],
     };
@@ -2290,6 +2300,8 @@ fn restore_check_remote_proceeds_when_remote_verified() {
             verified: Some("local-ref".into()),
             inventory: None,
             incremental: None,
+            submodules: None,
+            lfs_objects: None,
             fallback_reason: None,
         }],
     };

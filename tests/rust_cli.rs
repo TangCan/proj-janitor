@@ -82,6 +82,206 @@ fn git_file_url(path: &Path) -> String {
     url::Url::from_file_path(path).unwrap().to_string()
 }
 
+struct SubmoduleFixture {
+    project: PathBuf,
+    child_remote: PathBuf,
+    parent_remote: PathBuf,
+    child_commit: String,
+}
+
+fn submodule_fixture(temp: &TestDir) -> SubmoduleFixture {
+    let child = temp.0.join("child");
+    fs::create_dir_all(&child).unwrap();
+    fs::write(child.join("main.py"), "print('child')\n").unwrap();
+    git(&child, &["init", "-q", "-b", "main"]);
+    git(&child, &["config", "user.email", "test@example.com"]);
+    git(&child, &["config", "user.name", "Test User"]);
+    git(&child, &["add", "."]);
+    git(&child, &["commit", "-q", "-m", "child"]);
+    let child_commit = git(&child, &["rev-parse", "HEAD"]);
+    let child_remote = temp.0.join("child-remote.git");
+    let output = Command::new("git")
+        .args(["clone", "-q", "--bare"])
+        .arg(&child)
+        .arg(&child_remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(
+        project.join(".gitmodules"),
+        "[submodule \"vendor/child\"]\n\tpath = vendor/child\n\turl = https://github.com/acme/child.git\n",
+    )
+    .unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "parent"]);
+    git(
+        &project,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{child_commit},vendor/child"),
+        ],
+    );
+    git(&project, &["commit", "-q", "-m", "add submodule"]);
+    fs::create_dir_all(project.join("vendor/child")).unwrap();
+    let parent_remote = temp.0.join("app-remote.git");
+    let output = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&parent_remote)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", parent_remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/app.git",
+        ],
+    );
+    SubmoduleFixture {
+        project,
+        child_remote,
+        parent_remote,
+        child_commit,
+    }
+}
+
+#[test]
+fn verify_and_restore_check_remote_probes_submodules() {
+    let temp = TestDir::new();
+    let fixture = submodule_fixture(&temp);
+
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup"])
+        .arg(&fixture.project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backup_dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["records"][0]["strategy"], "git");
+    let submodules = manifest_json["records"][0]["submodules"]
+        .as_array()
+        .unwrap();
+    assert_eq!(submodules.len(), 1);
+    assert_eq!(submodules[0]["path"], "vendor/child");
+    assert_eq!(submodules[0]["url"], "https://github.com/acme/child.git");
+    assert_eq!(submodules[0]["commit"], fixture.child_commit);
+
+    let parent_url = git_file_url(&fixture.parent_remote);
+    let child_url = git_file_url(&fixture.child_remote);
+
+    // Both the top-level and submodule remotes are reachable (rewritten to the
+    // local bare remotes via insteadOf), so verify reports both as verified.
+    let verified = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--json"])
+        .arg(&manifest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env("GIT_CONFIG_KEY_1", format!("url.{child_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    let verified_json: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(verified_json["projects"][0]["status"], "remote-verified");
+    let checked_submodules = verified_json["projects"][0]["submodules"]
+        .as_array()
+        .unwrap();
+    assert_eq!(checked_submodules.len(), 1);
+    assert_eq!(checked_submodules[0]["path"], "vendor/child");
+    assert_eq!(checked_submodules[0]["status"], "remote-verified");
+
+    // The submodule remote is rewritten to a missing path, so verify reports
+    // the submodule as remote-unreachable and fails the whole check.
+    let unreachable = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--json"])
+        .arg(&manifest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env(
+            "GIT_CONFIG_KEY_1",
+            "url.file:///missing-child.git.insteadOf",
+        )
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(!unreachable.status.success());
+    let unreachable_json: serde_json::Value = serde_json::from_slice(&unreachable.stdout).unwrap();
+    let unreachable_submodules = unreachable_json["projects"][0]["submodules"]
+        .as_array()
+        .unwrap();
+    assert_eq!(unreachable_submodules[0]["status"], "remote-unreachable");
+
+    // restore --check-remote blocks before creating any target when a
+    // submodule remote is unreachable.
+    let failed_dest = temp.0.join("failed-restore");
+    let failed = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--check-remote"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&failed_dest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env(
+            "GIT_CONFIG_KEY_1",
+            "url.file:///missing-child.git.insteadOf",
+        )
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(!failed.status.success());
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(
+        stderr.contains("submodule vendor/child"),
+        "stderr should mention the submodule: {stderr}"
+    );
+    assert!(!failed_dest.join("app").exists());
+}
+
 #[test]
 fn cli_help_and_version_are_available_without_subcommands() {
     for (argument, expected) in [
@@ -203,6 +403,18 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
         serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(manifest_json["records"][0]["strategy"], "git");
     assert!(manifest_json["records"][0]["archive"].is_null());
+    // The manifest records the LFS pointer OID so long-term recovery can
+    // verify object availability independently of the Git remote.
+    let object_hash = format!("{:x}", Sha256::digest(payload));
+    let lfs_objects = manifest_json["records"][0]["lfs_objects"]
+        .as_array()
+        .unwrap();
+    assert!(
+        lfs_objects
+            .iter()
+            .any(|value| value == object_hash.as_str()),
+        "lfs_objects should contain the tracked payload OID"
+    );
 
     let restored_dest = temp.0.join("restored");
     let remote_url = git_file_url(&remote);
@@ -228,7 +440,6 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
         payload
     );
 
-    let object_hash = format!("{:x}", Sha256::digest(payload));
     let lfs_object = remote
         .join("lfs/objects")
         .join(&object_hash[..2])

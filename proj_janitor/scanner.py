@@ -235,6 +235,55 @@ def submodule_config(
     return submodules
 
 
+def collect_submodules(path: Path, commit: str) -> list[dict]:
+    """Return the submodule URL -> pinned commit map for a git strategy record.
+
+    Mirrors the Rust `collect_submodules`: reads `.gitmodules` via
+    `submodule_config` and resolves each submodule's pinned gitlink commit from
+    the recorded parent commit tree (`git ls-tree <commit> -- <path>`).
+    """
+    configured = submodule_config(path)
+    if configured is None:
+        return []
+    out: list[dict] = []
+    for relative, url in configured:
+        rel = relative.as_posix()
+        tree = _git_output(path, "ls-tree", commit, "--", rel)
+        if tree is None:
+            continue
+        fields = tree.split()
+        if len(fields) < 3 or fields[0] != "160000" or fields[1] != "commit":
+            continue
+        sha = fields[2]
+        if not (40 <= len(sha) <= 64) or not all(c in "0123456789abcdefABCDEF" for c in sha):
+            continue
+        out.append({"path": rel, "url": url, "commit": sha})
+    out.sort(key=lambda item: item["path"])
+    return out
+
+
+def collect_lfs_objects(path: Path) -> list[str] | None:
+    """Return the Git LFS pointer object OIDs for a git strategy record.
+
+    Mirrors the Rust `collect_lfs_objects`: reads `git lfs ls-files --long`
+    (full OIDs) and keeps the unique 64-hex OIDs. Returns None when the project
+    has no LFS-tracked objects. LFS object *availability* is not probed here.
+    """
+    output = _git_output(path, "lfs", "ls-files", "--long")
+    if output is None:
+        return None
+    oids: list[str] = []
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        oid = fields[0]
+        if len(oid) == 64 and all(c in "0123456789abcdefABCDEF" for c in oid):
+            oids.append(oid)
+    oids = sorted(set(oids))
+    return oids or None
+
+
 def is_supported_submodule_url(url: str) -> bool:
     if url.startswith(("./", "../")):
         return not any(

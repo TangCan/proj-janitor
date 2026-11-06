@@ -15,7 +15,10 @@ use crate::{
         write_new_file,
     },
     expand, human,
-    project::{discover, git_compatible_path, inspect_bundle_recovery, inspect_recovery},
+    project::{
+        collect_lfs_objects, collect_submodules, discover, git_compatible_path,
+        inspect_bundle_recovery, inspect_recovery,
+    },
     resolve_for_creation, retention,
 };
 
@@ -317,6 +320,10 @@ pub(crate) fn backup_cmd(
                     fallback_reason: None,
                     inventory: None,
                     incremental: None,
+                    submodules: Some(
+                        collect_submodules(&p.path, &git.commit).map_err(anyhow::Error::msg)?,
+                    ),
+                    lfs_objects: collect_lfs_objects(&p.path),
                 });
             }
             if let Some(bundle) = &bundle_recovery {
@@ -340,6 +347,8 @@ pub(crate) fn backup_cmd(
                     fallback_reason: fallback_reason.clone(),
                     inventory: None,
                     incremental: None,
+                    submodules: None,
+                    lfs_objects: None,
                 })
             } else {
                 let (hash, bytes, identity, inventory, incremental) = {
@@ -382,6 +391,8 @@ pub(crate) fn backup_cmd(
                     fallback_reason: fallback_reason.clone(),
                     inventory,
                     incremental,
+                    submodules: None,
+                    lfs_objects: None,
                 })
             }
         })();
