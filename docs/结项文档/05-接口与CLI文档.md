@@ -161,7 +161,7 @@ exit_code = main(["scan", "/path/to/projects"])
 | `backup` | 按 Git 可恢复性记录位置或创建 `tar.gz`，并按项目生成 manifest | 写入备份目录 |
 | `prune` | 保留每个项目目录最新 N 份清单；只删除过期清单及其引用的 bundle/归档 | 默认只预览 |
 | `restore` | 按 manifest 恢复 Git 项目或归档项目 | 写入恢复目标 |
-| `verify` | 校验 archive/bundle SHA-256 或 Git-only manifest 元数据；`--check-remote` 可选联网预检远端引用 | 只读 |
+| `verify` | 校验 archive/bundle SHA-256 或 Git-only manifest 元数据；`--check-remote` 可选联网预检远端引用（含子模块） | 只读 |
 | `clean` | 按白名单生成清理计划；确认后删除构建产物 | 默认 dry-run |
 
 ## 4. `--version`
@@ -632,7 +632,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 | `--dry-run` | 否 | 关闭 | 只校验并展示计划，不创建恢复目录。 |
 | `--no-verify` | 否 | 关闭 | 跳过归档 SHA-256 校验；不推荐用于不可信归档。 |
 | `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
-| `--check-remote` | 否 | 关闭 | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`）；任一记录远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
+| `--check-remote` | 否 | 关闭 | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
@@ -652,7 +652,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 9. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
 10. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 11. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
-12. `--check-remote` 时（仅 `git` 策略；`archive`/`git_bundle` 忽略该选项），在每个 Git-only 计划进入恢复前先执行一次 `git ls-remote`（单条最长 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表、不下载对象；URL 含用户名/口令/query/fragment 时为 `remote-skipped` 不联网。任一记录 `remote-unreachable` 时整批不开始，报 `cannot restore <项目>: remote <脱敏URL> is unreachable (<原因>)` 并返回退出码 `1`。该预检发生在 SHA-256 校验与确认之后、创建任何目标目录之前。
+12. `--check-remote` 时（仅 `git` 策略；`archive`/`git_bundle` 忽略该选项），在每个 Git-only 计划进入恢复前先执行一次 `git ls-remote`（单条最长 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表、不下载对象；URL 含用户名/口令/query/fragment 时为 `remote-skipped` 不联网。对记录的子模块（`submodules` 字段），对每个子模块的 URL+固定提交同样执行一次预检（含凭据脱敏）。任一记录或子模块 `remote-unreachable` 时整批不开始，报 `cannot restore <项目>: remote <脱敏URL> is unreachable (<原因>)`（子模块则为 `cannot restore <项目>: submodule <path> remote <脱敏URL> is unreachable (<原因>)`）并返回退出码 `1`。该预检发生在 SHA-256 校验与确认之后、创建任何目标目录之前。
 13. Git-only 恢复后是 detached HEAD，不自动创建或切换分支；默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
 14. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
@@ -727,7 +727,7 @@ Git 项目计划行格式为 `[git] <项目名>: <脱敏URL> @ <12位提交> -> 
 | 目标已存在或为符号链接 | `1` | 拒绝覆盖，不开始恢复。 |
 | 归档缺失、SHA-256 不匹配、解压失败 | `1` | 不创建目标目录。 |
 | Git URL/提交非法、init/fetch/checkout/HEAD 校验失败 | `1` | 清理临时目录，不创建目标目录。 |
-| `--check-remote` 探测到任一 Git-only 远端不可达 | `1` | 报 `cannot restore ... is unreachable`，不创建目标目录。 |
+| `--check-remote` 探测到任一 Git-only 远端或子模块远端不可达 | `1` | 报 `cannot restore ... is unreachable`，不创建目标目录。 |
 | 原始位置恢复未给 `--yes` 且非交互 | `2` | 标准错误输出拒绝原因。 |
 | 原始位置恢复使用 `--json` 但未给 `--yes` | `2` | 标准输出为空，不写文件。 |
 | 用户在确认时输入 `n` 或 EOF | `2` | 输出 `Aborted.`，不写文件。 |
@@ -895,6 +895,7 @@ projjan restore <manifest> --dest ~/restored --check-remote
 | `projects[].remote.branch` | string/null | manifest 记录的分支；缺失或为空时为 `null`。 |
 | `projects[].remote.reason` | string/null | `no-ref-matches-commit`、`ls-remote-failed`、`ls-remote-timed-out`、`credentials-in-remote-url`；`remote-verified` 时为 `null`。 |
 | `projects[].remote.refs` | array[string] | 指向该提交的远端引用，按字典序去重；注解 tag 已去掉 `^{}` 后缀。非 `remote-verified` 时为空数组。 |
+| `projects[].submodules` | array[object]/缺失 | 仅 `verify --check-remote` 且 Git-only 记录含 `submodules` 时出现：每项 `{path, url, branch, reason, refs, status}`，`status` 为下表中的子模块远端状态，`reason`/`refs` 含义与 `remote.*` 相同。 |
 
 Git-only 记录的 `--check-remote` 状态：
 
@@ -904,6 +905,8 @@ Git-only 记录的 `--check-remote` 状态：
 | `remote-moved` | 远端可达，但没有引用指向该提交；恢复按 SHA 抓取，提交仍可能从其它引用可达。 |
 | `remote-unreachable` | `git ls-remote` 失败或超过 30 秒，无法确认远端；命令返回 `1`。 |
 | `remote-skipped` | URL 含凭据、query 或 fragment；不会把该 URL 传给 Git，也不联网。 |
+
+Git-only 记录的 `projects[].status` 在含 `submodules` 且任一子模块远端为 `remote-unreachable` 时同样为 `remote-unreachable`（项目级 `remote` 对象仅含 `url`/`branch`/`reason`/`refs`，子模块状态见 `projects[].submodules`）。
 
 ### 10.5 JSON 使用建议
 
@@ -952,6 +955,8 @@ Git-only 记录的 `--check-remote` 状态：
 | `fallback_reason` | string \| null | `null` | Git-only 不适用原因 | 归档原因 |
 | `inventory` | array[object] \| null | `null` | `null` | 本快照的完整文件清单：每项 `{path, sha256, size}`（path 为项目根相对、POSIX 分隔） |
 | `incremental` | object \| null | `null` | `null` | 差异快照才有：`{base: <上一快照清单文件名>, deleted: [path...]}`；完整快照为 `null` |
+| `submodules` | array[object] \| null | Git 记录：`[{path, url, commit}]`，为备份时 `.gitmodules` 中的每个子模块记录其路径、远程 URL 与父树中固定的 gitlink 提交 | `null` | `null` |
+| `lfs_objects` | array[string] \| null | Git 记录：`[<64 位十六进制 OID>]`，为备份时 `git lfs ls-files --long` 记录到的 Git LFS 指针对象 OID（仅记录，不探测可用性） | `null` | `null` |
 
 `fallback_reason` 的常见值：
 
@@ -1374,8 +1379,8 @@ tar -xzf <archive>
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
 | `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata`、`--incremental`（archive 策略差异快照）；`[backup].exclude` 通过配置文件设置 archive 排除模式（无命令行参数） |
-| `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（仓库源码新增，写入前预检 Git-only 远端）、`--json` |
-| `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向 |
+| `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（仓库源码新增，写入前预检 Git-only 远端及记录的子模块远端）、`--json` |
+| `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向（含记录的子模块远端） |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |
 
 安装当前已发布 crate：
@@ -1402,7 +1407,7 @@ projjan verify MANIFEST --check-remote --json
 
 归档记录会定位归档文件并比较 manifest 中的 SHA-256。Git 记录默认只验证 URL 格式和 commit 格式，结果为 `metadata-only`，不联网。命令不写入文件，也不检查恢复目标是否存在。该命令自 crates.io `0.2.5` 起提供。
 
-`--check-remote` 让 Git-only 记录改用第 10.4 节的 `remote-*` 状态：对每个远端执行一次 `git ls-remote`（单条最长等待 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表，不下载对象。manifest 中的 URL 含用户名、口令、query 或 fragment 时状态为 `remote-skipped`，该 URL 不会传给 Git。任一记录 `remote-unreachable` 时仍输出完整报告，并以退出码 `1` 结束。
+`--check-remote` 让 Git-only 记录改用第 10.4 节的 `remote-*` 状态：对每个远端执行一次 `git ls-remote`（单条最长等待 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表，不下载对象。manifest 中的 URL 含用户名、口令、query 或 fragment 时状态为 `remote-skipped`，该 URL 不会传给 Git。任一记录 `remote-unreachable` 时仍输出完整报告，并以退出码 `1` 结束。含子模块的 Git-only 记录还会对每个子模块的 URL+固定提交执行一次相同预检，JSON 增加 `submodules` 数组（每项 `{path,url,branch,reason,refs,status}`），任一子模块远端不可达时项目级 `status` 同样为 `remote-unreachable`。
 
 该选项目前已随 Rust `0.5.0` 发布到 crates.io；Python 发行包尚未上传到 PyPI（tag `python-v0.1.0` 处于待配置状态）。不带该选项时，文本与 JSON 输出结构和之前完全一致。
 

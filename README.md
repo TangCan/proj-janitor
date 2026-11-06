@@ -327,7 +327,7 @@ projjan verify <manifest> --check-remote --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-06，Rust 0.6.0）：Python 223 项（222 通过、1 项 Windows 专属测试跳过）；Rust 71 项单元测试及 28 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-06，Rust 0.6.0）：Python 224 项（223 通过、1 项 Windows 专属测试跳过）；Rust 71 项单元测试及 29 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
@@ -356,4 +356,4 @@ python3 -m unittest discover -s tests -v
 
 - ~~增量备份与自动/定时保留~~：自动保留已实现——`backup --keep N`（或 `[backup].keep`）在成功备份后按项目仅保留 N 份最新快照；增量备份已实现——`backup --incremental`（或 `[backup].incremental = true`）对 archive 策略生成差异快照（仅归档相对上次快照变更/新增的文件与符号链接，并记录完整文件清单 `inventory` 与删除列表 `deleted`），保留时按链整体保留（Scheme A），恢复时先解出最近完整快照再逐级应用差异。
 - ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest`、`[backup].keep`、`[backup].exclude` 与 `[prune].keep` 默认值。`[backup].exclude` 为 archive 策略提供用户自定义排除模式（glob，按项目根相对路径逐段匹配，目录匹配则跳过其子树）；`git`/`git_bundle` 策略不受影响。
-- 把远端预检扩展到子模块固定提交和 LFS 对象；当前 `verify --check-remote`/`restore --check-remote` 只确认主仓库提交是否仍被远端引用指向。
+- ~~子模块/LFS 远端预检~~：已实现——Git-only 记录备份时记录 `submodules`（`[{path,url,commit}]`，经 `.gitmodules` 与 `git ls-tree` gitlink）与 `lfs_objects`（`[<64 位十六进制 OID>]`，经 `git lfs ls-files --long`）；`verify`/`restore --check-remote` 对每个子模块 URL+固定提交复用同一 `git ls-remote` 预检，任一子模块远端不可达时 verify 置项目级 `remote-unreachable`、restore 在创建任何目标目录前整批不开始。LFS 对象*可用性*探测留待后续（git-lfs 无"不下载对象"的 OID 检查命令，需 LFS batch API HTTP），当前只记录 OID 供校验。
