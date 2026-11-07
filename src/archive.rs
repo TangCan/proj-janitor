@@ -750,7 +750,7 @@ fn create_symlink(target: &Path, link: &Path, target_is_dir: bool) -> anyhow::Re
 fn create_symlink(_target: &Path, _link: &Path, _target_is_dir: bool) -> anyhow::Result<()> {
     anyhow::bail!("symbolic link restoration is unsupported on this platform")
 }
-fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSet> {
+pub(crate) fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSet> {
     let mut builder = GlobSetBuilder::new();
     for raw in exclude {
         let pattern = raw.trim().trim_start_matches("./").trim_end_matches('/');
@@ -765,7 +765,7 @@ fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSet> {
     }
     builder.build().context("invalid exclude patterns")
 }
-fn archive_excluded(
+pub(crate) fn archive_excluded(
     path: &Path,
     project: &Path,
     include: bool,

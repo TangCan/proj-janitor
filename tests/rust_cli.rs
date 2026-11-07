@@ -2187,6 +2187,29 @@ fn backup_uses_dest_from_config_file() {
 }
 
 #[test]
+fn archive_backup_warns_about_possible_secrets() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    let dest = temp.0.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("archive may include secrets"), "{stderr}");
+    assert!(stderr.contains(".env"), "{stderr}");
+    assert!(stderr.contains("not encrypted"), "{stderr}");
+}
+
+#[test]
 fn verify_check_remote_defaults_from_config_and_cli_overrides() {
     let temp = TestDir::new();
     let project = temp.project();

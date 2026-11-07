@@ -14,6 +14,7 @@ mod config;
 mod project;
 mod restore;
 mod retention;
+mod secrets;
 use backup::backup_cmd;
 use clean::clean_cmd;
 use config::{discover_config, resolve_check_remote};

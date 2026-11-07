@@ -787,6 +787,27 @@ class CliTests(unittest.TestCase):
             self.assertEqual(err, "")
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
 
+    def test_archive_backup_warns_about_possible_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertIn("archive may include secrets", err)
+            self.assertIn(".env", err)
+            self.assertIn("not encrypted", err)
+            self.assertTrue(list((dest / "app").glob("manifest-*.json")))
+
     def test_backup_dest_option_overrides_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unicodedata
@@ -23,6 +24,7 @@ from proj_janitor.config import (
     is_coverage_artifact,
 )
 from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
+from proj_janitor.secrets import find_possible_secret_paths, format_secret_warning
 from proj_janitor.scanner import (
     collect_lfs_objects,
     collect_submodules,
@@ -265,6 +267,17 @@ def _backup_one(
     else:
         if plan.archive_name is None:
             raise RuntimeError("archive backup plan is missing an archive name")
+        secrets = find_possible_secret_paths(
+            plan.project.path,
+            include_artifacts=include_artifacts,
+            exclude_git_metadata=exclude_git_metadata,
+            exclude_patterns=tuple(exclude_patterns),
+        )
+        if secrets:
+            print(
+                format_secret_warning(plan.project.name, secrets),
+                file=sys.stderr,
+            )
         archive_dir = manifest_path.parent
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_path = archive_dir / plan.archive_name

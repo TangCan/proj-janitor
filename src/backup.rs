@@ -20,6 +20,7 @@ use crate::{
         inspect_bundle_recovery, inspect_recovery,
     },
     resolve_for_creation, retention,
+    secrets::{find_possible_secret_paths, format_secret_warning},
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -295,6 +296,15 @@ pub(crate) fn backup_cmd(
                         ""
                     }
                 );
+                if let Ok(secrets) = find_possible_secret_paths(
+                    &p.path,
+                    include_artifacts,
+                    exclude_git_metadata,
+                    exclude,
+                ) && !secrets.is_empty()
+                {
+                    eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                }
             }
             continue;
         }
@@ -351,6 +361,15 @@ pub(crate) fn backup_cmd(
                     lfs_objects: None,
                 })
             } else {
+                let secrets = find_possible_secret_paths(
+                    &p.path,
+                    include_artifacts,
+                    exclude_git_metadata,
+                    exclude,
+                )?;
+                if !secrets.is_empty() {
+                    eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                }
                 let (hash, bytes, identity, inventory, incremental) = {
                     let (prev_name, prev_inventory) = if incremental {
                         previous_inventory(&dir)?

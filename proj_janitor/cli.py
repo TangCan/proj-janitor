@@ -10,6 +10,7 @@ from typing import Iterable, Sequence
 from proj_janitor import __version__
 from proj_janitor.backup import prepare_backup, run_backup
 from proj_janitor.config import ConfigError, load_config, resolve_check_remote
+from proj_janitor.secrets import find_possible_secret_paths, format_secret_warning
 from proj_janitor.cleaner import (
     apply_cleanup,
     build_cleanup_plan,
@@ -417,6 +418,17 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         else ""
                     )
                 )
+                secrets = find_possible_secret_paths(
+                    plan.project.path,
+                    include_artifacts=args.include_artifacts,
+                    exclude_git_metadata=args.exclude_git_metadata,
+                    exclude_patterns=exclude_patterns,
+                )
+                if secrets:
+                    print(
+                        format_secret_warning(plan.project.name, secrets),
+                        file=sys.stderr,
+                    )
         return 1 if failures or blocked else 0
 
     try:
