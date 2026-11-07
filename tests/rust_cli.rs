@@ -2794,3 +2794,160 @@ fn backup_encrypt_and_restore_round_trip() {
         fs::read_to_string(out.join(project.file_name().unwrap()).join("secret.txt")).unwrap();
     assert_eq!(restored, "payload\n");
 }
+
+fn stress_scale() -> usize {
+    std::env::var("PROJ_JANITOR_STRESS_SCALE")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn make_crowded_project(root: &Path, buckets: usize, files_per_bucket: usize) -> (PathBuf, u64) {
+    let project = root.join("crowded");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("pyproject.toml"),
+        "[project]\nname='crowded'\n",
+    )
+    .unwrap();
+    let junk = project.join("node_modules").join("pkg");
+    fs::create_dir_all(&junk).unwrap();
+    fs::write(junk.join("index.js"), vec![b'a'; 8192]).unwrap();
+    let payload = [b'x'; 64];
+    let mut expected_files = 1u64;
+    let data = project.join("data");
+    for bucket in 0..buckets {
+        let bucket_dir = data.join(format!("b{bucket:04}"));
+        fs::create_dir_all(&bucket_dir).unwrap();
+        for index in 0..files_per_bucket {
+            fs::write(bucket_dir.join(format!("f{index:04}.bin")), payload).unwrap();
+            expected_files += 1;
+        }
+    }
+    (project, expected_files)
+}
+
+#[test]
+fn backup_progress_dry_run_estimates_crowded_tree() {
+    let temp = TestDir::new();
+    let scale = stress_scale();
+    let (project, expected_files) = make_crowded_project(&temp.0, 20 * scale, 25);
+    let dest = temp.0.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--dry-run",
+            "--progress",
+            "--check-space",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let needle = format!("would pack {expected_files} files,");
+    assert!(stderr.contains(&needle), "{stderr}");
+    assert!(stderr.contains("after excludes"), "{stderr}");
+    assert!(!dest.exists());
+}
+
+#[test]
+fn backup_and_verify_crowded_tree_with_progress() {
+    let temp = TestDir::new();
+    let scale = stress_scale();
+    let (project, expected_files) = make_crowded_project(&temp.0, 15 * scale, 20);
+    let dest = temp.0.join("backups");
+    let started = std::time::Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--progress",
+            "--check-space",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        started.elapsed().as_secs() < 90,
+        "backup took {:?}",
+        started.elapsed()
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let done = format!("done, {expected_files} files,");
+    assert!(stderr.contains(&done), "{stderr}");
+
+    let project_dir = dest.join("crowded");
+    let manifest = fs::read_dir(&project_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let verify = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verify.stderr)
+    );
+}
+
+#[test]
+fn scan_many_sibling_projects() {
+    let temp = TestDir::new();
+    let scale = stress_scale();
+    let count = 40 * scale;
+    let workspace = temp.0.join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+    for index in 0..count {
+        let project = workspace.join(format!("proj{index:04}"));
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join("pyproject.toml"),
+            format!("[project]\nname='proj{index:04}'\n"),
+        )
+        .unwrap();
+        fs::write(project.join("main.py"), "print(1)\n").unwrap();
+    }
+    let started = std::time::Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["scan", "--json"])
+        .arg(&workspace)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        started.elapsed().as_secs() < 30,
+        "scan took {:?}",
+        started.elapsed()
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let projects: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(projects.len(), count);
+}

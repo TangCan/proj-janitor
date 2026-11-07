@@ -1556,9 +1556,7 @@ fn restore_encrypted_or_plain_archive(
                 "encrypted archive requires --decrypt-passphrase-file or [restore].decrypt_passphrase_file"
             )
         })?;
-        if !no_verify
-            && let Some(expected) = expected_hash
-        {
+        if !no_verify && let Some(expected) = expected_hash {
             let actual = sha256(archive)?;
             anyhow::ensure!(
                 actual.eq_ignore_ascii_case(expected),
