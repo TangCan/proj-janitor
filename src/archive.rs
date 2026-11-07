@@ -127,6 +127,9 @@ pub(crate) fn create_archive(
     let result = (|| -> anyhow::Result<(String, u64)> {
         let enc = GzEncoder::new(f, Compression::default());
         let mut tar = Builder::new(enc);
+        // Match Python tarfile: store sparse files as regular members so restores
+        // do not depend on GNU sparse headers (EntryType::is_file is Regular-only).
+        tar.sparse(false);
         let root = project.file_name().unwrap_or_default();
         let mut archive_paths = HashMap::new();
         register_archive_case_path(Path::new(root), &mut archive_paths)?;
@@ -335,6 +338,9 @@ pub(crate) fn create_incremental_archive(
     let result = (|| -> anyhow::Result<(String, u64, Vec<FileEntry>, Vec<String>)> {
         let enc = GzEncoder::new(f, Compression::default());
         let mut tar = Builder::new(enc);
+        // Match Python tarfile: store sparse files as regular members so restores
+        // do not depend on GNU sparse headers (EntryType::is_file is Regular-only).
+        tar.sparse(false);
         let root = project.file_name().unwrap_or_default();
         let mut archive_paths = HashMap::new();
         register_archive_case_path(Path::new(root), &mut archive_paths)?;
@@ -584,9 +590,10 @@ pub(crate) fn extract_archive_with_hash(
                 anyhow::bail!("archive contains unsupported hard link: {}", name.display());
             } else {
                 anyhow::ensure!(
-                    ty.is_file(),
-                    "archive contains special file: {}",
-                    name.display()
+                    is_extractable_file(ty),
+                    "archive contains special file: {} (type {})",
+                    name.display(),
+                    ty.as_byte() as char
                 );
                 if let Some(p) = out.parent() {
                     fs::create_dir_all(p)?
@@ -760,9 +767,10 @@ pub(crate) fn extract_incremental_delta(
             create_symlink(&link, &dest, target_is_dir)?;
         } else {
             anyhow::ensure!(
-                ty.is_file(),
-                "archive contains special file: {}",
-                name.display()
+                is_extractable_file(ty),
+                "archive contains special file: {} (type {})",
+                name.display(),
+                ty.as_byte() as char
             );
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)?;
@@ -777,6 +785,13 @@ pub(crate) fn extract_incremental_delta(
     }
     anyhow::ensure!(member_count > 0, "delta archive is empty");
     Ok(())
+}
+
+/// Regular, contiguous, and GNU sparse members are all restored as normal files.
+/// `EntryType::is_file` is Regular-only; older Rust archives may still contain
+/// GNU sparse headers for holey ELF/assets.
+fn is_extractable_file(ty: EntryType) -> bool {
+    ty.is_file() || ty.is_contiguous() || ty.is_gnu_sparse()
 }
 
 #[cfg(unix)]

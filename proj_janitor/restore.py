@@ -1566,11 +1566,9 @@ def _extract_incremental_delta(
                     )
                 if member.issym():
                     _validate_archive_link(member)
-                elif member.type not in (
-                    tarfile.REGTYPE,
-                    tarfile.AREGTYPE,
-                    tarfile.DIRTYPE,
-                ):
+                elif member.isdir():
+                    pass
+                elif not _is_extractable_file_member(member):
                     raise RestoreError(
                         f"archive contains unsupported entry type: {member.name}"
                     )
@@ -1648,11 +1646,9 @@ def _safe_extract(
                     )
                 if member.issym():
                     _validate_archive_link(member)
-                elif member.type not in (
-                    tarfile.REGTYPE,
-                    tarfile.AREGTYPE,
-                    tarfile.DIRTYPE,
-                ):
+                elif member.isdir():
+                    pass
+                elif not _is_extractable_file_member(member):
                     raise RestoreError(
                         f"archive contains unsupported entry type: {member.name}"
                     )
@@ -1669,6 +1665,25 @@ def _safe_extract(
                 _report_extract_progress(progress_label, total, done=True)
     except (OSError, tarfile.TarError, TypeError) as exc:
         raise RestoreError(f"cannot extract archive {archive}: {exc}") from exc
+
+
+def _is_extractable_file_member(member: tarfile.TarInfo) -> bool:
+    """Accept regular and GNU sparse/contiguous file members.
+
+    Rust ``tar`` historically emitted GNU sparse headers for holey files;
+    Python ``TarInfo.isfile()`` already treats those as files, but our
+    explicit type allow-list must include them too.
+    """
+    if member.isfile():
+        return True
+    allowed = {tarfile.REGTYPE, tarfile.AREGTYPE}
+    cont = getattr(tarfile, "CONTTYPE", None)
+    if cont is not None:
+        allowed.add(cont)
+    sparse = getattr(tarfile, "GNUTYPE_SPARSE", None)
+    if sparse is not None:
+        allowed.add(sparse)
+    return member.type in allowed
 
 
 def _report_extract_progress(label: str, members: int, *, done: bool) -> None:

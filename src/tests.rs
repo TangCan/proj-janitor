@@ -628,6 +628,68 @@ fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
 
 #[cfg(unix)]
 #[test]
+fn restore_extracts_gnu_sparse_members_from_existing_archives() {
+    use flate2::read::GzDecoder;
+    use std::io::Write;
+    use std::os::unix::fs::FileExt;
+    use tar::Archive;
+
+    // Reproduce holey ELF-style members: Builder defaults to GNU sparse headers,
+    // which EntryType::is_file() rejects. Restores must still expand them.
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    fs::create_dir_all(project.join("assets")).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let sparse_path = project.join("assets/kernel.elf");
+    let mut sparse = File::create(&sparse_path).unwrap();
+    sparse.write_all(b"HDR").unwrap();
+    sparse.write_at(b"TAIL", 256 * 1024).unwrap();
+    sparse.sync_all().unwrap();
+    drop(sparse);
+
+    let archive = temp.0.join("demo-sparse.tar.gz");
+    {
+        let file = File::create(&archive).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = Builder::new(enc);
+        // Intentionally leave sparse(true) default so the member is type 'S'.
+        tar.append_dir("demo", &project).unwrap();
+        tar.append_path_with_name(&sparse_path, "demo/assets/kernel.elf")
+            .unwrap();
+        tar.append_path_with_name(project.join("pyproject.toml"), "demo/pyproject.toml")
+            .unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+    }
+
+    // Confirm the fixture actually used a GNU sparse header.
+    {
+        let file = File::open(&archive).unwrap();
+        let mut ar = Archive::new(GzDecoder::new(file));
+        let mut saw_sparse = false;
+        for entry in ar.entries().unwrap() {
+            let entry = entry.unwrap();
+            if entry.path().unwrap().ends_with("kernel.elf") {
+                assert!(
+                    entry.header().entry_type().is_gnu_sparse(),
+                    "fixture must use GNU sparse, got {:?}",
+                    entry.header().entry_type()
+                );
+                saw_sparse = true;
+            }
+        }
+        assert!(saw_sparse);
+    }
+
+    let restored = temp.0.join("restored/demo");
+    extract_archive(&archive, &restored, "demo").unwrap();
+    let got = fs::read(restored.join("assets/kernel.elf")).unwrap();
+    assert_eq!(&got[..3], b"HDR");
+    assert_eq!(&got[got.len() - 4..], b"TAIL");
+    assert_eq!(got.len(), 256 * 1024 + 4);
+}
+
+#[cfg(unix)]
+#[test]
 fn archive_round_trip_keeps_symlink_targets_longer_than_ustar_limit() {
     use std::os::unix::fs::symlink;
 

@@ -409,6 +409,26 @@ class RestoreTests(unittest.TestCase):
             self.assertFalse((target / "stale.txt").exists())
             self.assertTrue((target / "src" / "main.py").is_file())
 
+    def test_extractable_file_member_accepts_gnu_sparse_and_contiguous(self) -> None:
+        from proj_janitor.restore import _is_extractable_file_member
+
+        regular = tarfile.TarInfo("app/file.bin")
+        regular.type = tarfile.REGTYPE
+        self.assertTrue(_is_extractable_file_member(regular))
+
+        sparse = tarfile.TarInfo("app/kernel.elf")
+        sparse.type = tarfile.GNUTYPE_SPARSE
+        self.assertTrue(_is_extractable_file_member(sparse))
+
+        if getattr(tarfile, "CONTTYPE", None) is not None:
+            contiguous = tarfile.TarInfo("app/contig.bin")
+            contiguous.type = tarfile.CONTTYPE
+            self.assertTrue(_is_extractable_file_member(contiguous))
+
+        fifo = tarfile.TarInfo("app/pipe")
+        fifo.type = tarfile.FIFOTYPE
+        self.assertFalse(_is_extractable_file_member(fifo))
+
     def test_restore_archive_rejects_path_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
