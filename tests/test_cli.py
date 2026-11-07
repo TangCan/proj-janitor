@@ -485,6 +485,52 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((original / "node_modules").exists())
 
+    def test_restore_require_dest_blocks_original_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--backup-dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            original = project.resolve()
+            shutil.rmtree(project)
+            config = root / "cfg.toml"
+            config.write_text("[restore]\nrequire_dest = true\n", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--yes",
+                "--config",
+                str(config),
+            )
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("--dest is required", err)
+            self.assertFalse(original.exists())
+
+            dest = root / "restored"
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(dest),
+                "--config",
+                str(config),
+            )
+            self.assertEqual(code, 0, err)
+            self.assertTrue((dest / "app" / "main.py").exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--yes",
+                "--config",
+                str(config),
+                "--no-require-dest",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertTrue((original / "main.py").exists())
+
     def test_restore_original_dry_run_shows_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

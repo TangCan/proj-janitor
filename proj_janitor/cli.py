@@ -241,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip confirmation when restoring to original locations",
     )
-    restore.set_defaults(check_remote=None)
+    restore.set_defaults(check_remote=None, require_dest=None)
     restore_remote = restore.add_mutually_exclusive_group()
     restore_remote.add_argument(
         "--check-remote",
@@ -257,6 +257,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="check_remote",
         help="disable remote probing even when [restore].check_remote is true",
+    )
+    restore_dest_policy = restore.add_mutually_exclusive_group()
+    restore_dest_policy.add_argument(
+        "--require-dest",
+        action="store_true",
+        dest="require_dest",
+        help=(
+            "require --dest; refuse original-location restore "
+            "(overrides [restore].require_dest)"
+        ),
+    )
+    restore_dest_policy.add_argument(
+        "--no-require-dest",
+        action="store_false",
+        dest="require_dest",
+        help="allow original-location restore even when [restore].require_dest is true",
     )
     restore.add_argument(
         "--config",
@@ -577,6 +593,17 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.check_remote,
         config.restore.check_remote if config else False,
     )
+    require_dest = resolve_tri_state(
+        args.require_dest,
+        config.restore.require_dest if config else False,
+    )
+    if require_dest and args.dest is None:
+        print(
+            "error: --dest is required when --require-dest or "
+            "[restore].require_dest is enabled",
+            file=sys.stderr,
+        )
+        return 1
     try:
         plans = plan_restore(
             args.manifest,

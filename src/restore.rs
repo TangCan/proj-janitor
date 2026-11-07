@@ -941,8 +941,14 @@ pub(crate) fn restore_cmd(
     no_verify: bool,
     yes: bool,
     check_remote: bool,
+    require_dest: bool,
     json: bool,
 ) -> anyhow::Result<()> {
+    if require_dest && dest.is_none() {
+        anyhow::bail!(
+            "--dest is required when --require-dest or [restore].require_dest is enabled"
+        );
+    }
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
     let dest = if let Some(dest) = dest {
         let resolved = resolve_for_creation(&expand(&dest))?;

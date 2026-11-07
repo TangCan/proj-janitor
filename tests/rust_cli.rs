@@ -2473,6 +2473,70 @@ fn backup_excludes_patterns_from_config_file() {
 }
 
 #[test]
+fn restore_require_dest_blocks_original_location() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    backup_run(&project, &backup_dest, &["--always-archive"]);
+    let manifest = fs::read_dir(backup_dest.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    fs::remove_dir_all(&project).unwrap();
+    let config = temp.0.join("cfg.toml");
+    fs::write(&config, "[restore]\nrequire_dest = true\n").unwrap();
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--yes", "--config"])
+        .arg(&config)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        !refused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("--dest is required"), "{stderr}");
+    assert!(!project.exists());
+
+    let dest = temp.0.join("restored");
+    let with_dest = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--config"])
+        .arg(&config)
+        .args(["--dest"])
+        .arg(&dest)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        with_dest.status.success(),
+        "{}",
+        String::from_utf8_lossy(&with_dest.stderr)
+    );
+    assert!(dest.join("demo").join("pyproject.toml").exists());
+
+    let override_flag = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--yes", "--no-require-dest", "--config"])
+        .arg(&config)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        override_flag.status.success(),
+        "{}",
+        String::from_utf8_lossy(&override_flag.stderr)
+    );
+    assert!(project.join("pyproject.toml").exists());
+}
+
+#[test]
 fn backup_without_dest_source_fails_when_not_configured() {
     let temp = TestDir::new();
     let project = temp.project();

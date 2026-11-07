@@ -66,6 +66,9 @@ pub(crate) struct RestoreConfig {
     /// Default for `restore --check-remote` when neither flag is passed.
     #[serde(default)]
     pub(crate) check_remote: bool,
+    /// Require `--dest` so restore never writes to manifest `source` paths.
+    #[serde(default)]
+    pub(crate) require_dest: bool,
 }
 
 /// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
@@ -249,10 +252,20 @@ mod tests {
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.verify.check_remote);
         assert!(config.restore.check_remote);
+        assert!(!config.restore.require_dest);
         assert!(!resolve_check_remote(false, true, true));
         assert!(resolve_check_remote(true, false, false));
         assert!(resolve_check_remote(false, false, true));
         assert!(!resolve_check_remote(false, false, false));
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_require_dest() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nrequire_dest = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.require_dest);
+        assert!(!config.restore.check_remote);
     }
 
     #[test]

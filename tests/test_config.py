@@ -187,10 +187,20 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.verify.check_remote)
             self.assertTrue(config.restore.check_remote)
+            self.assertFalse(config.restore.require_dest)
             self.assertTrue(resolve_check_remote(None, True))
             self.assertFalse(resolve_check_remote(False, True))
             self.assertTrue(resolve_check_remote(True, False))
             self.assertFalse(resolve_check_remote(None, False))
+
+    def test_loads_restore_require_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[restore]\nrequire_dest = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.restore.require_dest)
+            self.assertFalse(config.restore.check_remote)
 
     def test_unknown_verify_key_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

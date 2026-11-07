@@ -160,6 +160,10 @@ enum Action {
         check_remote: bool,
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        #[arg(long, conflicts_with = "no_require_dest")]
+        require_dest: bool,
+        #[arg(long = "no-require-dest", conflicts_with = "require_dest")]
+        no_require_dest: bool,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -404,6 +408,8 @@ fn run() -> anyhow::Result<()> {
             yes,
             check_remote,
             no_check_remote,
+            require_dest,
+            no_require_dest,
             config,
             json,
         } => {
@@ -416,6 +422,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.check_remote)
                     .unwrap_or(false),
             );
+            let require_dest = resolve_tri_state(
+                require_dest,
+                no_require_dest,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.require_dest)
+                    .unwrap_or(false),
+            );
             restore_cmd(
                 &manifest,
                 dest,
@@ -424,6 +438,7 @@ fn run() -> anyhow::Result<()> {
                 no_verify,
                 yes,
                 check_remote,
+                require_dest,
                 json,
             )
         }

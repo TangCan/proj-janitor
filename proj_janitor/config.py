@@ -160,10 +160,13 @@ class VerifyConfig:
 
 
 class RestoreConfig:
-    __slots__ = ("check_remote",)
+    __slots__ = ("check_remote", "require_dest")
 
-    def __init__(self, check_remote: bool = False) -> None:
+    def __init__(
+        self, check_remote: bool = False, require_dest: bool = False
+    ) -> None:
         self.check_remote = check_remote
+        self.require_dest = require_dest
 
 
 class Config:
@@ -353,16 +356,22 @@ def load_config(path: Path | None = None) -> Config | None:
     restore_data = data.get("restore", {})
     if not isinstance(restore_data, dict):
         raise ConfigError(f"invalid config {path}: [restore] must be a table")
-    if set(restore_data) - {"check_remote"}:
+    allowed_restore = {"check_remote", "require_dest"}
+    if set(restore_data) - allowed_restore:
         raise ConfigError(
             f"invalid config {path}: unknown [restore] key(s) "
-            f"{sorted(set(restore_data) - {'check_remote'})}"
+            f"{sorted(set(restore_data) - allowed_restore)}"
         )
     restore = RestoreConfig(
         check_remote=_parse_bool(
             restore_data["check_remote"], "[restore].check_remote"
         )
         if "check_remote" in restore_data
+        else False,
+        require_dest=_parse_bool(
+            restore_data["require_dest"], "[restore].require_dest"
+        )
+        if "require_dest" in restore_data
         else False,
     )
 

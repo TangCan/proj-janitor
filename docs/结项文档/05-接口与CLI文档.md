@@ -96,6 +96,7 @@ check_remote = false     # 为 true 时 verify 默认联网预检；可用 --no-
 
 [restore]
 check_remote = false     # 为 true 时 restore 默认联网预检；可用 --no-check-remote 关闭
+require_dest = false     # 为 true 时必须传 --dest，禁止按 manifest source 原位恢复；可用 --require-dest / --no-require-dest 覆盖
 ```
 
 - **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`；`backup` 的保留数按 命令行 > 配置文件 `[backup].keep` 解析。
