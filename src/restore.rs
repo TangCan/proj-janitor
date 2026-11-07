@@ -1288,6 +1288,7 @@ pub(crate) fn restore_cmd(
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
                             force,
+                            progress.then_some(r.project.as_str()),
                         )?;
                     } else {
                         restore_encrypted_or_plain_archive(
@@ -1299,6 +1300,7 @@ pub(crate) fn restore_cmd(
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
                             force,
+                            progress.then_some(r.project.as_str()),
                         )?;
                     }
                 }
@@ -1566,6 +1568,7 @@ fn plan_existing(target: &Path, force: bool, skip_existing: bool) -> anyhow::Res
     Ok((true, false))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn restore_incremental(
     dir: &Path,
     record: &Record,
@@ -1574,6 +1577,7 @@ fn restore_incremental(
     no_verify: bool,
     passphrase_file: Option<&Path>,
     force: bool,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut chain: Vec<(Record, PathBuf)> = Vec::new();
     let mut current = record.clone();
@@ -1617,6 +1621,7 @@ fn restore_incremental(
         no_verify,
         passphrase_file,
         force,
+        progress_label,
     )?;
     for (rec, delta_archive) in &chain[1..] {
         let info = rec.incremental.as_ref().ok_or_else(|| {
@@ -1663,6 +1668,7 @@ fn restore_encrypted_or_plain_archive(
     no_verify: bool,
     passphrase_file: Option<&Path>,
     force: bool,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<()> {
     if archive_is_encrypted(archive, encryption) {
         let pass = passphrase_file.ok_or_else(|| {
@@ -1679,17 +1685,21 @@ fn restore_encrypted_or_plain_archive(
             );
         }
         let plain = openssl_decrypt_to_temp(archive, pass)?;
-        let result = if force {
-            extract_archive_with_hash(&plain, target, project, None, true)
-        } else {
-            extract_archive(&plain, target, project)
-        };
+        let result =
+            extract_archive_with_hash(&plain, target, project, None, force, progress_label);
         cleanup_decrypt_temp(&plain);
         result
-    } else if no_verify && !force {
+    } else if no_verify && !force && progress_label.is_none() {
         extract_archive(archive, target, project)
     } else {
-        extract_archive_with_hash(archive, target, project, expected_hash, force)
+        extract_archive_with_hash(
+            archive,
+            target,
+            project,
+            if no_verify { None } else { expected_hash },
+            force,
+            progress_label,
+        )
     }
 }
 

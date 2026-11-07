@@ -190,6 +190,7 @@ def execute_restore(
                     verify=verify,
                     decrypt_passphrase_file=decrypt_passphrase_file,
                     force=force,
+                    progress_label=plan.project if progress else None,
                 )
             )
         except (OSError, RestoreError) as exc:
@@ -992,6 +993,7 @@ def _restore_one(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    progress_label: str | None = None,
 ) -> RestoreResult:
     if plan.strategy == "git":
         _restore_git(plan, force=force)
@@ -1009,6 +1011,7 @@ def _restore_one(
                 verify=verify,
                 decrypt_passphrase_file=decrypt_passphrase_file,
                 force=force,
+                progress_label=progress_label,
             )
         else:
             _restore_archive(
@@ -1016,6 +1019,7 @@ def _restore_one(
                 verify=verify,
                 decrypt_passphrase_file=decrypt_passphrase_file,
                 force=force,
+                progress_label=progress_label,
             )
     else:
         raise RestoreError(f"unsupported strategy: {plan.strategy}")
@@ -1343,6 +1347,7 @@ def _restore_archive(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    progress_label: str | None = None,
 ) -> None:
     from proj_janitor.crypto import (
         archive_is_encrypted,
@@ -1394,6 +1399,7 @@ def _restore_archive(
                     temporary,
                     plan.project,
                     fileobj=archive_source,
+                    progress_label=progress_label,
                 )
                 extracted = temporary / plan.project
                 if extracted.is_symlink() or not extracted.is_dir():
@@ -1414,6 +1420,7 @@ def _restore_incremental(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    progress_label: str | None = None,
 ) -> None:
     if plan.archive is None:
         raise RestoreError(f"incomplete incremental restore plan for {plan.project}")
@@ -1480,6 +1487,7 @@ def _restore_incremental(
         verify=verify,
         decrypt_passphrase_file=decrypt_passphrase_file,
         force=force,
+        progress_label=progress_label,
     )
     for delta_plan in chain[1:]:
         deleted = (delta_plan.incremental or {}).get("deleted") or []
@@ -1603,6 +1611,7 @@ def _safe_extract(
     project: str,
     *,
     fileobj: BinaryIO | None = None,
+    progress_label: str | None = None,
 ) -> None:
     try:
         tar_source = (
@@ -1647,12 +1656,33 @@ def _safe_extract(
                     raise RestoreError(
                         f"archive contains unsupported entry type: {member.name}"
                     )
+            extract_kwargs: dict[str, object] = {}
             if hasattr(tarfile, "data_filter"):
-                tar.extractall(dest, filter="data")
+                extract_kwargs["filter"] = "data"
+            if progress_label is None:
+                tar.extractall(dest, **extract_kwargs)  # type: ignore[arg-type]
             else:
-                tar.extractall(dest)
+                total = len(members)
+                for index, member in enumerate(members, start=1):
+                    tar.extract(member, dest, **extract_kwargs)  # type: ignore[arg-type]
+                    _report_extract_progress(progress_label, index, done=False)
+                _report_extract_progress(progress_label, total, done=True)
     except (OSError, tarfile.TarError, TypeError) as exc:
         raise RestoreError(f"cannot extract archive {archive}: {exc}") from exc
+
+
+def _report_extract_progress(label: str, members: int, *, done: bool) -> None:
+    if done:
+        print(
+            f"progress: {label}: extracted {members} members (done)",
+            file=sys.stderr,
+        )
+        return
+    if members == 1 or members % 100 == 0:
+        print(
+            f"progress: {label}: extracted {members} members",
+            file=sys.stderr,
+        )
 
 
 def _archive_parts(name: str) -> tuple[str, ...]:

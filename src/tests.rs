@@ -1803,6 +1803,7 @@ fn restore_rechecks_archive_after_plan_before_extraction() {
         "demo",
         Some(&expected),
         false,
+        None,
     )
     .unwrap_err();
 

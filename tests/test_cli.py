@@ -521,6 +521,12 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: restoring 1/1:", err)
+            self.assertIn(f"progress: {project.name}: extracted 1 members", err)
+            self.assertIn(
+                f"progress: {project.name}: extracted ",
+                err,
+            )
+            self.assertIn("members (done)", err)
             self.assertIn("progress: done, restored 1", err)
 
             code, out, err = run_cli(

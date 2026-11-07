@@ -491,15 +491,17 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
-    extract_archive_with_hash(archive, target, project, None, false)
+    extract_archive_with_hash(archive, target, project, None, false, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn extract_archive_with_hash(
     archive: &Path,
     target: &Path,
     project: &str,
     expected_hash: Option<&str>,
     force: bool,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<()> {
     if !force {
         anyhow::ensure!(
@@ -591,8 +593,10 @@ pub(crate) fn extract_archive_with_hash(
                 io::copy(&mut e, &mut f)?;
                 set_mode(&out, mode)?;
             }
+            report_extract_progress(progress_label, member_count, false);
         }
         anyhow::ensure!(member_count > 0, "archive is empty");
+        report_extract_progress(progress_label, member_count, true);
         let root = tmp.join(project);
         anyhow::ensure!(
             root.is_dir() && !root.is_symlink(),
@@ -961,6 +965,19 @@ fn report_archive_progress(label: Option<&str>, files: u64, bytes: u64) {
             "progress: {name}: {files} files, {} scanned",
             crate::human(bytes)
         );
+    }
+}
+
+fn report_extract_progress(label: Option<&str>, members: u64, done: bool) {
+    let Some(name) = label else {
+        return;
+    };
+    if done {
+        eprintln!("progress: {name}: extracted {members} members (done)");
+        return;
+    }
+    if members == 1 || members.is_multiple_of(100) {
+        eprintln!("progress: {name}: extracted {members} members");
     }
 }
 

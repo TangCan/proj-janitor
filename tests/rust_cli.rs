@@ -3041,7 +3041,17 @@ fn restore_progress_reports_per_project() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let project_name = project.file_name().unwrap().to_string_lossy();
     assert!(stderr.contains("progress: restoring 1/1:"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: extracted 1 members")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: extracted "))
+            && stderr.contains("members (done)"),
+        "{stderr}"
+    );
     assert!(stderr.contains("progress: done, restored 1"), "{stderr}");
 
     let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
