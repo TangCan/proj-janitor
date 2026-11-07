@@ -8,7 +8,7 @@
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定，或从 `.proj-janitor.toml` 的 `[backup].dest` 读取；命令行参数优先，其次环境变量，再次配置文件。空的 `BACKUP_DEST` 按未设置处理。`.proj-janitor.toml` 的 `[backup].exclude` 可为 archive 策略配置排除模式（glob）；`[backup].incremental` 或 `--incremental` 可生成差异快照（archive 策略）。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
-- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）从 Rust `0.5.0` 起随 crates.io 发布，子模块预检扩展（CR-094）自 Rust `0.7.0` 起发布；LFS 对象可用性探测（CR-097）自 Rust `0.7.3` / Python `0.1.3` 起发布；`--check-remote` 配置默认值（CR-098）自 Rust `0.7.4` / Python `0.1.4` 起发布；敏感路径告警（CR-099）自 Rust `0.7.5` / Python `0.1.5` 起发布。Python 发行包已发布至 PyPI（最新 `proj-janitor 0.1.5`，tag `python-v0.1.5`）。
+- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）从 Rust `0.5.0` 起随 crates.io 发布，子模块预检扩展（CR-094）自 Rust `0.7.0` 起发布；LFS 对象可用性探测（CR-097）自 Rust `0.7.3` / Python `0.1.3` 起发布；`--check-remote` 配置默认值（CR-098）自 Rust `0.7.4` / Python `0.1.4` 起发布；敏感路径告警（CR-099）自 Rust `0.7.5` / Python `0.1.5` 起发布；`--fail-on-secrets`（CR-100）自 Rust `0.7.6` / Python `0.1.6` 起发布。Python 发行包已发布至 PyPI（最新 `proj-janitor 0.1.6`，tag `python-v0.1.6`）。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - `prune` 默认 dry-run：每个项目保留指定数量的最新备份，只删除过期 manifest 明确引用的归档/bundle；孤立文件不动。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
@@ -44,12 +44,12 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 
 ### Python 版
 
-Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.5`，已发布至 PyPI；发布说明见 [Python 0.1.2 发布记录](docs/发布记录/0.1.5-Python版.md)。推荐安装：
+Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.6`，已发布至 PyPI；发布说明见 [Python 0.1.6 发布记录](docs/发布记录/0.1.6-Python版.md)。推荐安装：
 
 ```bash
 pipx install proj-janitor
 # 或
-pip install proj-janitor==0.1.5
+pip install proj-janitor==0.1.6
 ```
 
 从 Git 安装最新 main，或开发时需要可编辑源码安装：
@@ -338,7 +338,7 @@ projjan verify <manifest> --check-remote --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-07，Rust 0.7.5）：Python 235 项（234 通过、1 项 Windows 专属测试跳过）；Rust 74 项单元测试及 33 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-07，Rust 0.7.6）：Python 240 项（239 通过、1 项 Windows 专属测试跳过）；Rust 单元测试及 35 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
