@@ -65,6 +65,7 @@ def restore_from_manifest(
     check_remote: bool = False,
     force: bool = False,
     continue_on_error: bool = False,
+    skip_existing: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
         manifest_path,
@@ -72,6 +73,7 @@ def restore_from_manifest(
         projects=projects,
         verify=verify if dry_run else False,
         force=force,
+        skip_existing=skip_existing,
     )
     if dry_run:
         return plans, []
@@ -105,6 +107,8 @@ def execute_restore(
     plan_list = list(plans)
     if verify:
         for plan in plan_list:
+            if plan.skip:
+                continue
             if plan.strategy in ("archive", "git_bundle"):
                 if plan.archive is None:
                     raise RestoreError(
@@ -113,7 +117,7 @@ def execute_restore(
                 _verify_archive_hash(plan.archive, plan.project, plan.sha256)
     if check_remote:
         for plan in plan_list:
-            if plan.strategy != "git":
+            if plan.skip or plan.strategy != "git":
                 continue
             if plan.remote_url is None or plan.commit is None:
                 raise RestoreError(f"incomplete git restore plan for {plan.project}")
@@ -154,6 +158,16 @@ def execute_restore(
     results: list[RestoreResult] = []
     failures: list[tuple[str, str]] = []
     for plan in plan_list:
+        if plan.skip:
+            results.append(
+                RestoreResult(
+                    project=plan.project,
+                    strategy=plan.strategy,
+                    target=plan.target,
+                    skipped=True,
+                )
+            )
+            continue
         try:
             results.append(
                 _restore_one(
@@ -184,6 +198,7 @@ def plan_restore(
     projects: Iterable[str] = (),
     verify: bool = True,
     force: bool = False,
+    skip_existing: bool = False,
 ) -> list[RestorePlan]:
     manifest_path, manifest = load_manifest(manifest_path)
     if dest is not None:
@@ -217,7 +232,9 @@ def plan_restore(
                 f"(including Unicode normalization): {target}"
             )
         seen_portable_targets.add(portable_target)
-        overwrite = _plan_overwrite(target, force=force)
+        overwrite, skip = _plan_existing(
+            target, force=force, skip_existing=skip_existing
+        )
 
         strategy = record.get("strategy")
         if strategy == "git":
@@ -247,6 +264,7 @@ def plan_restore(
                         else None
                     ),
                     overwrite=overwrite,
+                    skip=skip,
                 )
             )
             continue
@@ -260,7 +278,7 @@ def plan_restore(
             commit = _record_string(record, "commit")
             if len(commit) not in (40, 64) or not _COMMIT_RE.fullmatch(commit):
                 raise RestoreError(f"invalid commit for {project}: {commit!r}")
-            if verify:
+            if verify and not skip:
                 _verify_archive_hash(bundle, project, sha256)
             plans.append(
                 RestorePlan(
@@ -271,7 +289,7 @@ def plan_restore(
                     branch=branch,
                     commit=commit,
                     sha256=sha256,
-                    hash_verified=verify,
+                    hash_verified=verify and not skip,
                     in_place=dest is None,
                     encryption=(
                         record.get("encryption")
@@ -279,6 +297,7 @@ def plan_restore(
                         else None
                     ),
                     overwrite=overwrite,
+                    skip=skip,
                 )
             )
             continue
@@ -289,7 +308,7 @@ def plan_restore(
             if sha256 is not None and not isinstance(sha256, str):
                 raise RestoreError(f"invalid sha256 for {project}")
             hash_verified = False
-            if verify:
+            if verify and not skip:
                 if not sha256:
                     raise RestoreError(
                         f"manifest has no sha256 for {project}; "
@@ -315,6 +334,7 @@ def plan_restore(
                         else None
                     ),
                     overwrite=overwrite,
+                    skip=skip,
                 )
             )
             continue
@@ -325,17 +345,25 @@ def plan_restore(
     return plans
 
 
-def _plan_overwrite(target: Path, *, force: bool) -> bool:
-    """Validate an existing restore target. Return True when force will replace it."""
+def _plan_existing(
+    target: Path, *, force: bool, skip_existing: bool
+) -> tuple[bool, bool]:
+    """Validate an existing restore target.
+
+    Returns ``(overwrite, skip)``. ``force`` and ``skip_existing`` must not both
+    be true; callers enforce that at the CLI/config layer.
+    """
     if target.is_symlink():
         raise RestoreError(f"restore target is a symlink: {target}")
     if not target.exists():
-        return False
-    if not force:
-        raise RestoreError(f"restore target already exists: {target}")
+        return False, False
     if not target.is_dir():
         raise RestoreError(f"restore target exists and is not a directory: {target}")
-    return True
+    if skip_existing:
+        return False, True
+    if not force:
+        raise RestoreError(f"restore target already exists: {target}")
+    return True, False
 
 
 def _publish_restored_tree(staged: Path, target: Path, *, force: bool) -> None:

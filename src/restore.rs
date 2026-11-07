@@ -945,6 +945,7 @@ pub(crate) fn restore_cmd(
     require_dest: bool,
     force: bool,
     continue_on_error: bool,
+    skip_existing: bool,
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -996,7 +997,7 @@ pub(crate) fn restore_cmd(
             "restore targets collide on case-insensitive filesystems (including Unicode normalization): {}",
             target.display()
         );
-        let overwrite = plan_overwrite(&target, force)?;
+        let (overwrite, skip) = plan_existing(&target, force, skip_existing)?;
         let archive = match r.strategy.as_str() {
             "archive" => Some(resolve_archive(
                 r,
@@ -1036,7 +1037,7 @@ pub(crate) fn restore_cmd(
                     "invalid Git bundle commit for {}",
                     r.project
                 );
-                if !no_verify {
+                if !no_verify && !skip {
                     let expected = r
                         .sha256
                         .as_deref()
@@ -1058,6 +1059,7 @@ pub(crate) fn restore_cmd(
         if let Some(a) = &archive
             && !no_verify
             && dry
+            && !skip
         {
             let expect = r
                 .sha256
@@ -1070,13 +1072,13 @@ pub(crate) fn restore_cmd(
                 a.display()
             );
         }
-        plans.push((r.clone(), target, archive, overwrite));
+        plans.push((r.clone(), target, archive, overwrite, skip));
     }
     if dry {
         if json {
             let vals: Vec<_> = plans
                 .iter()
-                .map(|(r, t, a, overwrite)| {
+                .map(|(r, t, a, overwrite, skip)| {
                     serde_json::json!({
                         "project": r.project,
                         "strategy": r.strategy,
@@ -1088,6 +1090,7 @@ pub(crate) fn restore_cmd(
                         "sha256_verified": matches!(r.strategy.as_str(), "archive" | "git_bundle") && !no_verify,
                         "in_place": dest.is_none(),
                         "overwrite": overwrite,
+                        "skip": skip,
                     })
                 })
                 .collect();
@@ -1098,8 +1101,14 @@ pub(crate) fn restore_cmd(
                 )?
             )
         } else {
-            for (r, t, a, overwrite) in &plans {
-                let suffix = if *overwrite { " (overwrite)" } else { "" };
+            for (r, t, a, overwrite, skip) in &plans {
+                let suffix = if *skip {
+                    " (skip existing)"
+                } else if *overwrite {
+                    " (overwrite)"
+                } else {
+                    ""
+                };
                 if r.strategy == "git" {
                     println!(
                         "[git] {}: {} @ {} -> {}{suffix}",
@@ -1133,7 +1142,7 @@ pub(crate) fn restore_cmd(
         }
         return Ok(());
     }
-    let has_overwrite = plans.iter().any(|(_, _, _, overwrite)| *overwrite);
+    let has_overwrite = plans.iter().any(|(_, _, _, overwrite, _)| *overwrite);
     if (dest.is_none() || has_overwrite) && !yes {
         anyhow::ensure!(
             io::stdin().is_terminal() && !json,
@@ -1141,14 +1150,14 @@ pub(crate) fn restore_cmd(
         );
         if has_overwrite {
             eprintln!("About to replace existing restore targets:");
-            for (record, target, _, overwrite) in &plans {
+            for (record, target, _, overwrite, _) in &plans {
                 if *overwrite {
                     eprintln!("  {}: {}", record.project, target.display());
                 }
             }
         } else {
             eprintln!("About to restore to original locations:");
-            for (record, target, _, _) in &plans {
+            for (record, target, _, _, _) in &plans {
                 eprintln!("  {}: {}", record.project, target.display());
             }
         }
@@ -1162,7 +1171,10 @@ pub(crate) fn restore_cmd(
         )
     }
     if !no_verify {
-        for (record, _, archive, _) in &plans {
+        for (record, _, archive, _, skip) in &plans {
+            if *skip {
+                continue;
+            }
             if let Some(archive) = archive {
                 let expected = record.sha256.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("manifest has no sha256 for {}", record.project)
@@ -1177,8 +1189,8 @@ pub(crate) fn restore_cmd(
         }
     }
     if check_remote {
-        for (record, _, _, _) in &plans {
-            if record.strategy != "git" {
+        for (record, _, _, _, skip) in &plans {
+            if *skip || record.strategy != "git" {
                 continue;
             }
             let url = record
@@ -1223,9 +1235,13 @@ pub(crate) fn restore_cmd(
             }
         }
     }
-    let mut done = Vec::new();
+    let mut done: Vec<(String, String, PathBuf, bool)> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
-    for (r, target, archive, _) in &plans {
+    for (r, target, archive, _, skip) in &plans {
+        if *skip {
+            done.push((r.project.clone(), r.strategy.clone(), target.clone(), true));
+            continue;
+        }
         let result = (|| -> anyhow::Result<()> {
             fs::create_dir_all(
                 target
@@ -1309,21 +1325,20 @@ pub(crate) fn restore_cmd(
             }
             let completed = done
                 .iter()
-                .map(|(project, _, path): &(String, String, PathBuf)| {
-                    format!("{project} -> {}", path.display())
-                })
+                .filter(|(_, _, _, skipped)| !*skipped)
+                .map(|(project, _, path, _)| format!("{project} -> {}", path.display()))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(anyhow::anyhow!("{error}; already restored: {completed}"));
         }
-        done.push((r.project.clone(), r.strategy.clone(), target.clone()));
+        done.push((r.project.clone(), r.strategy.clone(), target.clone(), false));
     }
     if json {
         let mut payload = serde_json::json!({
             "dry_run": false,
             "mode": if dest.is_some() { "dest" } else { "original" },
-            "projects": done.iter().map(|(p, s, t)| {
-                serde_json::json!({"project": p, "strategy": s, "target": t})
+            "projects": done.iter().map(|(p, s, t, skipped)| {
+                serde_json::json!({"project": p, "strategy": s, "target": t, "skipped": skipped})
             }).collect::<Vec<_>>(),
         });
         if !failures.is_empty() {
@@ -1339,9 +1354,17 @@ pub(crate) fn restore_cmd(
         }
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        println!("Restored {} project(s).", done.len());
-        for (p, s, t) in &done {
+        let restored: Vec<_> = done.iter().filter(|(_, _, _, skipped)| !*skipped).collect();
+        let skipped: Vec<_> = done.iter().filter(|(_, _, _, skipped)| *skipped).collect();
+        println!("Restored {} project(s).", restored.len());
+        for (p, s, t, _) in &restored {
             println!("[{s}] {p} -> {}", t.display())
+        }
+        if !skipped.is_empty() {
+            println!("Skipped {} existing project(s).", skipped.len());
+            for (p, _, t, _) in &skipped {
+                println!("[skipped] {p} -> {}", t.display())
+            }
         }
     }
     if !failures.is_empty() {
@@ -1488,22 +1511,25 @@ fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn plan_overwrite(target: &Path, force: bool) -> anyhow::Result<bool> {
+fn plan_existing(target: &Path, force: bool, skip_existing: bool) -> anyhow::Result<(bool, bool)> {
     anyhow::ensure!(
         !target.is_symlink(),
         "restore target is a symlink: {}",
         target.display()
     );
     if !target.exists() {
-        return Ok(false);
+        return Ok((false, false));
     }
-    anyhow::ensure!(force, "restore target already exists: {}", target.display());
     anyhow::ensure!(
         target.is_dir(),
         "restore target exists and is not a directory: {}",
         target.display()
     );
-    Ok(true)
+    if skip_existing {
+        return Ok((false, true));
+    }
+    anyhow::ensure!(force, "restore target already exists: {}", target.display());
+    Ok((true, false))
 }
 
 fn restore_incremental(

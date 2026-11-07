@@ -112,6 +112,7 @@ class RestorePlan:
     lfs_objects: list | None = None
     encryption: str | None = None
     overwrite: bool = False
+    skip: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ class RestoreResult:
     project: str
     strategy: str
     target: Path
+    skipped: bool = False
 
 
 def human_size(size_bytes: int) -> str:

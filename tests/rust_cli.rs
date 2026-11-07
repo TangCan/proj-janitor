@@ -3001,6 +3001,98 @@ fn scan_many_sibling_projects() {
 }
 
 #[test]
+fn restore_skip_existing_leaves_target_and_restores_others() {
+    let temp = TestDir::new();
+    let mut records = Vec::new();
+    for name in ["first", "second"] {
+        let project = temp.0.join(name);
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(project.join("ok.txt"), format!("{name}\n")).unwrap();
+        let dest = temp.0.join(format!("{name}-backups"));
+        let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+            .args(["backup", "--always-archive", "--backup-dest"])
+            .arg(&dest)
+            .arg(&project)
+            .output()
+            .unwrap();
+        assert!(
+            backup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&backup.stderr)
+        );
+        let project_dir = dest.join(name);
+        let manifest = fs::read_dir(&project_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+            })
+            .expect("manifest");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        records.push(value["records"][0].clone());
+    }
+    let combined = temp.0.join("manifest.json");
+    fs::write(
+        &combined,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-07T00:00:00+00:00",
+            "tool": "proj-janitor",
+            "version": "0.1.0",
+            "include_artifacts": false,
+            "always_archive": false,
+            "exclude_git_metadata": false,
+            "records": records,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let out = temp.0.join("restored");
+    let existing = out.join("first");
+    fs::create_dir_all(&existing).unwrap();
+    fs::write(existing.join("keep.txt"), "keep\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--skip-existing", "--json"])
+        .arg(&combined)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let projects = payload["projects"].as_array().unwrap();
+    let first = projects.iter().find(|p| p["project"] == "first").unwrap();
+    let second = projects.iter().find(|p| p["project"] == "second").unwrap();
+    assert_eq!(first["skipped"], true);
+    assert_eq!(second["skipped"], false);
+    assert_eq!(
+        fs::read_to_string(existing.join("keep.txt")).unwrap(),
+        "keep\n"
+    );
+    assert!(out.join("second/ok.txt").is_file());
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--force", "--skip-existing"])
+        .arg(&combined)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    let err = String::from_utf8_lossy(&refused.stderr);
+    assert!(err.contains("cannot be combined"), "{err}");
+}
+
+#[test]
 fn restore_continue_on_error_restores_remaining_projects() {
     let temp = TestDir::new();
     let mut records = Vec::new();

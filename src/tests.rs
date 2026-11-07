@@ -1668,6 +1668,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -1683,6 +1684,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1707,6 +1709,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1755,6 +1758,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         true, // --continue-on-error
+        false,
         None,
         false,
     )
@@ -1880,6 +1884,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         false,
         false,
         true,
+        false,
         false,
         false,
         false,
@@ -2016,6 +2021,7 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             false,
             false,
             false,
+            false,
             None,
             false,
         )
@@ -2079,6 +2085,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             true,
             false,
             true,
+            false,
             false,
             false,
             false,
@@ -2479,6 +2486,7 @@ fn restore_check_remote_blocks_unreachable_remote() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -2538,6 +2546,7 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         false,
         true,
         true,
+        false,
         false,
         false,
         false,

@@ -333,6 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
         require_dest=None,
         force=None,
         continue_on_error=None,
+        skip_existing=None,
     )
     restore_remote = restore.add_mutually_exclusive_group()
     restore_remote.add_argument(
@@ -399,6 +400,25 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "stop at the first per-project failure even when "
             "[restore].continue_on_error is true"
+        ),
+    )
+    restore_skip = restore.add_mutually_exclusive_group()
+    restore_skip.add_argument(
+        "--skip-existing",
+        action="store_true",
+        dest="skip_existing",
+        help=(
+            "skip projects whose restore target directory already exists "
+            "(overrides [restore].skip_existing); conflicts with --force"
+        ),
+    )
+    restore_skip.add_argument(
+        "--no-skip-existing",
+        action="store_false",
+        dest="skip_existing",
+        help=(
+            "refuse existing restore targets even when "
+            "[restore].skip_existing is true"
         ),
     )
     restore.add_argument(
@@ -826,9 +846,19 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.continue_on_error,
         config.restore.continue_on_error if config else False,
     )
+    skip_existing = resolve_tri_state(
+        args.skip_existing,
+        config.restore.skip_existing if config else False,
+    )
     decrypt_passphrase_file = args.decrypt_passphrase_file or (
         config.restore.decrypt_passphrase_file if config else None
     )
+    if force and skip_existing:
+        print(
+            "error: --force and --skip-existing cannot be combined",
+            file=sys.stderr,
+        )
+        return 1
     if require_dest and args.dest is None:
         print(
             "error: --dest is required when --require-dest or "
@@ -843,6 +873,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             projects=args.project,
             verify=not args.no_verify if args.dry_run else False,
             force=force,
+            skip_existing=skip_existing,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -940,9 +971,15 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1 if failures else 0
 
-    print(f"Restored {len(results)} project(s).")
-    for result in results:
+    restored = [result for result in results if not result.skipped]
+    skipped = [result for result in results if result.skipped]
+    print(f"Restored {len(restored)} project(s).")
+    for result in restored:
         print(f"  [{result.strategy}] {result.project} -> {result.target}")
+    if skipped:
+        print(f"Skipped {len(skipped)} existing project(s).")
+        for result in skipped:
+            print(f"  [skipped] {result.project} -> {result.target}")
     if failures:
         print(
             f"error: one or more restore operations failed ({len(failures)})",
@@ -1194,13 +1231,18 @@ def _retention_plan_json(plan: RetentionPlan) -> dict:
 
 
 def _print_restore_plan(plan: RestorePlan) -> None:
-    overwrite = " (overwrite)" if plan.overwrite else ""
+    if plan.skip:
+        suffix = " (skip existing)"
+    elif plan.overwrite:
+        suffix = " (overwrite)"
+    else:
+        suffix = ""
     if plan.strategy == "git":
         remote = redact_remote_url(plan.remote_url or "")
         commit = plan.commit[:12] if plan.commit else "-"
         print(
             f"  [git] {plan.project}: {remote} @ {commit} "
-            f"-> {plan.target}{overwrite}"
+            f"-> {plan.target}{suffix}"
         )
         return
     if plan.strategy == "git_bundle":
@@ -1208,13 +1250,13 @@ def _print_restore_plan(plan: RestorePlan) -> None:
         verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
         print(
             f"  [git-bundle] {plan.project}: {commit} {plan.archive} "
-            f"({verified}) -> {plan.target}{overwrite}"
+            f"({verified}) -> {plan.target}{suffix}"
         )
         return
     verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
     print(
         f"  [archive] {plan.project}: {plan.archive} "
-        f"({verified}) -> {plan.target}{overwrite}"
+        f"({verified}) -> {plan.target}{suffix}"
     )
 
 
@@ -1232,6 +1274,7 @@ def _restore_plan_json(plan: RestorePlan) -> dict:
         "sha256_verified": plan.hash_verified,
         "in_place": plan.in_place,
         "overwrite": plan.overwrite,
+        "skip": plan.skip,
     }
 
 
@@ -1240,6 +1283,7 @@ def _restore_result_json(result: RestoreResult) -> dict:
         "project": result.project,
         "strategy": result.strategy,
         "target": str(result.target),
+        "skipped": result.skipped,
     }
 
 

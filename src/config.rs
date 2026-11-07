@@ -90,6 +90,9 @@ pub(crate) struct RestoreConfig {
     /// Keep restoring remaining projects after a per-project failure.
     #[serde(default)]
     pub(crate) continue_on_error: bool,
+    /// Skip projects whose restore target directory already exists.
+    #[serde(default)]
+    pub(crate) skip_existing: bool,
 }
 
 /// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
@@ -304,6 +307,15 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[restore]\ncontinue_on_error = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.continue_on_error);
+        assert!(!config.restore.skip_existing);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_skip_existing() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nskip_existing = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.skip_existing);
     }
 
     #[test]

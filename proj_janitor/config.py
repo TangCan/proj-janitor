@@ -178,6 +178,7 @@ class RestoreConfig:
         "decrypt_passphrase_file",
         "force",
         "continue_on_error",
+        "skip_existing",
     )
 
     def __init__(
@@ -187,12 +188,14 @@ class RestoreConfig:
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
         continue_on_error: bool = False,
+        skip_existing: bool = False,
     ) -> None:
         self.check_remote = check_remote
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
         self.continue_on_error = continue_on_error
+        self.skip_existing = skip_existing
 
 
 class Config:
@@ -409,6 +412,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "decrypt_passphrase_file",
         "force",
         "continue_on_error",
+        "skip_existing",
     }
     if set(restore_data) - allowed_restore:
         raise ConfigError(
@@ -439,6 +443,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["continue_on_error"], "[restore].continue_on_error"
         )
         if "continue_on_error" in restore_data
+        else False,
+        skip_existing=_parse_bool(
+            restore_data["skip_existing"], "[restore].skip_existing"
+        )
+        if "skip_existing" in restore_data
         else False,
     )
 

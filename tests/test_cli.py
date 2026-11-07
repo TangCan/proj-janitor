@@ -496,6 +496,50 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((original / "node_modules").exists())
 
+    def test_restore_skip_existing_leaves_target_and_restores_others(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, first_record = archive_backup(root / "a", "first")
+            _, _, second_record = archive_backup(root / "b", "second")
+            manifest = write_manifest(
+                root / "manifest.json", [first_record, second_record]
+            )
+            restored = root / "restored"
+            existing = restored / "first"
+            existing.mkdir(parents=True)
+            (existing / "keep.txt").write_text("keep\n", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--skip-existing",
+                "--json",
+            )
+            self.assertEqual(code, 0, out + err)
+            payload = json.loads(out)
+            by_name = {p["project"]: p for p in payload["projects"]}
+            self.assertTrue(by_name["first"]["skipped"])
+            self.assertFalse(by_name["second"]["skipped"])
+            self.assertEqual(
+                (existing / "keep.txt").read_text(encoding="utf-8"), "keep\n"
+            )
+            self.assertTrue((restored / "second").exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--force",
+                "--skip-existing",
+            )
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("cannot be combined", err)
+
     def test_restore_continue_on_error_restores_remaining_projects(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
