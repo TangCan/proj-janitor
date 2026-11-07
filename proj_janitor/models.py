@@ -80,6 +80,7 @@ class BackupRecord:
     incremental: dict | None = None
     submodules: list | None = None
     lfs_objects: list | None = None
+    encryption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ class RestorePlan:
     manifest_dir: Path | None = None
     submodules: list | None = None
     lfs_objects: list | None = None
+    encryption: str | None = None
 
 
 @dataclass(frozen=True)

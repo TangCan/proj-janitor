@@ -16,6 +16,10 @@ use crate::{
         insecure_dir_mode, portable_path_key, remove_file_if_same, safe_windows_component,
         write_new_file,
     },
+    crypto::{
+        OPENSSL_AES_256_CBC_PBKDF2, encrypted_sibling, openssl_encrypt_file,
+        validate_passphrase_file,
+    },
     expand, human,
     project::{
         collect_lfs_objects, collect_submodules, discover, git_compatible_path,
@@ -144,6 +148,7 @@ pub(crate) fn backup_cmd(
     progress: bool,
     check_space: bool,
     fail_on_insecure_dest: bool,
+    encrypt_passphrase_file: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -156,6 +161,12 @@ pub(crate) fn backup_cmd(
     }
     if fail_on_insecure_dest && let Some(mode) = insecure_dir_mode(&dest)? {
         anyhow::bail!("{}", format_insecure_dest_refusal(&dest, mode));
+    }
+    let encrypt_passphrase_file = encrypt_passphrase_file
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|path| expand(&path));
+    if let Some(pass_file) = &encrypt_passphrase_file {
+        validate_passphrase_file(pass_file)?;
     }
     let mut projects = Vec::new();
     let mut seen = HashSet::new();
@@ -285,20 +296,31 @@ pub(crate) fn backup_cmd(
                     .as_deref()
                     .map(|reason| format!(" ({reason})"))
                     .unwrap_or_default();
+                let enc_note = if encrypt_passphrase_file.is_some() {
+                    " [would encrypt with openssl]"
+                } else {
+                    ""
+                };
                 println!(
-                    "[git-bundle] {}: {} -> {}{}",
+                    "[git-bundle] {}: {} -> {}{}{}",
                     p.name,
                     &bundle.commit[..12.min(bundle.commit.len())],
                     bundle_path.display(),
-                    reason
+                    reason,
+                    enc_note
                 );
             } else {
                 let reason = fallback_reason
                     .as_deref()
                     .map(|reason| format!(" ({reason})"))
                     .unwrap_or_default();
+                let enc_note = if encrypt_passphrase_file.is_some() {
+                    " [would encrypt with openssl]"
+                } else {
+                    ""
+                };
                 println!(
-                    "[archive] {}: {} -> {}{}{}",
+                    "[archive] {}: {} -> {}{}{}{}",
                     p.name,
                     human(p.size_bytes),
                     archive_path.display(),
@@ -307,7 +329,8 @@ pub(crate) fn backup_cmd(
                         " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                     } else {
                         ""
-                    }
+                    },
+                    enc_note
                 );
                 let stats = if progress || check_space {
                     estimate_archive_stats(
@@ -425,16 +448,24 @@ pub(crate) fn backup_cmd(
                         collect_submodules(&p.path, &git.commit).map_err(anyhow::Error::msg)?,
                     ),
                     lfs_objects: collect_lfs_objects(&p.path),
+                    encryption: None,
                 });
             }
             if let Some(bundle) = &bundle_recovery {
                 let (hash, bytes, identity) = create_git_bundle(&p.path, &bundle_path)?;
                 archive_identity = Some(identity);
                 archive_path.clone_from(&bundle_path);
+                let (hash, bytes, encryption) = maybe_encrypt_payload(
+                    &mut archive_path,
+                    &mut archive_identity,
+                    hash,
+                    bytes,
+                    encrypt_passphrase_file.as_deref(),
+                )?;
                 Ok(Record {
                     project: p.name.clone(),
                     source: p.path.to_string_lossy().into(),
-                    archive: Some(bundle_path.to_string_lossy().into()),
+                    archive: Some(archive_path.to_string_lossy().into()),
                     archive_bytes: bytes,
                     source_bytes: p.size_bytes,
                     sha256: Some(hash),
@@ -450,6 +481,7 @@ pub(crate) fn backup_cmd(
                     incremental: None,
                     submodules: None,
                     lfs_objects: None,
+                    encryption,
                 })
             } else {
                 let secrets = find_possible_secret_paths(
@@ -491,6 +523,13 @@ pub(crate) fn backup_cmd(
                     (hash, bytes, identity, Some(inv), info)
                 };
                 archive_identity = Some(identity);
+                let (hash, bytes, encryption) = maybe_encrypt_payload(
+                    &mut archive_path,
+                    &mut archive_identity,
+                    hash,
+                    bytes,
+                    encrypt_passphrase_file.as_deref(),
+                )?;
                 Ok(Record {
                     project: p.name.clone(),
                     source: p.path.to_string_lossy().into(),
@@ -510,6 +549,7 @@ pub(crate) fn backup_cmd(
                     incremental,
                     submodules: None,
                     lfs_objects: None,
+                    encryption,
                 })
             }
         })();
@@ -618,4 +658,37 @@ pub(crate) fn backup_cmd(
         retention::retain_after_backup(&dest, keep, yes)?;
     }
     Ok(())
+}
+
+fn maybe_encrypt_payload(
+    archive_path: &mut PathBuf,
+    archive_identity: &mut Option<same_file::Handle>,
+    hash: String,
+    bytes: u64,
+    passphrase_file: Option<&Path>,
+) -> anyhow::Result<(String, u64, Option<String>)> {
+    let Some(pass_file) = passphrase_file else {
+        return Ok((hash, bytes, None));
+    };
+    let plain_path = archive_path.clone();
+    let plain_identity = archive_identity
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("missing archive identity before encryption"))?;
+    let enc_path = encrypted_sibling(&plain_path);
+    let (enc_hash, enc_bytes) = match openssl_encrypt_file(&plain_path, &enc_path, pass_file) {
+        Ok(result) => result,
+        Err(error) => {
+            *archive_identity = Some(plain_identity);
+            return Err(error);
+        }
+    };
+    remove_file_if_same(&plain_path, plain_identity);
+    let enc_identity = same_file::Handle::from_path(&enc_path)?;
+    *archive_path = enc_path;
+    *archive_identity = Some(enc_identity);
+    Ok((
+        enc_hash,
+        enc_bytes,
+        Some(OPENSSL_AES_256_CBC_PBKDF2.to_owned()),
+    ))
 }

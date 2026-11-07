@@ -74,6 +74,7 @@ def execute_restore(
     *,
     verify: bool = True,
     check_remote: bool = False,
+    decrypt_passphrase_file: Path | None = None,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
     if verify:
@@ -127,7 +128,13 @@ def execute_restore(
     results: list[RestoreResult] = []
     for plan in plan_list:
         try:
-            results.append(_restore_one(plan, verify=verify))
+            results.append(
+                _restore_one(
+                    plan,
+                    verify=verify,
+                    decrypt_passphrase_file=decrypt_passphrase_file,
+                )
+            )
         except (OSError, RestoreError) as exc:
             completed = ", ".join(
                 f"{result.project} -> {result.target}" for result in results
@@ -233,6 +240,11 @@ def plan_restore(
                     sha256=sha256,
                     hash_verified=verify,
                     in_place=dest is None,
+                    encryption=(
+                        record.get("encryption")
+                        if isinstance(record.get("encryption"), str)
+                        else None
+                    ),
                 )
             )
             continue
@@ -263,6 +275,11 @@ def plan_restore(
                     incremental=record.get("incremental"),
                     inventory=record.get("inventory"),
                     manifest_dir=manifest_path.parent,
+                    encryption=(
+                        record.get("encryption")
+                        if isinstance(record.get("encryption"), str)
+                        else None
+                    ),
                 )
             )
             continue
@@ -849,16 +866,27 @@ def redact_remote_url(remote: str) -> str:
     return remote
 
 
-def _restore_one(plan: RestorePlan, *, verify: bool) -> RestoreResult:
+def _restore_one(
+    plan: RestorePlan,
+    *,
+    verify: bool,
+    decrypt_passphrase_file: Path | None = None,
+) -> RestoreResult:
     if plan.strategy == "git":
         _restore_git(plan)
     elif plan.strategy == "git_bundle":
-        _restore_git_bundle(plan, verify=verify)
+        _restore_git_bundle(
+            plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+        )
     elif plan.strategy == "archive":
         if plan.incremental:
-            _restore_incremental(plan, verify=verify)
+            _restore_incremental(
+                plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+            )
         else:
-            _restore_archive(plan, verify=verify)
+            _restore_archive(
+                plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+            )
     else:
         raise RestoreError(f"unsupported strategy: {plan.strategy}")
     return RestoreResult(
@@ -1061,7 +1089,18 @@ def _restore_git(plan: RestorePlan) -> None:
         _cleanup_restore_temp(temporary)
 
 
-def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
+def _restore_git_bundle(
+    plan: RestorePlan,
+    *,
+    verify: bool,
+    decrypt_passphrase_file: Path | None = None,
+) -> None:
+    from proj_janitor.crypto import (
+        archive_is_encrypted,
+        cleanup_decrypt_temp,
+        openssl_decrypt_to_temp,
+    )
+
     if plan.archive is None or plan.commit is None or plan.branch is None:
         raise RestoreError(f"incomplete git bundle restore plan for {plan.project}")
     if plan.target.exists() or plan.target.is_symlink():
@@ -1074,9 +1113,22 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
         )
     )
     repo = temporary / "repo"
+    decrypted: Path | None = None
     try:
+        bundle_source = plan.archive
+        if archive_is_encrypted(plan.archive, plan.encryption):
+            if decrypt_passphrase_file is None:
+                raise RestoreError(
+                    "encrypted archive requires --decrypt-passphrase-file or "
+                    "[restore].decrypt_passphrase_file"
+                )
+            if verify:
+                _verify_archive_hash(plan.archive, plan.project, plan.sha256)
+                verify = False
+            decrypted = openssl_decrypt_to_temp(plan.archive, decrypt_passphrase_file)
+            bundle_source = decrypted
         bundle_copy = temporary / "source.bundle"
-        with plan.archive.open("rb") as source, bundle_copy.open("xb") as target:
+        with bundle_source.open("rb") as source, bundle_copy.open("xb") as target:
             shutil.copyfileobj(source, target, length=1024 * 1024)
         if verify and sha256_file(bundle_copy).lower() != (plan.sha256 or "").lower():
             raise RestoreError(f"sha256 mismatch for {plan.archive}")
@@ -1153,53 +1205,89 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             raise RestoreError(f"restore target already exists: {plan.target}")
         repo.rename(plan.target)
     finally:
+        if decrypted is not None:
+            cleanup_decrypt_temp(decrypted)
         _cleanup_restore_temp(temporary)
 
 
-def _restore_archive(plan: RestorePlan, *, verify: bool) -> None:
+def _restore_archive(
+    plan: RestorePlan,
+    *,
+    verify: bool,
+    decrypt_passphrase_file: Path | None = None,
+) -> None:
+    from proj_janitor.crypto import (
+        archive_is_encrypted,
+        cleanup_decrypt_temp,
+        openssl_decrypt_to_temp,
+    )
+
     if plan.archive is None:
         raise RestoreError(f"incomplete archive restore plan for {plan.project}")
     if plan.target.exists() or plan.target.is_symlink():
         raise RestoreError(f"restore target already exists: {plan.target}")
 
-    with plan.archive.open("rb") as archive_source:
-        if verify:
-            if not plan.sha256:
-                raise RestoreError(f"manifest has no sha256 for {plan.project}")
-            actual = sha256_stream(archive_source)
-            if actual.lower() != plan.sha256.lower():
+    archive_path = plan.archive
+    decrypted: Path | None = None
+    try:
+        if archive_is_encrypted(archive_path, plan.encryption):
+            if decrypt_passphrase_file is None:
                 raise RestoreError(
-                    f"sha256 mismatch for {plan.archive}: "
-                    f"expected {plan.sha256}, got {actual}"
+                    "encrypted archive requires --decrypt-passphrase-file or "
+                    "[restore].decrypt_passphrase_file"
                 )
-            archive_source.seek(0)
-        plan.target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = Path(
-            tempfile.mkdtemp(
-                prefix=f".{plan.project}-restore-",
-                dir=plan.target.parent,
-            )
-        )
-        try:
-            _safe_extract(
-                plan.archive,
-                temporary,
-                plan.project,
-                fileobj=archive_source,
-            )
-            extracted = temporary / plan.project
-            if extracted.is_symlink() or not extracted.is_dir():
-                raise RestoreError(
-                    f"archive does not contain project directory: {plan.project}"
+            if verify:
+                _verify_archive_hash(archive_path, plan.project, plan.sha256)
+            decrypted = openssl_decrypt_to_temp(archive_path, decrypt_passphrase_file)
+            archive_path = decrypted
+            verify = False
+
+        with archive_path.open("rb") as archive_source:
+            if verify:
+                if not plan.sha256:
+                    raise RestoreError(f"manifest has no sha256 for {plan.project}")
+                actual = sha256_stream(archive_source)
+                if actual.lower() != plan.sha256.lower():
+                    raise RestoreError(
+                        f"sha256 mismatch for {plan.archive}: "
+                        f"expected {plan.sha256}, got {actual}"
+                    )
+                archive_source.seek(0)
+            plan.target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{plan.project}-restore-",
+                    dir=plan.target.parent,
                 )
-            if plan.target.exists() or plan.target.is_symlink():
-                raise RestoreError(f"restore target already exists: {plan.target}")
-            extracted.rename(plan.target)
-        finally:
-            _cleanup_restore_temp(temporary)
+            )
+            try:
+                _safe_extract(
+                    archive_path,
+                    temporary,
+                    plan.project,
+                    fileobj=archive_source,
+                )
+                extracted = temporary / plan.project
+                if extracted.is_symlink() or not extracted.is_dir():
+                    raise RestoreError(
+                        f"archive does not contain project directory: {plan.project}"
+                    )
+                if plan.target.exists() or plan.target.is_symlink():
+                    raise RestoreError(f"restore target already exists: {plan.target}")
+                extracted.rename(plan.target)
+            finally:
+                _cleanup_restore_temp(temporary)
+    finally:
+        if decrypted is not None:
+            cleanup_decrypt_temp(decrypted)
 
 
-def _restore_incremental(plan: RestorePlan, *, verify: bool) -> None:
+def _restore_incremental(
+    plan: RestorePlan,
+    *,
+    verify: bool,
+    decrypt_passphrase_file: Path | None = None,
+) -> None:
     if plan.archive is None:
         raise RestoreError(f"incomplete incremental restore plan for {plan.project}")
     manifest_dir = plan.manifest_dir
@@ -1251,11 +1339,18 @@ def _restore_incremental(plan: RestorePlan, *, verify: bool) -> None:
             inventory=base_record.get("inventory"),
             manifest_dir=manifest_dir,
             in_place=plan.in_place,
+            encryption=(
+                base_record.get("encryption")
+                if isinstance(base_record.get("encryption"), str)
+                else None
+            ),
         )
         chain.insert(0, base_plan)
         current = base_plan
 
-    _restore_archive(chain[0], verify=verify)
+    _restore_archive(
+        chain[0], verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+    )
     for delta_plan in chain[1:]:
         deleted = (delta_plan.incremental or {}).get("deleted") or []
         if not isinstance(deleted, list):

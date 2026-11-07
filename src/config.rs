@@ -51,6 +51,9 @@ pub(crate) struct BackupConfig {
     /// Refuse backups when the destination directory is group/world-accessible.
     #[serde(default)]
     pub(crate) fail_on_insecure_dest: bool,
+    /// Encrypt archive/bundle payloads with openssl using this passphrase file.
+    #[serde(default)]
+    pub(crate) encrypt_passphrase_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -78,6 +81,9 @@ pub(crate) struct RestoreConfig {
     /// Require `--dest` so restore never writes to manifest `source` paths.
     #[serde(default)]
     pub(crate) require_dest: bool,
+    /// Passphrase file used to decrypt openssl-encrypted archives.
+    #[serde(default)]
+    pub(crate) decrypt_passphrase_file: Option<std::path::PathBuf>,
 }
 
 /// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.

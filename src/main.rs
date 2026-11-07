@@ -11,6 +11,7 @@ mod archive;
 mod backup;
 mod clean;
 mod config;
+mod crypto;
 mod project;
 mod restore;
 mod retention;
@@ -132,6 +133,10 @@ enum Action {
             conflicts_with = "fail_on_insecure_dest"
         )]
         no_fail_on_insecure_dest: bool,
+        #[arg(long, value_name = "FILE")]
+        encrypt_passphrase_file: Option<PathBuf>,
+        #[arg(long, conflicts_with = "encrypt_passphrase_file")]
+        no_encrypt: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -179,6 +184,8 @@ enum Action {
         require_dest: bool,
         #[arg(long = "no-require-dest", conflicts_with = "require_dest")]
         no_require_dest: bool,
+        #[arg(long, value_name = "FILE")]
+        decrypt_passphrase_file: Option<PathBuf>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -250,6 +257,9 @@ pub(crate) struct Record {
     /// Legacy manifests may store bare OID strings; those remain readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lfs_objects: Option<Vec<LfsObjectRef>>,
+    /// Optional archive encryption scheme (e.g. openssl-aes-256-cbc-pbkdf2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) encryption: Option<String>,
 }
 
 /// One LFS object recorded at backup time. New backups always write
@@ -348,6 +358,8 @@ fn run() -> anyhow::Result<()> {
             no_check_space,
             fail_on_insecure_dest,
             no_fail_on_insecure_dest,
+            encrypt_passphrase_file,
+            no_encrypt,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -403,6 +415,15 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.backup.fail_on_insecure_dest)
                     .unwrap_or(false),
             );
+            let encrypt_passphrase_file = if no_encrypt {
+                None
+            } else {
+                encrypt_passphrase_file.or_else(|| {
+                    config
+                        .as_ref()
+                        .and_then(|cfg| cfg.backup.encrypt_passphrase_file.clone())
+                })
+            };
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -419,6 +440,7 @@ fn run() -> anyhow::Result<()> {
                 progress,
                 check_space,
                 fail_on_insecure_dest,
+                encrypt_passphrase_file,
             )
         }
         Action::Clean {
@@ -458,6 +480,7 @@ fn run() -> anyhow::Result<()> {
             no_check_remote,
             require_dest,
             no_require_dest,
+            decrypt_passphrase_file,
             config,
             json,
         } => {
@@ -478,6 +501,11 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.require_dest)
                     .unwrap_or(false),
             );
+            let decrypt_passphrase_file = decrypt_passphrase_file.or_else(|| {
+                config
+                    .as_ref()
+                    .and_then(|cfg| cfg.restore.decrypt_passphrase_file.clone())
+            });
             restore_cmd(
                 &manifest,
                 dest,
@@ -487,6 +515,7 @@ fn run() -> anyhow::Result<()> {
                 yes,
                 check_remote,
                 require_dest,
+                decrypt_passphrase_file,
                 json,
             )
         }

@@ -2713,3 +2713,84 @@ fn prune_uses_keep_from_config_and_cli_overrides() {
     let override_json: serde_json::Value = serde_json::from_slice(&cli_override.stdout).unwrap();
     assert_eq!(override_json["keep"], 5);
 }
+
+#[test]
+fn backup_encrypt_and_restore_round_trip() {
+    if !Command::new("openssl")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("skipping openssl encryption test: openssl unavailable");
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("secret.txt"), "payload\n").unwrap();
+    let dest = temp.0.join("backups");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--encrypt-passphrase-file"])
+        .arg(&passphrase)
+        .arg("--backup-dest")
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut found_enc = false;
+    let mut found_plain = false;
+    let mut manifest = None;
+    fn visit(
+        dir: &std::path::Path,
+        found_enc: &mut bool,
+        found_plain: &mut bool,
+        manifest: &mut Option<std::path::PathBuf>,
+    ) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                visit(&path, found_enc, found_plain, manifest);
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.ends_with(".tar.gz.enc") {
+                    *found_enc = true;
+                } else if name.ends_with(".tar.gz") {
+                    *found_plain = true;
+                } else if name.starts_with("manifest-") && name.ends_with(".json") {
+                    *manifest = Some(path);
+                }
+            }
+        }
+    }
+    visit(&dest, &mut found_enc, &mut found_plain, &mut manifest);
+    assert!(found_enc, "expected encrypted archive");
+    assert!(!found_plain, "plaintext archive should be removed");
+    let manifest = manifest.expect("manifest");
+    let text = fs::read_to_string(&manifest).unwrap();
+    assert!(text.contains("openssl-aes-256-cbc-pbkdf2"), "{text}");
+    let out = temp.0.join("restored");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .arg("--yes")
+        .arg("--decrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let restored =
+        fs::read_to_string(out.join(project.file_name().unwrap()).join("secret.txt")).unwrap();
+    assert_eq!(restored, "payload\n");
+}

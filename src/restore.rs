@@ -28,6 +28,7 @@ use crate::{
         extract_incremental_delta, portable_path_key, remove_deleted_paths, safe_windows_component,
         sha256,
     },
+    crypto::{archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp},
     expand,
     project::{git_compatible_path, git_output, submodule_config, submodule_url_supported},
     resolve_for_creation,
@@ -942,6 +943,7 @@ pub(crate) fn restore_cmd(
     yes: bool,
     check_remote: bool,
     require_dest: bool,
+    decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
     if require_dest && dest.is_none() {
@@ -1234,15 +1236,17 @@ pub(crate) fn restore_cmd(
                             archive,
                             target,
                             no_verify,
+                            decrypt_passphrase_file.as_deref(),
                         )?;
-                    } else if no_verify {
-                        extract_archive(archive, target, &r.project)?;
                     } else {
-                        extract_archive_with_hash(
+                        restore_encrypted_or_plain_archive(
                             archive,
                             target,
                             &r.project,
+                            r.encryption.as_deref(),
                             r.sha256.as_deref(),
+                            no_verify,
+                            decrypt_passphrase_file.as_deref(),
                         )?;
                     }
                 }
@@ -1458,6 +1462,7 @@ fn restore_incremental(
     archive: &Path,
     target: &Path,
     no_verify: bool,
+    passphrase_file: Option<&Path>,
 ) -> anyhow::Result<()> {
     let mut chain: Vec<(Record, PathBuf)> = Vec::new();
     let mut current = record.clone();
@@ -1492,16 +1497,15 @@ fn restore_incremental(
         base_record.incremental.is_none(),
         "incremental chain does not terminate at a full snapshot"
     );
-    if no_verify {
-        extract_archive(base_archive, target, &base_record.project)?;
-    } else {
-        extract_archive_with_hash(
-            base_archive,
-            target,
-            &base_record.project,
-            base_record.sha256.as_deref(),
-        )?;
-    }
+    restore_encrypted_or_plain_archive(
+        base_archive,
+        target,
+        &base_record.project,
+        base_record.encryption.as_deref(),
+        base_record.sha256.as_deref(),
+        no_verify,
+        passphrase_file,
+    )?;
     for (rec, delta_archive) in &chain[1..] {
         let info = rec.incremental.as_ref().ok_or_else(|| {
             anyhow::anyhow!("incremental chain contains a non-incremental snapshot")
@@ -1512,9 +1516,65 @@ fn restore_incremental(
         } else {
             rec.sha256.as_deref()
         };
-        extract_incremental_delta(delta_archive, target, &rec.project, expected)?;
+        if archive_is_encrypted(delta_archive, rec.encryption.as_deref()) {
+            let pass = passphrase_file.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "encrypted archive requires --decrypt-passphrase-file or [restore].decrypt_passphrase_file"
+                )
+            })?;
+            if let Some(expected) = expected {
+                let actual = sha256(delta_archive)?;
+                anyhow::ensure!(
+                    actual.eq_ignore_ascii_case(expected),
+                    "sha256 mismatch for {}",
+                    delta_archive.display()
+                );
+            }
+            let plain = openssl_decrypt_to_temp(delta_archive, pass)?;
+            let result = extract_incremental_delta(&plain, target, &rec.project, None);
+            cleanup_decrypt_temp(&plain);
+            result?;
+        } else {
+            extract_incremental_delta(delta_archive, target, &rec.project, expected)?;
+        }
     }
     Ok(())
+}
+
+fn restore_encrypted_or_plain_archive(
+    archive: &Path,
+    target: &Path,
+    project: &str,
+    encryption: Option<&str>,
+    expected_hash: Option<&str>,
+    no_verify: bool,
+    passphrase_file: Option<&Path>,
+) -> anyhow::Result<()> {
+    if archive_is_encrypted(archive, encryption) {
+        let pass = passphrase_file.ok_or_else(|| {
+            anyhow::anyhow!(
+                "encrypted archive requires --decrypt-passphrase-file or [restore].decrypt_passphrase_file"
+            )
+        })?;
+        if !no_verify
+            && let Some(expected) = expected_hash
+        {
+            let actual = sha256(archive)?;
+            anyhow::ensure!(
+                actual.eq_ignore_ascii_case(expected),
+                "sha256 mismatch for {}",
+                archive.display()
+            );
+        }
+        let plain = openssl_decrypt_to_temp(archive, pass)?;
+        let result = extract_archive(&plain, target, project);
+        cleanup_decrypt_temp(&plain);
+        result
+    } else if no_verify {
+        extract_archive(archive, target, project)
+    } else {
+        extract_archive_with_hash(archive, target, project, expected_hash)
+    }
 }
 
 fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow::Result<()> {

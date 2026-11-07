@@ -24,6 +24,12 @@ from proj_janitor.config import (
     is_coverage_artifact,
 )
 from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project, human_size
+from proj_janitor.crypto import (
+    OPENSSL_AES_256_CBC_PBKDF2,
+    encrypted_sibling,
+    openssl_encrypt_file,
+    validate_passphrase_file,
+)
 from proj_janitor.secrets import (
     SecretPathsError,
     find_possible_secret_paths,
@@ -162,8 +168,11 @@ def run_backup(
     progress: bool = False,
     check_space: bool = False,
     fail_on_insecure_dest: bool = False,
+    encrypt_passphrase_file: Path | None = None,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
+    if encrypt_passphrase_file is not None:
+        validate_passphrase_file(encrypt_passphrase_file)
     if fail_on_insecure_dest:
         insecure = insecure_dir_mode(backup_dest)
         if insecure is not None:
@@ -266,6 +275,7 @@ def run_backup(
                 fail_on_secrets=False,
                 exclude_secrets=exclude_secrets,
                 progress=progress,
+                encrypt_passphrase_file=encrypt_passphrase_file,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -293,6 +303,7 @@ def _backup_one(
     fail_on_secrets: bool = False,
     exclude_secrets: bool = False,
     progress: bool = False,
+    encrypt_passphrase_file: Path | None = None,
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -325,6 +336,11 @@ def _backup_one(
             record, archive_identity = _create_git_bundle(
                 plan.project, archive_path, recovery, plan.reason
             )
+            if encrypt_passphrase_file is not None:
+                record, archive_identity = _encrypt_backup_payload(
+                    record, Path(record.archive), archive_identity, encrypt_passphrase_file
+                )
+                archive_path = Path(record.archive) if record.archive else archive_path
     else:
         if plan.archive_name is None:
             raise RuntimeError("archive backup plan is missing an archive name")
@@ -367,7 +383,10 @@ def _backup_one(
             previous=previous,
             exclude_secrets=exclude_secrets,
             progress=progress,
+            encrypt_passphrase_file=encrypt_passphrase_file,
         )
+        if record.archive:
+            archive_path = Path(record.archive)
 
     manifest = {
         "schema_version": 2,
@@ -562,6 +581,7 @@ def _backup_project_with_identity(
     previous: dict[str, str] | None = None,
     exclude_secrets: bool = False,
     progress: bool = False,
+    encrypt_passphrase_file: Path | None = None,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
@@ -584,7 +604,7 @@ def _backup_project_with_identity(
     incremental_info = (
         {"base": base_name, "deleted": deleted} if incremental else None
     )
-    return BackupRecord(
+    record = BackupRecord(
         project=project.name,
         source=str(project.path),
         archive=str(archive),
@@ -594,7 +614,54 @@ def _backup_project_with_identity(
         fallback_reason=fallback_reason,
         inventory=inventory,
         incremental=incremental_info,
-    ), archive_identity
+    )
+    if encrypt_passphrase_file is not None:
+        record, archive_identity = _encrypt_backup_payload(
+            record, archive, archive_identity, encrypt_passphrase_file
+        )
+    return record, archive_identity
+
+
+def _encrypt_backup_payload(
+    record: BackupRecord,
+    archive: Path,
+    archive_identity: tuple[int, int],
+    passphrase_file: Path,
+) -> tuple[BackupRecord, tuple[int, int]]:
+    enc_path = encrypted_sibling(archive)
+    digest, size = openssl_encrypt_file(archive, enc_path, passphrase_file)
+    try:
+        current = archive.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) == archive_identity:
+            archive.unlink()
+    except OSError:
+        pass
+    enc_stat = enc_path.stat(follow_symlinks=False)
+    enc_identity = (enc_stat.st_dev, enc_stat.st_ino)
+    return (
+        BackupRecord(
+            project=record.project,
+            source=record.source,
+            archive=str(enc_path),
+            archive_bytes=size,
+            source_bytes=record.source_bytes,
+            sha256=digest,
+            strategy=record.strategy,
+            remote=record.remote,
+            remote_url=record.remote_url,
+            branch=record.branch,
+            commit=record.commit,
+            upstream=record.upstream,
+            verified=record.verified,
+            fallback_reason=record.fallback_reason,
+            inventory=record.inventory,
+            incremental=record.incremental,
+            submodules=record.submodules,
+            lfs_objects=record.lfs_objects,
+            encryption=OPENSSL_AES_256_CBC_PBKDF2,
+        ),
+        enc_identity,
+    )
 
 
 def _previous_inventory(backup_dir: Path) -> tuple[str | None, dict[str, str] | None]:

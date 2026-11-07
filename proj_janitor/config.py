@@ -129,6 +129,7 @@ class BackupConfig:
         "progress",
         "check_space",
         "fail_on_insecure_dest",
+        "encrypt_passphrase_file",
     )
 
     def __init__(
@@ -142,6 +143,7 @@ class BackupConfig:
         progress: bool = False,
         check_space: bool = False,
         fail_on_insecure_dest: bool = False,
+        encrypt_passphrase_file: Path | None = None,
     ) -> None:
         self.dest = dest
         self.keep = keep
@@ -152,6 +154,7 @@ class BackupConfig:
         self.progress = progress
         self.check_space = check_space
         self.fail_on_insecure_dest = fail_on_insecure_dest
+        self.encrypt_passphrase_file = encrypt_passphrase_file
 
 
 class PruneConfig:
@@ -169,13 +172,17 @@ class VerifyConfig:
 
 
 class RestoreConfig:
-    __slots__ = ("check_remote", "require_dest")
+    __slots__ = ("check_remote", "require_dest", "decrypt_passphrase_file")
 
     def __init__(
-        self, check_remote: bool = False, require_dest: bool = False
+        self,
+        check_remote: bool = False,
+        require_dest: bool = False,
+        decrypt_passphrase_file: Path | None = None,
     ) -> None:
         self.check_remote = check_remote
         self.require_dest = require_dest
+        self.decrypt_passphrase_file = decrypt_passphrase_file
 
 
 class Config:
@@ -306,6 +313,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "progress",
         "check_space",
         "fail_on_insecure_dest",
+        "encrypt_passphrase_file",
     }
     if set(backup_data) - allowed_backup:
         raise ConfigError(
@@ -346,6 +354,12 @@ def load_config(path: Path | None = None) -> Config | None:
         )
         if "fail_on_insecure_dest" in backup_data
         else False,
+        encrypt_passphrase_file=_parse_path(
+            backup_data["encrypt_passphrase_file"],
+            "[backup].encrypt_passphrase_file",
+        )
+        if "encrypt_passphrase_file" in backup_data
+        else None,
     )
 
     prune_data = data.get("prune", {})
@@ -379,7 +393,11 @@ def load_config(path: Path | None = None) -> Config | None:
     restore_data = data.get("restore", {})
     if not isinstance(restore_data, dict):
         raise ConfigError(f"invalid config {path}: [restore] must be a table")
-    allowed_restore = {"check_remote", "require_dest"}
+    allowed_restore = {
+        "check_remote",
+        "require_dest",
+        "decrypt_passphrase_file",
+    }
     if set(restore_data) - allowed_restore:
         raise ConfigError(
             f"invalid config {path}: unknown [restore] key(s) "
@@ -396,6 +414,12 @@ def load_config(path: Path | None = None) -> Config | None:
         )
         if "require_dest" in restore_data
         else False,
+        decrypt_passphrase_file=_parse_path(
+            restore_data["decrypt_passphrase_file"],
+            "[restore].decrypt_passphrase_file",
+        )
+        if "decrypt_passphrase_file" in restore_data
+        else None,
     )
 
     return Config(backup=backup, prune=prune, verify=verify, restore=restore)

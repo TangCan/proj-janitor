@@ -362,6 +362,7 @@ class CliTests(unittest.TestCase):
                 previous=None,
                 exclude_secrets=False,
                 progress=False,
+                encrypt_passphrase_file=None,
             ):
                 if project.name == "bad":
                     raise PermissionError("access denied")
@@ -378,6 +379,7 @@ class CliTests(unittest.TestCase):
                     previous=previous,
                     exclude_secrets=exclude_secrets,
                     progress=progress,
+                    encrypt_passphrase_file=encrypt_passphrase_file,
                 )
 
             with mock.patch(
@@ -882,6 +884,53 @@ class CliTests(unittest.TestCase):
             self.assertNotEqual(code, 0, err)
             self.assertIn("insecure permissions", err)
             self.assertIn("0755", err)
+
+    
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
+    def test_archive_backup_encrypt_and_restore_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "secret.txt").write_text("payload\n", encoding="utf-8")
+            dest = root / "backups"
+            out = root / "restored"
+            passphrase = root / "pass.txt"
+            passphrase.write_text("test-passphrase\n", encoding="utf-8")
+
+            code, _stdout, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--encrypt-passphrase-file",
+                str(passphrase),
+            )
+            self.assertEqual(code, 0, err)
+            archives = list(dest.rglob("*.tar.gz.enc"))
+            self.assertEqual(len(archives), 1, archives)
+            self.assertFalse(list(dest.rglob("*.tar.gz")))
+
+            manifests = list(dest.rglob("manifest-*.json"))
+            self.assertEqual(len(manifests), 1)
+            self.assertIn(
+                "openssl-aes-256-cbc-pbkdf2",
+                manifests[0].read_text(encoding="utf-8"),
+            )
+
+            code, _stdout, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(out),
+                "--yes",
+                "--decrypt-passphrase-file",
+                str(passphrase),
+            )
+            self.assertEqual(code, 0, err)
+            restored = out / project.name / "secret.txt"
+            self.assertTrue(restored.is_file())
+            self.assertEqual(restored.read_text(encoding="utf-8"), "payload\n")
 
     def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -242,6 +242,20 @@ def build_parser() -> argparse.ArgumentParser:
         dest="fail_on_insecure_dest",
         help="allow group/world-accessible backup destinations (overrides config)",
     )
+    backup.add_argument(
+        "--encrypt-passphrase-file",
+        type=Path,
+        dest="encrypt_passphrase_file",
+        help=(
+            "encrypt archive/bundle payloads with openssl using this passphrase file "
+            "(overrides [backup].encrypt_passphrase_file)"
+        ),
+    )
+    backup.add_argument(
+        "--no-encrypt",
+        action="store_true",
+        help="disable archive encryption even when [backup].encrypt_passphrase_file is set",
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -336,6 +350,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="require_dest",
         help="allow original-location restore even when [restore].require_dest is true",
+    )
+    restore.add_argument(
+        "--decrypt-passphrase-file",
+        type=Path,
+        dest="decrypt_passphrase_file",
+        help=(
+            "passphrase file for openssl-encrypted archives "
+            "(overrides [restore].decrypt_passphrase_file)"
+        ),
     )
     restore.add_argument(
         "--config",
@@ -498,6 +521,12 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         args.fail_on_insecure_dest,
         config.backup.fail_on_insecure_dest if config else False,
     )
+    if getattr(args, "no_encrypt", False):
+        encrypt_passphrase_file = None
+    else:
+        encrypt_passphrase_file = args.encrypt_passphrase_file or (
+            config.backup.encrypt_passphrase_file if config else None
+        )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -560,6 +589,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                     + (
                         " [Git metadata exclusion enabled; restored archive has no Git metadata]"
                         if args.exclude_git_metadata
+                        else ""
+                    )
+                    + (
+                        " [would encrypt with openssl]"
+                        if encrypt_passphrase_file is not None
                         else ""
                     )
                 )
@@ -637,6 +671,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             progress=progress,
             check_space=check_space,
             fail_on_insecure_dest=fail_on_insecure_dest,
+            encrypt_passphrase_file=encrypt_passphrase_file,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -718,6 +753,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.require_dest,
         config.restore.require_dest if config else False,
     )
+    decrypt_passphrase_file = args.decrypt_passphrase_file or (
+        config.restore.decrypt_passphrase_file if config else None
+    )
     if require_dest and args.dest is None:
         print(
             "error: --dest is required when --require-dest or "
@@ -786,7 +824,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
     try:
         results = execute_restore(
-            plans, verify=not args.no_verify, check_remote=check_remote
+            plans,
+            verify=not args.no_verify,
+            check_remote=check_remote,
+            decrypt_passphrase_file=decrypt_passphrase_file,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
