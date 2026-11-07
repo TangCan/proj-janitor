@@ -322,6 +322,40 @@ fn backup_help_hides_backup_dest_environment_value() {
 }
 
 #[test]
+fn backup_help_describes_options() {
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        help.contains("Backup root directory"),
+        "missing --backup-dest help: {help}"
+    );
+    assert!(
+        help.contains("Print packing progress"),
+        "missing --progress help: {help}"
+    );
+    assert!(
+        help.contains("Encrypt archive/bundle"),
+        "missing --encrypt-passphrase-file help: {help}"
+    );
+}
+
+#[test]
+fn top_level_help_describes_subcommands() {
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("Record Git remotes or archive projects"));
+    assert!(help.contains("Restore projects from a backup manifest"));
+}
+
+#[test]
 fn backup_and_restore_git_lfs_objects_with_git_strategy() {
     if cfg!(windows) {
         eprintln!("skipping local-file Git LFS integration on Windows");

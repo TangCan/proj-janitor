@@ -98,7 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
         "scan",
         help="discover projects and report size and git state",
     )
-    scan.add_argument("roots", nargs="+", type=Path)
+    scan.add_argument(
+        "roots",
+        nargs="+",
+        type=Path,
+        help="project roots or parent directories to scan",
+    )
     scan.add_argument(
         "--all",
         action="store_true",
@@ -110,7 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
         "backup",
         help="record Git remotes or archive projects into a destination",
     )
-    backup.add_argument("roots", nargs="+", type=Path)
+    backup.add_argument(
+        "roots",
+        nargs="+",
+        type=Path,
+        help="project roots or parent directories to back up",
+    )
     backup.add_argument(
         "--backup-dest",
         default=None,
@@ -268,7 +278,12 @@ def build_parser() -> argparse.ArgumentParser:
         "clean",
         help="find and remove known build artifacts (dry-run by default)",
     )
-    clean.add_argument("roots", nargs="*", type=Path)
+    clean.add_argument(
+        "roots",
+        nargs="*",
+        type=Path,
+        help="project roots to clean (optional with --list-rules)",
+    )
     clean.add_argument(
         "--rules",
         type=_rule_list,
@@ -296,7 +311,11 @@ def build_parser() -> argparse.ArgumentParser:
         "restore",
         help="restore projects from a backup manifest",
     )
-    restore.add_argument("manifest", type=Path)
+    restore.add_argument(
+        "manifest",
+        type=Path,
+        help="manifest JSON produced by backup",
+    )
     restore.add_argument(
         "--dest",
         type=Path,
@@ -428,8 +447,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="progress",
         help=(
-            "print per-project restore progress on stderr "
-            "(overrides [restore].progress)"
+            "print per-project restore progress on stderr, including archive "
+            "extract member counts (overrides [restore].progress)"
         ),
     )
     restore_progress.add_argument(
@@ -459,7 +478,11 @@ def build_parser() -> argparse.ArgumentParser:
         "verify",
         help="verify backup archives against a manifest",
     )
-    verify.add_argument("manifest", type=Path)
+    verify.add_argument(
+        "manifest",
+        type=Path,
+        help="manifest JSON produced by backup",
+    )
     verify.add_argument(
         "--project",
         action="append",
@@ -496,8 +519,17 @@ def build_parser() -> argparse.ArgumentParser:
         "prune",
         help="preview or remove old backups while retaining the newest snapshots",
     )
-    prune.add_argument("backup_root", type=Path)
-    prune.add_argument("--keep", type=_positive_integer, metavar="N")
+    prune.add_argument(
+        "backup_root",
+        type=Path,
+        help="backup destination root that contains per-project snapshots",
+    )
+    prune.add_argument(
+        "--keep",
+        type=_positive_integer,
+        metavar="N",
+        help="keep this many newest manifests per project",
+    )
     prune.add_argument(
         "--config",
         type=Path,

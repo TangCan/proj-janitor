@@ -102,6 +102,23 @@ class CliTests(unittest.TestCase):
             self.assertIn(expected, stdout.getvalue())
             self.assertEqual(stderr.getvalue(), "")
 
+    def test_backup_help_describes_options(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            build_parser().parse_args(["backup", "--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        help_text = stdout.getvalue()
+        self.assertIn("backup root directory", help_text)
+        self.assertIn("print archive packing progress", help_text)
+        self.assertIn("encrypt archive/bundle payloads", help_text)
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_package_version_matches_pyproject(self) -> None:
         import tomllib
         from pathlib import Path

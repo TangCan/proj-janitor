@@ -81,142 +81,212 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Discover projects and report size and git state
     Scan {
+        /// Project roots or parent directories to scan
         #[arg(required = true)]
         roots: Vec<PathBuf>,
+        /// Include directories without a known project marker
         #[arg(long)]
         all: bool,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
     },
+    /// Record Git remotes or archive projects into a destination
     Backup {
+        /// Project roots or parent directories to back up
         #[arg(required = true)]
         roots: Vec<PathBuf>,
+        /// Backup root directory (or [backup].dest)
         #[arg(long, env = "BACKUP_DEST", hide_env_values = true)]
         backup_dest: Option<PathBuf>,
+        /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
-        #[arg(long, value_parser = parse_positive_usize)]
+        /// After success, retain only N newest manifests per project [backup].keep
+        #[arg(long, value_parser = parse_positive_usize, value_name = "N")]
         keep: Option<usize>,
+        /// Skip confirmation when deleting old backups via --keep
         #[arg(long)]
         yes: bool,
+        /// Show the plan without writing archives
         #[arg(long)]
         dry_run: bool,
+        /// Archive build artifacts and dependency caches too
         #[arg(long)]
         include_artifacts: bool,
+        /// Archive every project even when it can be recovered from GitHub
         #[arg(long)]
         always_archive: bool,
+        /// Omit .git from archives; restored trees have no Git history
         #[arg(long)]
         exclude_git_metadata: bool,
+        /// Record a delta snapshot (changed/new files) instead of a full archive
         #[arg(long)]
         incremental: bool,
+        /// Refuse archive backups when common secret paths are detected
         #[arg(long, conflicts_with = "no_fail_on_secrets")]
         fail_on_secrets: bool,
+        /// Warn about secret paths but still archive (overrides config)
         #[arg(long = "no-fail-on-secrets", conflicts_with = "fail_on_secrets")]
         no_fail_on_secrets: bool,
+        /// Omit common secret paths from archive backups
         #[arg(long, conflicts_with = "no_exclude_secrets")]
         exclude_secrets: bool,
+        /// Include secret paths in archives and only warn (overrides config)
         #[arg(long = "no-exclude-secrets", conflicts_with = "exclude_secrets")]
         no_exclude_secrets: bool,
+        /// Print packing progress on stderr; with --dry-run, estimate size after excludes
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
+        /// Disable progress output even when [backup].progress is true
         #[arg(long = "no-progress", conflicts_with = "progress")]
         no_progress: bool,
+        /// Refuse archive backups when free space is below the size estimate
         #[arg(long, conflicts_with = "no_check_space")]
         check_space: bool,
+        /// Skip free-space preflight even when [backup].check_space is true
         #[arg(long = "no-check-space", conflicts_with = "check_space")]
         no_check_space: bool,
+        /// Refuse backup when the destination is group/world-accessible (Unix)
         #[arg(long, conflicts_with = "no_fail_on_insecure_dest")]
         fail_on_insecure_dest: bool,
+        /// Allow group/world-accessible backup destinations (overrides config)
         #[arg(
             long = "no-fail-on-insecure-dest",
             conflicts_with = "fail_on_insecure_dest"
         )]
         no_fail_on_insecure_dest: bool,
+        /// Encrypt archive/bundle payloads with openssl using this passphrase file
         #[arg(long, value_name = "FILE")]
         encrypt_passphrase_file: Option<PathBuf>,
+        /// Disable encryption even when [backup].encrypt_passphrase_file is set
         #[arg(long, conflicts_with = "encrypt_passphrase_file")]
         no_encrypt: bool,
     },
+    /// Find and remove known build artifacts (dry-run by default)
     Clean {
+        /// Project roots to clean (optional with --list-rules)
         roots: Vec<PathBuf>,
+        /// Comma-separated cleanup rules to apply (default: all)
         #[arg(long, value_delimiter = ',')]
         rules: Vec<String>,
+        /// Actually delete planned items
         #[arg(long)]
         apply: bool,
+        /// Skip the interactive confirmation
         #[arg(long)]
         yes: bool,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
+        /// Print available cleanup rules and exit
         #[arg(long)]
         list_rules: bool,
     },
+    /// Preview or remove old backups while retaining the newest snapshots
     Prune {
+        /// Backup destination root that contains per-project snapshots
         backup_root: PathBuf,
-        #[arg(long, value_parser = parse_positive_usize)]
+        /// Keep this many newest manifests per project
+        #[arg(long, value_parser = parse_positive_usize, value_name = "N")]
         keep: Option<usize>,
+        /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Delete the planned backups
         #[arg(long)]
         apply: bool,
+        /// Skip interactive confirmation
         #[arg(long)]
         yes: bool,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
     },
+    /// Restore projects from a backup manifest
     Restore {
+        /// Manifest JSON produced by backup
         manifest: PathBuf,
+        /// Restore parent directory (default: original location in manifest)
         #[arg(long)]
         dest: Option<PathBuf>,
-        #[arg(long = "project")]
+        /// Restore only this project (repeatable)
+        #[arg(long = "project", value_name = "NAME")]
         projects: Vec<String>,
+        /// Show the restore plan without writing files
         #[arg(long)]
         dry_run: bool,
+        /// Skip archive SHA-256 verification
         #[arg(long)]
         no_verify: bool,
+        /// Skip confirmation for original-location restore or --force overwrite
         #[arg(long)]
         yes: bool,
+        /// Fail before restore when a Git remote/submodule/LFS object is unreachable
         #[arg(long, conflicts_with = "no_check_remote")]
         check_remote: bool,
+        /// Disable remote probing even when [restore].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        /// Require --dest; refuse original-location restore
         #[arg(long, conflicts_with = "no_require_dest")]
         require_dest: bool,
+        /// Allow original-location restore even when [restore].require_dest is true
         #[arg(long = "no-require-dest", conflicts_with = "require_dest")]
         no_require_dest: bool,
+        /// Replace an existing restore target directory after staging succeeds
         #[arg(long, conflicts_with = "no_force")]
         force: bool,
+        /// Refuse existing restore targets even when [restore].force is true
         #[arg(long = "no-force", conflicts_with = "force")]
         no_force: bool,
+        /// Keep restoring remaining projects after a per-project failure
         #[arg(long, conflicts_with = "no_continue_on_error")]
         continue_on_error: bool,
+        /// Stop at the first per-project failure (overrides config)
         #[arg(long = "no-continue-on-error", conflicts_with = "continue_on_error")]
         no_continue_on_error: bool,
+        /// Skip projects whose restore target directory already exists
         #[arg(long, conflicts_with = "no_skip_existing")]
         skip_existing: bool,
+        /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
+        /// Print per-project restore progress on stderr (archive extract counts too)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
+        /// Disable restore progress even when [restore].progress is true
         #[arg(long = "no-progress", conflicts_with = "progress")]
         no_progress: bool,
+        /// Passphrase file for openssl-encrypted archives
         #[arg(long, value_name = "FILE")]
         decrypt_passphrase_file: Option<PathBuf>,
+        /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
     },
+    /// Verify backup archives against a manifest
     Verify {
+        /// Manifest JSON produced by backup
         manifest: PathBuf,
-        #[arg(long = "project")]
+        /// Verify only this project (repeatable)
+        #[arg(long = "project", value_name = "NAME")]
         projects: Vec<String>,
+        /// Contact recorded remotes, submodules, and LFS endpoints
         #[arg(long, conflicts_with = "no_check_remote")]
         check_remote: bool,
+        /// Disable remote probing even when [verify].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
     },
