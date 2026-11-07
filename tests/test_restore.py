@@ -755,6 +755,40 @@ class GitRestoreTests(unittest.TestCase):
             with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
                 verify_manifest(manifests[0])
 
+    def test_git_bundle_restores_when_branch_matches_init_default(self) -> None:
+        """Regression: fetch must not target the checked-out default branch name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("", encoding="utf-8")
+            (project / "main.py").write_text("print('master')\n", encoding="utf-8")
+            git(project, "init", "-q", "-b", "master")
+            git(project, "config", "user.email", "test@example.com")
+            git(project, "config", "user.name", "Test User")
+            git(project, "add", ".")
+            git(project, "commit", "-q", "-m", "initial")
+            head = git(project, "rev-parse", "HEAD")
+
+            manifests, records, failures = run_backup(
+                [scan_project(project)], root / "backups"
+            )
+            self.assertFalse(failures)
+            self.assertEqual(records[0].strategy, "git_bundle")
+            self.assertEqual(records[0].branch, "master")
+
+            restored = root / "restored"
+            plans, results = restore_from_manifest(manifests[0], restored)
+            target = restored / "app"
+            self.assertEqual(plans[0].strategy, "git_bundle")
+            self.assertEqual(results[0].strategy, "git_bundle")
+            self.assertEqual(git(target, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(target, "branch", "--show-current"), "master")
+            self.assertEqual(
+                (target / "main.py").read_text(encoding="utf-8"),
+                "print('master')\n",
+            )
+
     @unittest.skipUnless(
         GIT_LFS_AVAILABLE and os.name != "nt",
         "git-lfs or a local-file LFS endpoint is not available",

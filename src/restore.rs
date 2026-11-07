@@ -1390,6 +1390,19 @@ fn restore_git_bundle(
             run_git_with_timeout(&mut init, project, "init")?.success(),
             "cannot initialize Git bundle restore for {project}"
         );
+        // Point HEAD at an unborn placeholder so fetch can update every branch in
+        // the bundle, including the machine default (often `master`/`main`).
+        // Modern Git refuses: "refusing to fetch into branch '…' checked out at …".
+        let mut detach_head = Command::new("git");
+        detach_head.arg("-C").arg(&repo).args([
+            "symbolic-ref",
+            "HEAD",
+            "refs/heads/projjan-restore-temp",
+        ]);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut detach_head, project, "bundle HEAD prepare")?.success(),
+            "cannot prepare Git bundle restore for {project}"
+        );
         let mut fetch = Command::new("git");
         fetch
             .env("GIT_TERMINAL_PROMPT", "0")

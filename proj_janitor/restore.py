@@ -824,6 +824,21 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
         initialized = _run_git(["init", str(repo)], check=False)
         if initialized.returncode:
             raise RestoreError(f"cannot initialize Git bundle restore for {plan.project}")
+        # Point HEAD at an unborn placeholder so fetch can update every branch in
+        # the bundle, including the machine default (often `master`/`main`).
+        # Modern Git refuses: "refusing to fetch into branch '…' checked out at …".
+        prepared = _run_git(
+            [
+                "-C",
+                str(repo),
+                "symbolic-ref",
+                "HEAD",
+                "refs/heads/projjan-restore-temp",
+            ],
+            check=False,
+        )
+        if prepared.returncode:
+            raise RestoreError(f"cannot prepare Git bundle restore for {plan.project}")
         fetched = _run_git(
             [
                 "-C",

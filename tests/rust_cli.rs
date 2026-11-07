@@ -1071,6 +1071,76 @@ fn retention_keeps_whole_incremental_chain_together() {
 }
 
 #[test]
+fn backup_and_restore_git_bundle_when_branch_matches_init_default() {
+    // Regression: modern Git refuses fetch into the checked-out default branch
+    // (often `master`). Restore must move HEAD aside before fetching refs.
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "master"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    fs::write(project.join("main.py"), "print('master')\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "initial"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let backup_dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&backup.stdout).contains("[git-bundle]"),
+        "stdout: {}",
+        String::from_utf8_lossy(&backup.stdout)
+    );
+    let project_backup = backup_dest.join("demo");
+    let manifest = fs::read_dir(&project_backup)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let manifest_json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["records"][0]["strategy"], "git_bundle");
+    assert_eq!(manifest_json["records"][0]["branch"], "master");
+    assert_eq!(manifest_json["records"][0]["commit"], head);
+
+    let restored_dest = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("restore")
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&restored_dest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    let restored = restored_dest.join("demo");
+    assert_eq!(git(&restored, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&restored, &["branch", "--show-current"]), "master");
+    assert_eq!(
+        fs::read_to_string(restored.join("main.py"))
+            .unwrap()
+            .replace("\r\n", "\n"),
+        "print('master')\n"
+    );
+}
+
+#[test]
 fn backup_and_restore_unpushed_git_history_with_bundle() {
     let temp = TestDir::new();
     let project = temp.project();
