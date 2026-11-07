@@ -101,6 +101,17 @@ class CliTests(unittest.TestCase):
             self.assertIn(expected, stdout.getvalue())
             self.assertEqual(stderr.getvalue(), "")
 
+    def test_package_version_matches_pyproject(self) -> None:
+        import tomllib
+        from pathlib import Path
+
+        manifest = tomllib.loads(
+            Path(__file__).resolve().parents[1].joinpath("pyproject.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(__version__, manifest["project"]["version"])
+
     def test_verify_archive_manifest_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
