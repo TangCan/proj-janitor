@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import tarfile
 import tempfile
@@ -857,6 +858,30 @@ class CliTests(unittest.TestCase):
             self.assertIn(".env", err)
             self.assertIn("not encrypted", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
+
+    @unittest.skipUnless(os.name == "posix", "Unix permission check")
+    def test_backup_fail_on_insecure_dest_refuses_open_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            dest = root / "backups"
+            dest.mkdir(mode=0o755)
+            dest.chmod(0o755)
+
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+                "--fail-on-insecure-dest",
+            )
+
+            self.assertNotEqual(code, 0, err)
+            self.assertIn("insecure permissions", err)
+            self.assertIn("0755", err)
 
     def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

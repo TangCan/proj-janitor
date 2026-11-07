@@ -48,6 +48,9 @@ pub(crate) struct BackupConfig {
     /// Refuse archive backups when free space on dest is below the estimate.
     #[serde(default)]
     pub(crate) check_space: bool,
+    /// Refuse backups when the destination directory is group/world-accessible.
+    #[serde(default)]
+    pub(crate) fail_on_insecure_dest: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -324,6 +327,14 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\ncheck_space = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.backup.check_space);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_fail_on_insecure_dest() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nfail_on_insecure_dest = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.fail_on_insecure_dest);
     }
 
     #[test]

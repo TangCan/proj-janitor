@@ -12,7 +12,9 @@ from proj_janitor.backup import (
     archive_space_insufficient,
     available_disk_bytes,
     estimate_archive_stats,
+    format_insecure_dest_refusal,
     format_space_refusal,
+    insecure_dir_mode,
     prepare_backup,
     run_backup,
 )
@@ -158,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
         exclude_secrets=None,
         progress=None,
         check_space=None,
+        fail_on_insecure_dest=None,
     )
     backup_secrets = backup.add_mutually_exclusive_group()
     backup_secrets.add_argument(
@@ -222,6 +225,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="check_space",
         help="skip free-space preflight even when [backup].check_space is true",
+    )
+    backup_dest_perms = backup.add_mutually_exclusive_group()
+    backup_dest_perms.add_argument(
+        "--fail-on-insecure-dest",
+        action="store_true",
+        dest="fail_on_insecure_dest",
+        help=(
+            "refuse backup when the destination directory is group/world-accessible "
+            "on Unix (overrides [backup].fail_on_insecure_dest)"
+        ),
+    )
+    backup_dest_perms.add_argument(
+        "--no-fail-on-insecure-dest",
+        action="store_false",
+        dest="fail_on_insecure_dest",
+        help="allow group/world-accessible backup destinations (overrides config)",
     )
 
     clean = subparsers.add_parser(
@@ -475,6 +494,10 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         args.check_space,
         config.backup.check_space if config else False,
     )
+    fail_on_insecure_dest = resolve_tri_state(
+        args.fail_on_insecure_dest,
+        config.backup.fail_on_insecure_dest if config else False,
+    )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -483,6 +506,14 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if fail_on_insecure_dest:
+        insecure = insecure_dir_mode(backup_dest)
+        if insecure is not None:
+            print(
+                format_insecure_dest_refusal(backup_dest, insecure),
+                file=sys.stderr,
+            )
+            return 1
 
     if args.dry_run:
         try:
@@ -605,6 +636,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             exclude_secrets=exclude_secrets,
             progress=progress,
             check_space=check_space,
+            fail_on_insecure_dest=fail_on_insecure_dest,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

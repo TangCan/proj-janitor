@@ -161,8 +161,17 @@ def run_backup(
     exclude_secrets: bool = False,
     progress: bool = False,
     check_space: bool = False,
+    fail_on_insecure_dest: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
+    if fail_on_insecure_dest:
+        insecure = insecure_dir_mode(backup_dest)
+        if insecure is not None:
+            raise ValueError(
+                format_insecure_dest_refusal(backup_dest, insecure).removeprefix(
+                    "error: "
+                )
+            )
     manifest_paths, plans = prepare_backup(
         projects,
         backup_dest,
@@ -783,6 +792,25 @@ def _create_incremental_archive(
 
 
 ARCHIVE_SPACE_SLACK = 1024 * 1024
+
+
+def insecure_dir_mode(path: Path) -> int | None:
+    """Return mode bits when path exists and is group/other-accessible (Unix)."""
+    if os.name != "posix":
+        return None
+    target = path.expanduser()
+    if not target.exists():
+        return None
+    mode = target.stat().st_mode & 0o777
+    return mode if mode & 0o077 else None
+
+
+def format_insecure_dest_refusal(path: Path, mode: int) -> str:
+    return (
+        f"error: backup dest has insecure permissions {mode:04o} "
+        f"(group/other access); use chmod 700 or pass "
+        f"--no-fail-on-insecure-dest: {path}"
+    )
 
 
 def available_disk_bytes(path: Path) -> int:

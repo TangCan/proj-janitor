@@ -930,6 +930,34 @@ pub(crate) fn format_space_refusal(project: &str, needed: u64, available: u64) -
     )
 }
 
+/// On Unix, return the permission mode (masked to 0o777) when group/other bits are set.
+/// Non-Unix platforms always return `None` (check is a no-op).
+pub(crate) fn insecure_dir_mode(path: &Path) -> anyhow::Result<Option<u32>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let mode = fs::metadata(path)?.permissions().mode() & 0o777;
+        Ok(if mode & 0o077 != 0 { Some(mode) } else { None })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(None)
+    }
+}
+
+pub(crate) fn format_insecure_dest_refusal(path: &Path, mode: u32) -> String {
+    format!(
+        "error: backup dest has insecure permissions {:04o} (group/other access); \
+         use chmod 700 or pass --no-fail-on-insecure-dest: {}",
+        mode,
+        path.display()
+    )
+}
+
 pub(crate) fn archive_excluded(
     path: &Path,
     project: &Path,

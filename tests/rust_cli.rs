@@ -2209,6 +2209,41 @@ fn archive_backup_warns_about_possible_secrets() {
     assert!(stderr.contains("not encrypted"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn backup_fail_on_insecure_dest_refuses_open_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "hello\n").unwrap();
+    let dest = temp.0.join("backups");
+    fs::create_dir_all(&dest).unwrap();
+    let mut perms = fs::metadata(&dest).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&dest, perms).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--dry-run",
+            "--fail-on-insecure-dest",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("insecure permissions"), "{stderr}");
+    assert!(stderr.contains("0755"), "{stderr}");
+}
+
 #[test]
 fn backup_check_space_dry_run_succeeds_when_space_available() {
     let temp = TestDir::new();

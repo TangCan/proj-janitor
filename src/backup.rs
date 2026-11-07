@@ -12,8 +12,9 @@ use crate::{
     archive::{
         archive_path_matches, archive_space_insufficient, available_disk_bytes, copy_new_file,
         create_incremental_archive, create_private_dir, create_private_temp_dir,
-        estimate_archive_stats, format_space_refusal, portable_path_key, remove_file_if_same,
-        safe_windows_component, write_new_file,
+        estimate_archive_stats, format_insecure_dest_refusal, format_space_refusal,
+        insecure_dir_mode, portable_path_key, remove_file_if_same, safe_windows_component,
+        write_new_file,
     },
     expand, human,
     project::{
@@ -142,6 +143,7 @@ pub(crate) fn backup_cmd(
     exclude_secrets: bool,
     progress: bool,
     check_space: bool,
+    fail_on_insecure_dest: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -151,6 +153,9 @@ pub(crate) fn backup_cmd(
     let dest = resolve_for_creation(&expand(&dest))?;
     if dest.exists() && !dest.is_dir() {
         anyhow::bail!("destination is not a directory: {}", dest.display())
+    }
+    if fail_on_insecure_dest && let Some(mode) = insecure_dir_mode(&dest)? {
+        anyhow::bail!("{}", format_insecure_dest_refusal(&dest, mode));
     }
     let mut projects = Vec::new();
     let mut seen = HashSet::new();

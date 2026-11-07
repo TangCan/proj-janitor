@@ -89,6 +89,7 @@ fail_on_secrets = false     # 为 true 时 archive 遇敏感路径则拒绝备�
 exclude_secrets = false     # 为 true 时 archive 省略敏感路径；可用 --exclude-secrets / --no-exclude-secrets 覆盖
 progress = false            # 为 true 时 stderr 输出打包进度；dry-run 下估算排除后文件数/体积；可用 --progress / --no-progress 覆盖
 check_space = false         # 为 true 时按未压缩估算拒绝空间不足的 archive 备份；可用 --check-space / --no-check-space 覆盖
+fail_on_insecure_dest = false  # 为 true 时拒绝 group/other 可访问的备份目录（Unix）；可用 --fail-on-insecure-dest / --no-fail-on-insecure-dest 覆盖
 
 [prune]
 keep = 3                 # 未传 --keep 时使用
@@ -360,6 +361,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
                  [--exclude-secrets | --no-exclude-secrets]
                  [--progress | --no-progress]
                  [--check-space | --no-check-space]
+                 [--fail-on-insecure-dest | --no-fail-on-insecure-dest]
 ```
 
 备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。`[backup].exclude` 中的模式会在 archive 策略归档时跳过匹配的文件/目录（glob，按项目根相对路径逐段匹配，目录匹配则跳过整个子树）；`git` 与 `git_bundle` 策略不受影响。`--incremental` 让 archive 策略生成差异快照（值按 命令行 > 配置文件 `[backup].incremental` 解析，命令行只能开启、配置也可开启）：仅归档相对上一次快照变更/新增的文件与符号链接，记录本快照的完整文件清单 `inventory` 与删除列表 `deleted`（`incremental.base` 指向上一个快照的清单文件名，串成链）；完整快照不写 `incremental`。恢复时先解出链上最近的完整快照，再逐级应用差异（先删除 `deleted` 路径，再叠加差异归档）。`--fail-on-secrets` / `--no-fail-on-secrets` 按显式 flag > `[backup].fail_on_secrets` 解析：开启时 archive 遇敏感路径则拒绝该项目备份（stderr `error: … refusing backup`，非零退出，不写归档）。

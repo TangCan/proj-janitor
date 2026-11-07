@@ -128,6 +128,7 @@ class BackupConfig:
         "exclude_secrets",
         "progress",
         "check_space",
+        "fail_on_insecure_dest",
     )
 
     def __init__(
@@ -140,6 +141,7 @@ class BackupConfig:
         exclude_secrets: bool = False,
         progress: bool = False,
         check_space: bool = False,
+        fail_on_insecure_dest: bool = False,
     ) -> None:
         self.dest = dest
         self.keep = keep
@@ -149,6 +151,7 @@ class BackupConfig:
         self.exclude_secrets = exclude_secrets
         self.progress = progress
         self.check_space = check_space
+        self.fail_on_insecure_dest = fail_on_insecure_dest
 
 
 class PruneConfig:
@@ -302,6 +305,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "exclude_secrets",
         "progress",
         "check_space",
+        "fail_on_insecure_dest",
     }
     if set(backup_data) - allowed_backup:
         raise ConfigError(
@@ -336,6 +340,11 @@ def load_config(path: Path | None = None) -> Config | None:
         else False,
         check_space=_parse_bool(backup_data["check_space"], "[backup].check_space")
         if "check_space" in backup_data
+        else False,
+        fail_on_insecure_dest=_parse_bool(
+            backup_data["fail_on_insecure_dest"], "[backup].fail_on_insecure_dest"
+        )
+        if "fail_on_insecure_dest" in backup_data
         else False,
     )
 
