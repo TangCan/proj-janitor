@@ -1815,11 +1815,18 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
         .find(|project| project["name"] == "marker-0")
         .unwrap();
     let empty_git_fields = empty_git_project["git"].as_object().unwrap();
-    assert_eq!(empty_git_fields.len(), 2);
     assert!(empty_git_fields.contains_key("branch"));
     assert!(empty_git_fields.contains_key("dirty"));
+    assert!(empty_git_fields.contains_key("detail"));
     assert!(empty_git_project["git"]["branch"].is_null());
     assert!(empty_git_project["git"]["dirty"].is_null());
+    let detail = empty_git_project["git"]["detail"].as_str().unwrap();
+    assert!(detail.contains("git "), "{detail}");
+    let scan_err = String::from_utf8_lossy(&scan.stderr);
+    assert!(
+        scan_err.contains("warning: marker-0: git state unknown"),
+        "{scan_err}"
+    );
     assert_eq!(empty_git_project["size_bytes"], 0);
     assert!(empty_git_project["last_modified"].is_null());
     let demo = projects

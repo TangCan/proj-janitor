@@ -569,11 +569,11 @@ fn scan_cmd(roots: &[PathBuf], all: bool, json: bool) -> anyhow::Result<()> {
             "{:<24} {:>10}  {:<20} {:<8} {:<42} MODIFIED",
             "PROJECT", "SIZE", "BRANCH", "STATE", "MARKERS"
         );
-        for p in projects {
-            let (branch, state): (String, String) = match p.git {
+        for p in &projects {
+            let (branch, state): (String, String) = match &p.git {
                 None => ("-".into(), "-".into()),
                 Some(g) => (
-                    g.branch.unwrap_or_else(|| "-".into()),
+                    g.branch.clone().unwrap_or_else(|| "-".into()),
                     g.dirty
                         .map(|d| if d { "dirty" } else { "clean" }.into())
                         .unwrap_or_else(|| "unknown".into()),
@@ -591,6 +591,16 @@ fn scan_cmd(roots: &[PathBuf], all: bool, json: bool) -> anyhow::Result<()> {
                     .unwrap_or_else(|| "-".into())
             );
         }
+    }
+    for p in &projects {
+        let Some(git) = &p.git else {
+            continue;
+        };
+        if git.dirty.is_some() {
+            continue;
+        }
+        let detail = git.detail.as_deref().unwrap_or("git status unavailable");
+        eprintln!("warning: {}: git state unknown ({detail})", p.name);
     }
     if failed {
         anyhow::bail!("one or more roots could not be scanned")

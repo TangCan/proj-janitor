@@ -51,7 +51,11 @@ from proj_janitor.retention import (
     apply_retention_plan,
     build_retention_plan,
 )
-from proj_janitor.scanner import discover_projects, format_projects
+from proj_janitor.scanner import (
+    discover_projects,
+    format_git_unknown_warnings,
+    format_projects,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -437,6 +441,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         print(format_projects(projects))
     else:
         print("No projects found.", file=sys.stderr)
+    for warning in format_git_unknown_warnings(projects):
+        print(warning, file=sys.stderr)
     return 1 if failures else 0
 
 
@@ -1237,7 +1243,15 @@ def _project_json(project: Project) -> dict:
         "markers": list(project.markers),
         "git": None
         if project.git is None
-        else {"branch": project.git.branch, "dirty": project.git.dirty},
+        else {
+            "branch": project.git.branch,
+            "dirty": project.git.dirty,
+            **(
+                {"detail": project.git.detail}
+                if project.git.detail is not None
+                else {}
+            ),
+        },
     }
 
 

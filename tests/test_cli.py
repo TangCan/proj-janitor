@@ -161,7 +161,11 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             git_record = json.loads(out)[0]
             self.assertEqual(git_record["markers"], [".git", "pyproject.toml"])
-            self.assertEqual(git_record["git"], {"branch": None, "dirty": None})
+            self.assertIsNone(git_record["git"]["branch"])
+            self.assertIsNone(git_record["git"]["dirty"])
+            self.assertIn("detail", git_record["git"])
+            self.assertIn("git ", git_record["git"]["detail"])
+            self.assertIn("warning: app: git state unknown", err)
 
             code, out, err = run_cli("scan", tmp, str(project))
 
@@ -169,6 +173,8 @@ class CliTests(unittest.TestCase):
             for column in ("PROJECT", "SIZE", "BRANCH", "STATE", "MARKERS", "MODIFIED"):
                 self.assertIn(column, out)
             self.assertIn("app", out)
+            self.assertIn("warning: app: git state unknown", err)
+            self.assertIn("unknown", out)
 
     def test_backup_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

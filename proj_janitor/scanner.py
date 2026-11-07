@@ -101,10 +101,12 @@ def measure_tree(path: Path) -> tuple[int, datetime | None]:
 def read_git_state(path: Path) -> GitState | None:
     if not (path / ".git").exists():
         return None
-    branch = _git_output(path, "rev-parse", "--abbrev-ref", "HEAD")
-    status = _git_output(path, "status", "--porcelain")
+    branch, branch_detail = _git_probe(path, "rev-parse", "--abbrev-ref", "HEAD")
+    status, status_detail = _git_probe(path, "status", "--porcelain")
     dirty = None if status is None else bool(status.strip())
-    return GitState(branch=branch, dirty=dirty)
+    details = [part for part in (branch_detail, status_detail) if part]
+    detail = "; ".join(details) if details else None
+    return GitState(branch=branch, dirty=dirty, detail=detail)
 
 
 def is_github_remote_url(remote: str) -> bool:
@@ -1059,6 +1061,41 @@ def _git_output(path: Path, *args: str) -> str | None:
     return result.stdout.strip()
 
 
+def _git_probe(path: Path, *args: str) -> tuple[str | None, str | None]:
+    """Return (stdout, failure_detail). detail is set only when the command fails."""
+    label = " ".join(args[:2]) if args else "command"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"git {label} timed out"
+    except OSError:
+        return None, f"git {label} failed to start"
+    if result.returncode == 0:
+        return result.stdout.strip(), None
+    return None, _format_git_failure(label, result.stderr, result.returncode)
+
+
+def _format_git_failure(label: str, stderr: str, returncode: int) -> str:
+    line = ""
+    for candidate in (stderr or "").splitlines():
+        stripped = candidate.strip()
+        if stripped:
+            line = stripped
+            break
+    if not line:
+        line = f"exit {returncode}"
+    # Keep diagnostics short and avoid dumping multi-line Git help text.
+    if len(line) > 160:
+        line = line[:157] + "..."
+    return f"git {label} failed: {line}"
+
+
 def _git_ok(path: Path, *args: str) -> bool:
     result = _git_run(path, *args)
     return result is not None and result.returncode == 0
@@ -1072,6 +1109,17 @@ def _git_count(path: Path, *args: str) -> int | None:
         return int(output)
     except ValueError:
         return None
+
+
+def format_git_unknown_warnings(projects: Iterable[Project]) -> list[str]:
+    """Warn only when STATE would show as unknown (dirty could not be determined)."""
+    warnings: list[str] = []
+    for project in projects:
+        if project.git is None or project.git.dirty is not None:
+            continue
+        detail = project.git.detail or "git status unavailable"
+        warnings.append(f"warning: {project.name}: git state unknown ({detail})")
+    return warnings
 
 
 def format_projects(projects: Iterable[Project]) -> str:

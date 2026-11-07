@@ -9,6 +9,7 @@ from pathlib import Path
 class GitState:
     branch: str | None
     dirty: bool | None
+    detail: str | None = None
 
 
 @dataclass(frozen=True)

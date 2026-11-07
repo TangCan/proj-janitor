@@ -45,6 +45,8 @@ pub(crate) struct Project {
 pub(crate) struct GitState {
     pub(crate) branch: Option<String>,
     pub(crate) dirty: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) detail: Option<String>,
 }
 pub(crate) struct Recovery {
     pub(crate) remote: String,
@@ -118,11 +120,19 @@ pub(crate) fn inspect(path: &Path) -> anyhow::Result<Project> {
         }
     }
     let git = if path.join(".git").exists() {
-        let branch = git_output(&path, &["rev-parse", "--abbrev-ref", "HEAD"]);
-        let status = git_output(&path, &["status", "--porcelain"]);
+        let (branch, branch_detail) = git_probe(&path, &["rev-parse", "--abbrev-ref", "HEAD"]);
+        let (status, status_detail) = git_probe(&path, &["status", "--porcelain"]);
+        let mut details = Vec::new();
+        if let Some(detail) = branch_detail {
+            details.push(detail);
+        }
+        if let Some(detail) = status_detail {
+            details.push(detail);
+        }
         Some(GitState {
             branch,
             dirty: status.map(|s| !s.trim().is_empty()),
+            detail: (!details.is_empty()).then(|| details.join("; ")),
         })
     } else {
         None
@@ -150,9 +160,55 @@ pub(crate) fn metadata_if_present(path: &Path) -> std::io::Result<Option<fs::Met
 }
 
 pub(crate) fn git_output(path: &Path, args: &[&str]) -> Option<String> {
-    git_run(path, args)
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    git_probe(path, args).0
+}
+
+pub(crate) fn git_probe(path: &Path, args: &[&str]) -> (Option<String>, Option<String>) {
+    let label = if args.len() >= 2 {
+        format!("{} {}", args[0], args[1])
+    } else if let Some(first) = args.first() {
+        (*first).to_string()
+    } else {
+        "command".to_string()
+    };
+    match git_run(path, args) {
+        None => {
+            // Spawn failure and timeout both surface as None from git_run today;
+            // prefer a timeout-oriented message when the process was killed after the budget.
+            (
+                None,
+                Some(format!("git {label} failed to start or timed out")),
+            )
+        }
+        Some(output) if output.status.success() => (
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+            None,
+        ),
+        Some(output) => (
+            None,
+            Some(format_git_failure(
+                &label,
+                &String::from_utf8_lossy(&output.stderr),
+                output.status.code().unwrap_or(1),
+            )),
+        ),
+    }
+}
+
+fn format_git_failure(label: &str, stderr: &str, returncode: i32) -> String {
+    let line = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            if line.len() > 160 {
+                format!("{}...", &line[..157])
+            } else {
+                line.to_string()
+            }
+        })
+        .unwrap_or_else(|| format!("exit {returncode}"));
+    format!("git {label} failed: {line}")
 }
 
 pub(crate) fn git_compatible_path(path: &Path) -> PathBuf {

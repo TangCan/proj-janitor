@@ -168,6 +168,12 @@ class ScannerTests(unittest.TestCase):
             empty_project = scan_project(empty)
             self.assertEqual(empty_project.size_bytes, 0)
             self.assertIsNone(empty_project.last_modified)
+            self.assertIsNotNone(empty_project.git)
+            self.assertIsNone(empty_project.git.branch)
+            self.assertIsNone(empty_project.git.dirty)
+            self.assertEqual(empty_project.dirty_label, "unknown")
+            self.assertIsNotNone(empty_project.git.detail)
+            self.assertIn("git ", empty_project.git.detail)
 
     @unittest.skipUnless(shutil.which("git"), "git is not available")
     def test_scan_project_reports_clean_and_dirty_git_states(self) -> None:
@@ -175,7 +181,32 @@ class ScannerTests(unittest.TestCase):
             root = Path(tmp) / "app"
             root.mkdir()
             subprocess.run(
-                ["git", "init", "-q", str(root)],
+                ["git", "init", "-q", "-b", "main", str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.name", "Test User"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (root / "README").write_text("ok\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(root), "add", "README"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-q", "-m", "init"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -185,6 +216,8 @@ class ScannerTests(unittest.TestCase):
             self.assertIsNotNone(clean.git)
             self.assertFalse(clean.git.dirty)
             self.assertEqual(clean.dirty_label, "clean")
+            self.assertEqual(clean.git.branch, "main")
+            self.assertIsNone(clean.git.detail)
 
             (root / "untracked.txt").write_text("x", encoding="utf-8")
 
@@ -192,6 +225,7 @@ class ScannerTests(unittest.TestCase):
             self.assertIsNotNone(dirty.git)
             self.assertTrue(dirty.git.dirty)
             self.assertEqual(dirty.dirty_label, "dirty")
+            self.assertIsNone(dirty.git.detail)
 
 
 class GithubUrlTests(unittest.TestCase):
