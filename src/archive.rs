@@ -154,8 +154,8 @@ pub(crate) fn create_archive(
             let name = Path::new(root).join(rel);
             anyhow::ensure!(
                 safe_archive_path(&name, &root.to_string_lossy()),
-                "unsafe archive path: {}",
-                name.display()
+                "{}",
+                format_unsafe_archive_path(&name)
             );
             register_archive_case_path(&name, &mut archive_paths)?;
             if e.file_type().is_symlink() {
@@ -287,8 +287,8 @@ pub(crate) fn create_incremental_archive(
             let name = Path::new(root).join(rel);
             anyhow::ensure!(
                 safe_archive_path(&name, &root.to_string_lossy()),
-                "unsafe archive path: {}",
-                name.display()
+                "{}",
+                format_unsafe_archive_path(&name)
             );
             register_archive_case_path(&name, &mut archive_paths)?;
             let rel_str = rel
@@ -467,8 +467,8 @@ pub(crate) fn extract_archive_with_hash(
             let name = e.path()?.into_owned();
             anyhow::ensure!(
                 safe_archive_path(&name, project),
-                "unsafe archive path: {}",
-                name.display()
+                "{}",
+                format_unsafe_archive_path(&name)
             );
             let member_path: Vec<_> = name
                 .components()
@@ -628,8 +628,8 @@ pub(crate) fn extract_incremental_delta(
         let name = e.path()?.into_owned();
         anyhow::ensure!(
             safe_archive_path(&name, project),
-            "unsafe archive path: {}",
-            name.display()
+            "{}",
+            format_unsafe_archive_path(&name)
         );
         let rel = name.strip_prefix(project)?;
         if rel.as_os_str().is_empty() {
@@ -716,6 +716,32 @@ pub(crate) fn safe_archive_path(p: &Path, project: &str) -> bool {
         && p.components()
             .next()
             .is_some_and(|component| component.as_os_str() == project)
+}
+
+/// Explain why an archive member path was rejected (cross-platform portability).
+pub(crate) fn format_unsafe_archive_path(path: &Path) -> String {
+    let display = path.display();
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            continue;
+        };
+        let Some(text) = name.to_str() else {
+            return format!(
+                "unsafe archive path (not valid UTF-8; archives must be Windows-portable): {display}"
+            );
+        };
+        if text.contains(':') {
+            return format!(
+                "unsafe archive path (contains ':'; not Windows-portable — often a stray file named like 'file.rs:line:col'): {display}"
+            );
+        }
+        if !safe_windows_component(text) {
+            return format!(
+                "unsafe archive path (not Windows-portable): {display}"
+            );
+        }
+    }
+    format!("unsafe archive path (not Windows-portable): {display}")
 }
 
 fn register_archive_case_path(

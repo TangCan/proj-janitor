@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 from proj_janitor.backup import (
     _portable_path_key,
+    format_unsafe_archive_path,
     register_archive_path,
     safe_archive_link,
     safe_archive_member,
@@ -1464,9 +1465,7 @@ def _extract_incremental_delta(
                         f"archive entry is outside project {project}: {member.name}"
                     )
                 if not safe_archive_member(member.name, project):
-                    raise RestoreError(
-                        f"archive contains an unsafe path: {member.name}"
-                    )
+                    raise RestoreError(format_unsafe_archive_path(member.name))
                 if parts in seen_members:
                     raise RestoreError(
                         f"archive contains a duplicate path: {member.name}"
@@ -1549,7 +1548,7 @@ def _safe_extract(
                         f"{member.name}"
                     )
                 if not safe_archive_member(member.name, project):
-                    raise RestoreError(f"archive contains an unsafe path: {member.name}")
+                    raise RestoreError(format_unsafe_archive_path(member.name))
                 if parts in seen_members:
                     raise RestoreError(f"archive contains a duplicate path: {member.name}")
                 seen_members.add(parts)
@@ -1588,7 +1587,7 @@ def _archive_parts(name: str) -> tuple[str, ...]:
         raise RestoreError(f"archive contains an absolute path: {name}")
     parts = tuple(part for part in path.parts if part not in ("", "."))
     if not parts or any(part == ".." for part in parts):
-        raise RestoreError(f"archive contains an unsafe path: {name}")
+        raise RestoreError(format_unsafe_archive_path(name))
     return parts
 
 

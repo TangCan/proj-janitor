@@ -665,6 +665,27 @@ fn backup_rejects_windows_traversal_member_names() {
     assert!(!archive.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn backup_rejects_colon_in_filename_with_hint() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    let nested = project.join("src/core/prelink");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    // Accidental editor/LSP artifact: "file.rs:line:col" as a literal filename.
+    fs::write(nested.join("link.rs:25:5"), "").unwrap();
+    let archive = temp.0.join("demo.tar.gz");
+
+    let error = create_archive(&project, &archive, false, false, &[], false).unwrap_err();
+    let msg = error.to_string();
+
+    assert!(msg.contains("unsafe archive path"));
+    assert!(msg.contains("contains ':'"));
+    assert!(msg.contains("link.rs:25:5"));
+    assert!(!archive.exists());
+}
+
 #[test]
 fn backup_output_creation_never_overwrites_existing_files() {
     let temp = TestDir::new();

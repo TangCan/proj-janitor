@@ -1039,7 +1039,7 @@ def _make_filter(
             info.linkname = ""
             info.size = project_path.joinpath(*parts[1:]).stat().st_size
         if not safe_archive_member(info.name, arc_root):
-            raise tarfile.ExtractError(f"archive contains an unsafe path: {info.name}")
+            raise tarfile.ExtractError(format_unsafe_archive_path(info.name))
         if not register_archive_path(parts, seen_archive_paths):
             raise tarfile.ExtractError(
                 "archive paths collide on case-insensitive filesystems "
@@ -1072,6 +1072,16 @@ def safe_archive_member(name: str, project: str) -> bool:
         and ".." not in windows_parts
         and all(_safe_windows_component(part) for part in windows_parts)
     )
+
+
+def format_unsafe_archive_path(name: str) -> str:
+    """Explain why an archive member path was rejected (cross-platform portability)."""
+    if ":" in name:
+        return (
+            "unsafe archive path (contains ':'; not Windows-portable — "
+            f"often a stray file named like 'file.rs:line:col'): {name}"
+        )
+    return f"unsafe archive path (not Windows-portable): {name}"
 
 
 def safe_archive_link(member_name: str, link_name: str) -> bool:
