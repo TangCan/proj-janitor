@@ -200,6 +200,83 @@ pub(crate) fn create_archive(
     }
 }
 
+const MAX_UNSAFE_REPORTED: usize = 12;
+
+/// Collect project-relative paths that would fail Windows-portable archive checks.
+///
+/// Walks with the same exclusion rules as packing. Returns paths using `/`
+/// separators, sorted and deduplicated. Used as a preflight so backups refuse
+/// before creating a partial archive (for example stray `file.rs:line:col` names).
+pub(crate) fn find_unsafe_archive_paths(
+    project: &Path,
+    include: bool,
+    exclude_git_metadata: bool,
+    exclude: &[String],
+    exclude_secrets: bool,
+) -> anyhow::Result<Vec<String>> {
+    let root = project.file_name().unwrap_or_default();
+    let root_text = root.to_string_lossy();
+    let exclude_set = build_exclude_globset(exclude)?;
+    let mut hits = Vec::new();
+    for e in WalkDir::new(project)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            !archive_excluded(
+                entry.path(),
+                project,
+                include,
+                exclude_git_metadata,
+                &exclude_set,
+                exclude_secrets,
+            )
+        })
+    {
+        let e = e.with_context(|| format!("cannot walk {}", project.display()))?;
+        let rel = e.path().strip_prefix(project)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let name = Path::new(root).join(rel);
+        if safe_archive_path(&name, &root_text) {
+            continue;
+        }
+        let rel_text = rel
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        hits.push(rel_text);
+    }
+    hits.sort();
+    hits.dedup();
+    Ok(hits)
+}
+
+fn format_unsafe_path_list(paths: &[String]) -> String {
+    let shown = &paths[..paths.len().min(MAX_UNSAFE_REPORTED)];
+    let mut list = shown.join(", ");
+    if paths.len() > MAX_UNSAFE_REPORTED {
+        list.push_str(&format!(" (+{} more)", paths.len() - MAX_UNSAFE_REPORTED));
+    }
+    list
+}
+
+/// Body for CLI / anyhow paths that already prefix `error: {project}:`.
+pub(crate) fn format_unsafe_archive_refusal_detail(paths: &[String]) -> String {
+    format!(
+        "archive contains unsafe paths (not Windows-portable): {}; often stray 'file.rs:line:col' artifacts — remove or rename before backup",
+        format_unsafe_path_list(paths)
+    )
+}
+
+pub(crate) fn format_unsafe_archive_refusal(project: &str, paths: &[String]) -> String {
+    format!(
+        "error: {project}: {}",
+        format_unsafe_archive_refusal_detail(paths)
+    )
+}
+
 /// Count files/symlinks and total byte size that archive packing would see
 /// after applying the same exclusion rules as backup.
 pub(crate) fn estimate_archive_stats(
@@ -736,9 +813,7 @@ pub(crate) fn format_unsafe_archive_path(path: &Path) -> String {
             );
         }
         if !safe_windows_component(text) {
-            return format!(
-                "unsafe archive path (not Windows-portable): {display}"
-            );
+            return format!("unsafe archive path (not Windows-portable): {display}");
         }
     }
     format!("unsafe archive path (not Windows-portable): {display}")

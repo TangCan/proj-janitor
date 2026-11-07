@@ -408,7 +408,7 @@ class RestoreTests(unittest.TestCase):
             )
             restored = root / "restored"
 
-            with self.assertRaisesRegex(RestoreError, "unsafe path"):
+            with self.assertRaisesRegex(RestoreError, "unsafe archive path"):
                 restore_from_manifest(manifest, restored)
 
             self.assertFalse((root / "escape.txt").exists())
@@ -436,7 +436,7 @@ class RestoreTests(unittest.TestCase):
             )
             restored = root / "restored"
 
-            with self.assertRaisesRegex(RestoreError, "unsafe path"):
+            with self.assertRaisesRegex(RestoreError, "unsafe archive path"):
                 restore_from_manifest(manifest, restored)
 
             self.assertFalse((root / "escape.txt").exists())

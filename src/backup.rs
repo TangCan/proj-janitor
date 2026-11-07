@@ -12,9 +12,9 @@ use crate::{
     archive::{
         archive_path_matches, archive_space_insufficient, available_disk_bytes, copy_new_file,
         create_incremental_archive, create_private_dir, create_private_temp_dir,
-        estimate_archive_stats, format_insecure_dest_refusal, format_space_refusal,
-        insecure_dir_mode, portable_path_key, remove_file_if_same, safe_windows_component,
-        write_new_file,
+        estimate_archive_stats, find_unsafe_archive_paths, format_insecure_dest_refusal,
+        format_space_refusal, format_unsafe_archive_refusal, insecure_dir_mode, portable_path_key,
+        remove_file_if_same, safe_windows_component, write_new_file,
     },
     crypto::{
         OPENSSL_AES_256_CBC_PBKDF2, encrypted_sibling, openssl_encrypt_file,
@@ -381,8 +381,34 @@ pub(crate) fn backup_cmd(
                         eprintln!("{}", format_secret_warning(&p.name, &secrets));
                     }
                 }
+                if let Ok(unsafe_paths) = find_unsafe_archive_paths(
+                    &p.path,
+                    include_artifacts,
+                    exclude_git_metadata,
+                    exclude,
+                    exclude_secrets,
+                ) && !unsafe_paths.is_empty()
+                {
+                    eprintln!("{}", format_unsafe_archive_refusal(&p.name, &unsafe_paths));
+                    failed = true;
+                }
             }
             continue;
+        }
+        // Refuse non-portable archive member names before creating outputs.
+        if recovery.is_none() && bundle_recovery.is_none() {
+            let unsafe_paths = find_unsafe_archive_paths(
+                &p.path,
+                include_artifacts,
+                exclude_git_metadata,
+                exclude,
+                exclude_secrets,
+            )?;
+            if !unsafe_paths.is_empty() {
+                eprintln!("{}", format_unsafe_archive_refusal(&p.name, &unsafe_paths));
+                failed = true;
+                continue;
+            }
         }
         // Refuse archive backups before creating the project backup directory.
         // When --exclude-secrets is set, secrets are omitted from the archive instead.

@@ -12,8 +12,10 @@ from proj_janitor.backup import (
     archive_space_insufficient,
     available_disk_bytes,
     estimate_archive_stats,
+    find_unsafe_archive_paths,
     format_insecure_dest_refusal,
     format_space_refusal,
+    format_unsafe_archive_refusal,
     insecure_dir_mode,
     prepare_backup,
     run_backup,
@@ -680,6 +682,19 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                             format_secret_warning(plan.project.name, secrets),
                             file=sys.stderr,
                         )
+                unsafe_paths = find_unsafe_archive_paths(
+                    plan.project.path,
+                    include_artifacts=args.include_artifacts,
+                    exclude_git_metadata=args.exclude_git_metadata,
+                    exclude_patterns=exclude_patterns,
+                    exclude_secrets=exclude_secrets,
+                )
+                if unsafe_paths:
+                    print(
+                        format_unsafe_archive_refusal(plan.project.name, unsafe_paths),
+                        file=sys.stderr,
+                    )
+                    blocked = True
         return 1 if failures or blocked else 0
 
     try:

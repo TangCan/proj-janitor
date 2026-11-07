@@ -2378,6 +2378,47 @@ fn archive_backup_fail_on_secrets_refuses_and_writes_nothing() {
     assert!(!dest.join("demo").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn archive_backup_preflight_lists_unsafe_colon_paths() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let nested = project.join("src/core/prelink");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("link.rs:25:5"), "").unwrap();
+    fs::write(nested.join("mod.rs:1:1"), "").unwrap();
+    let dest = temp.0.join("backups");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unsafe paths"), "{stderr}");
+    assert!(stderr.contains("link.rs:25:5"), "{stderr}");
+    assert!(stderr.contains("mod.rs:1:1"), "{stderr}");
+    assert!(stderr.contains("remove or rename"), "{stderr}");
+    assert!(!dest.join("demo").exists());
+
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(!dry.status.success());
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(dry_err.contains("unsafe paths"), "{dry_err}");
+    assert!(dry_err.contains("link.rs:25:5"), "{dry_err}");
+}
+
 #[test]
 fn archive_backup_fail_on_secrets_defaults_from_config_and_cli_overrides() {
     let temp = TestDir::new();

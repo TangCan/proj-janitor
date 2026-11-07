@@ -175,7 +175,10 @@ class BackupTests(unittest.TestCase):
             self.assertFalse(manifests)
             self.assertFalse(records)
             self.assertEqual(len(failures), 1)
-            self.assertIn("unsafe path", failures[0][1])
+            self.assertRegex(
+                failures[0][1],
+                r"unsafe (archive )?paths?",
+            )
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
     def test_backup_does_not_overwrite_an_existing_archive(self) -> None:

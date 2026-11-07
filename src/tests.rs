@@ -2,8 +2,8 @@ use super::*;
 #[cfg(unix)]
 use crate::archive::remove_file_if_same;
 use crate::archive::{
-    archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
-    sha256, write_new_file,
+    archive_path_matches, create_archive, extract_archive, find_unsafe_archive_paths,
+    safe_archive_link, safe_archive_path, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -684,6 +684,27 @@ fn backup_rejects_colon_in_filename_with_hint() {
     assert!(msg.contains("contains ':'"));
     assert!(msg.contains("link.rs:25:5"));
     assert!(!archive.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn find_unsafe_archive_paths_lists_colon_artifacts() {
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    let nested = project.join("src/core/prelink");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(project.join("ok.rs"), "fn main() {}\n").unwrap();
+    fs::write(nested.join("link.rs:25:5"), "").unwrap();
+    fs::write(nested.join("mod.rs:1:1"), "").unwrap();
+
+    let hits = find_unsafe_archive_paths(&project, false, false, &[], false).unwrap();
+    assert_eq!(
+        hits,
+        vec![
+            "src/core/prelink/link.rs:25:5".to_owned(),
+            "src/core/prelink/mod.rs:1:1".to_owned(),
+        ]
+    );
 }
 
 #[test]

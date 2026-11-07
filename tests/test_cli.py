@@ -1094,6 +1094,44 @@ class CliTests(unittest.TestCase):
             self.assertIn(".env", err)
             self.assertFalse((dest / "app").exists())
 
+    @unittest.skipUnless(os.name != "nt", "colon filenames are not creatable on Windows")
+    def test_archive_backup_preflight_lists_unsafe_colon_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            nested = project / "src" / "core" / "prelink"
+            nested.mkdir(parents=True)
+            (nested / "link.rs:25:5").write_text("", encoding="utf-8")
+            (nested / "mod.rs:1:1").write_text("", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("unsafe paths", err)
+            self.assertIn("link.rs:25:5", err)
+            self.assertIn("mod.rs:1:1", err)
+            self.assertIn("remove or rename", err)
+            self.assertFalse((dest / "app").exists())
+
+            dry_code, dry_out, dry_err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(dry_code, 1, dry_out + dry_err)
+            self.assertIn("unsafe paths", dry_err)
+            self.assertIn("link.rs:25:5", dry_err)
+
     def test_archive_backup_fail_on_secrets_defaults_from_config_and_cli_overrides(
         self,
     ) -> None:

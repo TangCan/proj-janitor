@@ -15,7 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import BinaryIO, Iterable
+from typing import BinaryIO, Iterable, Sequence
 
 from proj_janitor import __version__
 from proj_janitor.config import (
@@ -209,6 +209,19 @@ def run_backup(
                 (plan.project.name, plan.reason or "unsafe to archive")
             )
             continue
+        if plan.strategy == "archive":
+            unsafe_paths = find_unsafe_archive_paths(
+                plan.project.path,
+                include_artifacts=include_artifacts,
+                exclude_git_metadata=exclude_git_metadata,
+                exclude_patterns=tuple(exclude_patterns),
+                exclude_secrets=exclude_secrets,
+            )
+            if unsafe_paths:
+                failures.append(
+                    (plan.project.name, format_unsafe_archive_refusal_detail(unsafe_paths))
+                )
+                continue
         if plan.strategy == "archive" and fail_on_secrets and not exclude_secrets:
             secrets = find_possible_secret_paths(
                 plan.project.path,
@@ -1082,6 +1095,80 @@ def format_unsafe_archive_path(name: str) -> str:
             f"often a stray file named like 'file.rs:line:col'): {name}"
         )
     return f"unsafe archive path (not Windows-portable): {name}"
+
+
+_MAX_UNSAFE_REPORTED = 12
+
+
+def find_unsafe_archive_paths(
+    root: Path,
+    *,
+    include_artifacts: bool = False,
+    exclude_git_metadata: bool = False,
+    exclude_patterns: Sequence[str] = (),
+    exclude_secrets: bool = False,
+) -> list[str]:
+    """Collect project-relative paths that would fail Windows-portable archive checks."""
+    from proj_janitor.secrets import _component_excluded
+
+    patterns = artifact_patterns(include_artifacts)
+    hits: list[str] = []
+    project = root.name
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        rel_dir = Path(dirpath).relative_to(root)
+        kept_dirs: list[str] = []
+        for name in dirnames:
+            child = Path(dirpath) / name
+            relative = () if rel_dir == Path(".") else rel_dir.parts
+            parts = relative + (name,)
+            if _component_excluded(
+                parts,
+                patterns,
+                exclude_git_metadata,
+                exclude_patterns,
+                exclude_secrets,
+            ):
+                continue
+            member = "/".join((project, *parts))
+            if not safe_archive_member(member, project):
+                hits.append("/".join(parts))
+            kept_dirs.append(name)
+        dirnames[:] = kept_dirs
+        for name in filenames:
+            relative = () if rel_dir == Path(".") else rel_dir.parts
+            parts = relative + (name,)
+            if _component_excluded(
+                parts,
+                patterns,
+                exclude_git_metadata,
+                exclude_patterns,
+                exclude_secrets,
+            ):
+                continue
+            member = "/".join((project, *parts))
+            if not safe_archive_member(member, project):
+                hits.append("/".join(parts))
+    return sorted(set(hits))
+
+
+def _format_unsafe_path_list(paths: Sequence[str]) -> str:
+    shown = list(paths[:_MAX_UNSAFE_REPORTED])
+    text = ", ".join(shown)
+    if len(paths) > _MAX_UNSAFE_REPORTED:
+        text += f" (+{len(paths) - _MAX_UNSAFE_REPORTED} more)"
+    return text
+
+
+def format_unsafe_archive_refusal_detail(paths: Sequence[str]) -> str:
+    return (
+        "archive contains unsafe paths (not Windows-portable): "
+        f"{_format_unsafe_path_list(paths)}; often stray 'file.rs:line:col' "
+        "artifacts — remove or rename before backup"
+    )
+
+
+def format_unsafe_archive_refusal(project: str, paths: Sequence[str]) -> str:
+    return f"error: {project}: {format_unsafe_archive_refusal_detail(paths)}"
 
 
 def safe_archive_link(member_name: str, link_name: str) -> bool:
