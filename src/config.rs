@@ -15,6 +15,10 @@ pub(crate) struct Config {
     pub(crate) backup: BackupConfig,
     #[serde(default)]
     pub(crate) prune: PruneConfig,
+    #[serde(default)]
+    pub(crate) verify: VerifyConfig,
+    #[serde(default)]
+    pub(crate) restore: RestoreConfig,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -40,6 +44,38 @@ pub(crate) struct PruneConfig {
     /// Default retention count for `prune --keep`.
     #[serde(default)]
     pub(crate) keep: Option<usize>,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct VerifyConfig {
+    /// Default for `verify --check-remote` when neither flag is passed.
+    #[serde(default)]
+    pub(crate) check_remote: bool,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RestoreConfig {
+    /// Default for `restore --check-remote` when neither flag is passed.
+    #[serde(default)]
+    pub(crate) check_remote: bool,
+}
+
+/// Resolve an optional CLI `--check-remote` / `--no-check-remote` pair against
+/// a config default. Explicit flags always win; otherwise use `config_default`.
+pub(crate) fn resolve_check_remote(
+    check_remote: bool,
+    no_check_remote: bool,
+    config_default: bool,
+) -> bool {
+    if check_remote {
+        true
+    } else if no_check_remote {
+        false
+    } else {
+        config_default
+    }
 }
 
 /// Load configuration from an explicit path, or discover `.proj-janitor.toml`
@@ -189,6 +225,22 @@ mod tests {
         assert_eq!(config.backup.dest, None);
         assert_eq!(config.backup.keep, None);
         assert_eq!(config.backup.exclude, Vec::<String>::new());
+    }
+
+    #[test]
+    fn explicit_path_loads_verify_and_restore_check_remote() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[verify]\ncheck_remote = true\n[restore]\ncheck_remote = true\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.verify.check_remote);
+        assert!(config.restore.check_remote);
+        assert!(!resolve_check_remote(false, true, true));
+        assert!(resolve_check_remote(true, false, false));
+        assert!(resolve_check_remote(false, false, true));
+        assert!(!resolve_check_remote(false, false, false));
     }
 
     #[test]

@@ -59,7 +59,7 @@
 | 时间 | 文本扫描结果使用本地时间 `YYYY-MM-DD HH:MM`；JSON 的 `last_modified` 使用带时区偏移的 ISO 8601；manifest 的 `created_at` 使用 UTC ISO 8601。 |
 | 编码 | JSON 和 manifest 使用 UTF-8、`ensure_ascii=False`；终端输出受当前终端编码影响。 |
 | 网络 | 不调用 GitHub API，不监听端口；URL-only 在存在本地 tag 时执行 `git ls-remote`，`restore` 的 Git 策略会克隆远程仓库；其余 Git 命令本地执行。 |
-| 配置 | `.proj-janitor.toml` 提供 `backup` 与 `prune` 的默认值（`[backup].dest`、`[backup].keep`、`[backup].exclude`、`[prune].keep`）；取值优先级为命令行 > 环境变量 > 配置文件。项目标记和清理规则仍由 `config.py` 静态定义。 |
+| 配置 | `.proj-janitor.toml` 提供 `backup`/`prune`/`verify`/`restore` 默认值（含 `[verify].check_remote`、`[restore].check_remote`）；取值优先级为命令行 > 环境变量 > 配置文件。项目标记和清理规则仍由 `config.py` 静态定义。 |
 | 并发 | 无线程、异步任务、文件锁或事务；备份的归档和 manifest 用排他创建避免覆盖，并发撞名时该项目失败、重跑可使用新后缀；不保证源项目在备份期间保持不变；`restore` 不覆盖已有目标。 |
 
 ### 2.4 明确不在范围内
@@ -77,7 +77,7 @@
 
 ### 2.5 配置文件
 
-`.proj-janitor.toml` 提供常用选项的默认值，`backup` 与 `prune` 均接受 `--config PATH` 显式指定；未指定时从当前目录向上逐级查找，找不到则使用内置默认。
+`.proj-janitor.toml` 提供常用选项的默认值；`backup`、`prune`、`verify`、`restore` 均接受 `--config PATH` 显式指定；未指定时从当前目录向上逐级查找，找不到则使用内置默认。
 
 ```toml
 [backup]
@@ -88,6 +88,12 @@ incremental = true          # archive 策略生成差异快照；未传 --increm
 
 [prune]
 keep = 3                 # 未传 --keep 时使用
+
+[verify]
+check_remote = false     # 为 true 时 verify 默认联网预检；可用 --no-check-remote 关闭
+
+[restore]
+check_remote = false     # 为 true 时 restore 默认联网预检；可用 --no-check-remote 关闭
 ```
 
 - **优先级**：命令行选项 > 环境变量（`BACKUP_DEST`） > 配置文件 > 内置默认/报错。未提供任何备份目标时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`；`prune` 未提供保留数时报错 `set --keep or configure [prune].keep`；`backup` 的保留数按 命令行 > 配置文件 `[backup].keep` 解析。

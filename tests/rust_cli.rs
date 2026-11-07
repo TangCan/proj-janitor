@@ -2187,6 +2187,89 @@ fn backup_uses_dest_from_config_file() {
 }
 
 #[test]
+fn verify_check_remote_defaults_from_config_and_cli_overrides() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-07T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.3",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let config = temp.0.join("cfg.toml");
+    fs::write(&config, "[verify]\ncheck_remote = true\n").unwrap();
+
+    let enabled = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--json", "--config"])
+        .arg(&config)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        enabled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&enabled.stderr)
+    );
+    let enabled_json: serde_json::Value = serde_json::from_slice(&enabled.stdout).unwrap();
+    assert_eq!(enabled_json["projects"][0]["status"], "remote-verified");
+
+    let disabled = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--json", "--no-check-remote", "--config"])
+        .arg(&config)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        disabled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&disabled.stderr)
+    );
+    let disabled_json: serde_json::Value = serde_json::from_slice(&disabled.stdout).unwrap();
+    assert_eq!(disabled_json["projects"][0]["status"], "metadata-only");
+}
+
+#[test]
 fn backup_excludes_patterns_from_config_file() {
     let temp = TestDir::new();
     let project = temp.project();

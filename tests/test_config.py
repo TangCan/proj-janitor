@@ -9,6 +9,7 @@ from proj_janitor.config import (
     CONFIG_NAME,
     ConfigError,
     load_config,
+    resolve_check_remote,
 )
 
 
@@ -150,6 +151,29 @@ class ConfigTests(unittest.TestCase):
             with mock.patch.object(Path, "cwd", return_value=root):
                 config = load_config()
             self.assertIsNone(config)
+
+    def test_loads_verify_and_restore_check_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                "[verify]\ncheck_remote = true\n[restore]\ncheck_remote = true\n",
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.verify.check_remote)
+            self.assertTrue(config.restore.check_remote)
+            self.assertTrue(resolve_check_remote(None, True))
+            self.assertFalse(resolve_check_remote(False, True))
+            self.assertTrue(resolve_check_remote(True, False))
+            self.assertFalse(resolve_check_remote(None, False))
+
+    def test_unknown_verify_key_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[verify]\nbogus = true\n", encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, r"unknown \[verify\] key"):
+                load_config(path)
 
 
 if __name__ == "__main__":

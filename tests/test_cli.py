@@ -1166,6 +1166,37 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(result["status"], "remote-verified")
             self.assertEqual(result["remote"]["refs"], ["refs/heads/main"])
 
+    def test_verify_check_remote_defaults_from_config_and_cli_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+            config = root / "proj.toml"
+            config.write_text("[verify]\ncheck_remote = true\n", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "verify", str(manifest), "--config", str(config), "--json"
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(
+                json.loads(out)["projects"][0]["status"], "remote-verified"
+            )
+
+            code, out, err = run_cli(
+                "verify",
+                str(manifest),
+                "--config",
+                str(config),
+                "--no-check-remote",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertEqual(
+                json.loads(out)["projects"][0]["status"], "metadata-only"
+            )
+
     def test_verify_check_remote_exits_one_for_unreachable_remote(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

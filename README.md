@@ -259,20 +259,27 @@ projjan verify <manifest>
 # 只校验指定项目，并输出 JSON
 projjan verify <manifest> --project xtask_todo --json
 
-# 仓库源码版：额外联网确认 Git-only 记录的提交仍被远端引用指向
+# 额外联网确认 Git-only 记录的提交、子模块与 LFS 对象仍可用
 projjan verify <manifest> --check-remote --json
+
+# 也可在 .proj-janitor.toml 中默认开启，再用 --no-check-remote 临时关闭
+# [verify]
+# check_remote = true
+# [restore]
+# check_remote = true
 ```
 
-`verify` 的 Git-only 结果标记为 `metadata-only`：不会联网确认远程仓库或提交是否仍可用。`git_bundle` 会校验 bundle 文件的 SHA-256。
+`verify` 的 Git-only 结果默认标记为 `metadata-only`：不联网。`git_bundle` 会校验 bundle 文件的 SHA-256。
 
-加 `--check-remote` 时，Git-only 记录改用下列状态，其它策略的结果不变。该检查只读取远端引用列表（`git ls-remote`，单条最长等待 30 秒），不下载对象：
+加 `--check-remote`（或配置 `[verify].check_remote = true`）时，Git-only 记录改用下列状态；子模块与 LFS 也会探测，且**不下载对象**：
 
 - `remote-verified`：远端至少有一个引用指向记录的提交。
 - `remote-moved`：远端可达，但没有引用指向该提交。恢复按提交 SHA 抓取，因此提交仍可能从其它引用可达。
 - `remote-unreachable`：`git ls-remote` 失败或超时，无法确认远端。
 - `remote-skipped`：manifest 中的远端 URL 含用户名、口令、查询或 fragment；此时不会把该 URL 传给 Git，也不联网。
+- `lfs-unavailable`：记录的 LFS 对象缺失或 LFS batch/本地对象库不可达。
 
-任一记录为 `remote-unreachable` 时，命令仍会输出完整报告，并以退出码 1 结束。`--json` 会在 Git-only 记录中增加 `remote` 字段：脱敏后的 `url`、`branch`、`reason`（`no-ref-matches-commit`、`ls-remote-failed`、`ls-remote-timed-out`、`credentials-in-remote-url`）以及匹配到的引用列表 `refs`。不带该选项时输出结构与之前完全一致。
+任一记录为 `remote-unreachable` 或 `lfs-unavailable` 时，命令仍会输出完整报告，并以退出码 1 结束。`--json` 可含脱敏 `remote`、`submodules`、`lfs` 字段。`--no-check-remote` 可覆盖配置默认值。
 
 恢复规则：
 
@@ -296,7 +303,7 @@ projjan verify <manifest> --check-remote --json
   git -C ~/restored/xtask_todo switch -c main
   ```
 
-`git` 恢复依赖远程仓库和本机凭据配置；私有仓库可使用 `gh auth setup-git`、SSH 或 credential helper。恢复后，仓库的 `origin` 会移除 URL 中的认证信息、查询和 fragment，保留 SSH 登录名；使用查询参数定位仓库的特殊远程需在恢复后手动重设 `origin`。后续访问私有仓库需使用本机凭据配置。工具只验证 manifest 中的 URL 形式和提交格式，不会预检远程是否仍存在该提交。
+`git` 恢复依赖远程仓库和本机凭据配置；私有仓库可使用 `gh auth setup-git`、SSH 或 credential helper。恢复后，仓库的 `origin` 会移除 URL 中的认证信息、查询和 fragment，保留 SSH 登录名；使用查询参数定位仓库的特殊远程需在恢复后手动重设 `origin`。后续访问私有仓库需使用本机凭据配置。默认只校验 manifest 中的 URL/提交格式；加 `--check-remote`（或 `[restore].check_remote = true`）会在写入前预检远端引用、子模块与 LFS 对象可用性。
 
 ## 项目结构
 
@@ -361,3 +368,4 @@ python3 -m unittest discover -s tests -v
 - ~~增量备份与自动/定时保留~~：自动保留已实现——`backup --keep N`（或 `[backup].keep`）在成功备份后按项目仅保留 N 份最新快照；增量备份已实现——`backup --incremental`（或 `[backup].incremental = true`）对 archive 策略生成差异快照（仅归档相对上次快照变更/新增的文件与符号链接，并记录完整文件清单 `inventory` 与删除列表 `deleted`），保留时按链整体保留（Scheme A），恢复时先解出最近完整快照再逐级应用差异。
 - ~~配置文件（排除规则、备份目标、保留策略）~~：已实现 `.proj-janitor.toml` 提供 `[backup].dest`、`[backup].keep`、`[backup].exclude` 与 `[prune].keep` 默认值。`[backup].exclude` 为 archive 策略提供用户自定义排除模式（glob，按项目根相对路径逐段匹配，目录匹配则跳过其子树）；`git`/`git_bundle` 策略不受影响。
 - ~~子模块/LFS 远端预检~~：已实现——Git-only 记录备份时记录 `submodules`（`[{path,url,commit}]`）与 `lfs_objects`（`[{oid,size}]`，经 `git lfs ls-files --long` + pointer blob；旧清单中的裸 OID 字符串仍可读）；`verify`/`restore --check-remote` 对子模块做 `git ls-remote` 预检，并对 LFS 对象做可用性探测（本地/`file://`/`url.*.insteadOf` 查 `lfs/objects`，HTTPS 走 LFS batch API，**不下载对象**）。缺失或不可达时 verify 置 `lfs-unavailable`，restore 在创建目标前整批不开始。
+- ~~`--check-remote` 配置默认值~~：已实现——`.proj-janitor.toml` 支持 `[verify].check_remote` / `[restore].check_remote`；CLI `--check-remote` / `--no-check-remote` 可覆盖。

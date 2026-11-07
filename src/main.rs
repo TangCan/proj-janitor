@@ -16,7 +16,7 @@ mod restore;
 mod retention;
 use backup::backup_cmd;
 use clean::clean_cmd;
-use config::discover_config;
+use config::{discover_config, resolve_check_remote};
 use project::discover;
 use restore::restore_cmd;
 
@@ -147,8 +147,12 @@ enum Action {
         no_verify: bool,
         #[arg(long)]
         yes: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "no_check_remote")]
         check_remote: bool,
+        #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
+        no_check_remote: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -156,8 +160,12 @@ enum Action {
         manifest: PathBuf,
         #[arg(long = "project")]
         projects: Vec<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "no_check_remote")]
         check_remote: bool,
+        #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
+        no_check_remote: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -364,23 +372,49 @@ fn run() -> anyhow::Result<()> {
             no_verify,
             yes,
             check_remote,
+            no_check_remote,
+            config,
             json,
-        } => restore_cmd(
-            &manifest,
-            dest,
-            &projects,
-            dry_run,
-            no_verify,
-            yes,
-            check_remote,
-            json,
-        ),
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let check_remote = resolve_check_remote(
+                check_remote,
+                no_check_remote,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.check_remote)
+                    .unwrap_or(false),
+            );
+            restore_cmd(
+                &manifest,
+                dest,
+                &projects,
+                dry_run,
+                no_verify,
+                yes,
+                check_remote,
+                json,
+            )
+        }
         Action::Verify {
             manifest,
             projects,
             check_remote,
+            no_check_remote,
+            config,
             json,
-        } => restore::verify_cmd(&manifest, &projects, check_remote, json),
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let check_remote = resolve_check_remote(
+                check_remote,
+                no_check_remote,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.verify.check_remote)
+                    .unwrap_or(false),
+            );
+            restore::verify_cmd(&manifest, &projects, check_remote, json)
+        }
     }
 }
 

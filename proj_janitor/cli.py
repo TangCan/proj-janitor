@@ -9,7 +9,7 @@ from typing import Iterable, Sequence
 
 from proj_janitor import __version__
 from proj_janitor.backup import prepare_backup, run_backup
-from proj_janitor.config import ConfigError, load_config
+from proj_janitor.config import ConfigError, load_config, resolve_check_remote
 from proj_janitor.cleaner import (
     apply_cleanup,
     build_cleanup_plan,
@@ -202,10 +202,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip confirmation when restoring to original locations",
     )
-    restore.add_argument(
+    restore.set_defaults(check_remote=None)
+    restore_remote = restore.add_mutually_exclusive_group()
+    restore_remote.add_argument(
         "--check-remote",
         action="store_true",
-        help="fail before restoring a Git-only project when its remote is unreachable",
+        dest="check_remote",
+        help=(
+            "fail before restoring a Git-only project when its remote, submodule, "
+            "or LFS object is unreachable (overrides [restore].check_remote)"
+        ),
+    )
+    restore_remote.add_argument(
+        "--no-check-remote",
+        action="store_false",
+        dest="check_remote",
+        help="disable remote probing even when [restore].check_remote is true",
+    )
+    restore.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
     )
     restore.add_argument("--json", action="store_true", help="emit JSON")
 
@@ -221,10 +239,28 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="verify only this project (repeatable)",
     )
-    verify.add_argument(
+    verify.set_defaults(check_remote=None)
+    verify_remote = verify.add_mutually_exclusive_group()
+    verify_remote.add_argument(
         "--check-remote",
         action="store_true",
-        help="contact the recorded remote to confirm the commit is still reachable",
+        dest="check_remote",
+        help=(
+            "contact recorded remotes, submodules, and LFS endpoints "
+            "(overrides [verify].check_remote)"
+        ),
+    )
+    verify_remote.add_argument(
+        "--no-check-remote",
+        action="store_false",
+        dest="check_remote",
+        help="disable remote probing even when [verify].check_remote is true",
+    )
+    verify.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
     )
     verify.add_argument("--json", action="store_true", help="emit JSON")
 
@@ -461,6 +497,15 @@ def _print_manifests(manifest_paths: Sequence[Path]) -> None:
 
 def _cmd_restore(args: argparse.Namespace) -> int:
     try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    check_remote = resolve_check_remote(
+        args.check_remote,
+        config.restore.check_remote if config else False,
+    )
+    try:
         plans = plan_restore(
             args.manifest,
             args.dest,
@@ -521,7 +566,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
     try:
         results = execute_restore(
-            plans, verify=not args.no_verify, check_remote=args.check_remote
+            plans, verify=not args.no_verify, check_remote=check_remote
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -544,8 +589,17 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    check_remote = resolve_check_remote(
+        args.check_remote,
+        config.verify.check_remote if config else False,
+    )
+    try:
         results = verify_manifest(
-            args.manifest, projects=args.project, check_remote=args.check_remote
+            args.manifest, projects=args.project, check_remote=check_remote
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -566,7 +620,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 f"[{label}] {result['project']}: SHA-256 verified "
                 f"{result['archive']}"
             )
-        elif args.check_remote:
+        elif check_remote:
             print(_verify_remote_line(result))
         else:
             print(

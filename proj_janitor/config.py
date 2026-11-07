@@ -141,12 +141,46 @@ class PruneConfig:
         self.keep = keep
 
 
-class Config:
-    __slots__ = ("backup", "prune")
+class VerifyConfig:
+    __slots__ = ("check_remote",)
 
-    def __init__(self, backup: BackupConfig, prune: PruneConfig) -> None:
+    def __init__(self, check_remote: bool = False) -> None:
+        self.check_remote = check_remote
+
+
+class RestoreConfig:
+    __slots__ = ("check_remote",)
+
+    def __init__(self, check_remote: bool = False) -> None:
+        self.check_remote = check_remote
+
+
+class Config:
+    __slots__ = ("backup", "prune", "verify", "restore")
+
+    def __init__(
+        self,
+        backup: BackupConfig,
+        prune: PruneConfig,
+        verify: VerifyConfig | None = None,
+        restore: RestoreConfig | None = None,
+    ) -> None:
         self.backup = backup
         self.prune = prune
+        self.verify = verify if verify is not None else VerifyConfig()
+        self.restore = restore if restore is not None else RestoreConfig()
+
+
+def resolve_check_remote(
+    check_remote: bool | None, config_default: bool
+) -> bool:
+    """Resolve CLI `--check-remote` / `--no-check-remote` against a config default.
+
+    ``None`` means neither flag was passed; otherwise the explicit flag wins.
+    """
+    if check_remote is None:
+        return config_default
+    return bool(check_remote)
 
 
 def _parse_path(value: object, where: str) -> Path:
@@ -221,10 +255,11 @@ def load_config(path: Path | None = None) -> Config | None:
             raise ConfigError(f"cannot read config {path}: no such file")
 
     data = _load_toml(path)
-    if set(data) - {"backup", "prune"}:
+    allowed_top = {"backup", "prune", "verify", "restore"}
+    if set(data) - allowed_top:
         raise ConfigError(
             f"invalid config {path}: unknown top-level key(s) "
-            f"{sorted(set(data) - {'backup', 'prune'})}"
+            f"{sorted(set(data) - allowed_top)}"
         )
 
     backup_data = data.get("backup", {})
@@ -264,4 +299,34 @@ def load_config(path: Path | None = None) -> Config | None:
         else None
     )
 
-    return Config(backup=backup, prune=prune)
+    verify_data = data.get("verify", {})
+    if not isinstance(verify_data, dict):
+        raise ConfigError(f"invalid config {path}: [verify] must be a table")
+    if set(verify_data) - {"check_remote"}:
+        raise ConfigError(
+            f"invalid config {path}: unknown [verify] key(s) "
+            f"{sorted(set(verify_data) - {'check_remote'})}"
+        )
+    verify = VerifyConfig(
+        check_remote=_parse_bool(verify_data["check_remote"], "[verify].check_remote")
+        if "check_remote" in verify_data
+        else False,
+    )
+
+    restore_data = data.get("restore", {})
+    if not isinstance(restore_data, dict):
+        raise ConfigError(f"invalid config {path}: [restore] must be a table")
+    if set(restore_data) - {"check_remote"}:
+        raise ConfigError(
+            f"invalid config {path}: unknown [restore] key(s) "
+            f"{sorted(set(restore_data) - {'check_remote'})}"
+        )
+    restore = RestoreConfig(
+        check_remote=_parse_bool(
+            restore_data["check_remote"], "[restore].check_remote"
+        )
+        if "check_remote" in restore_data
+        else False,
+    )
+
+    return Config(backup=backup, prune=prune, verify=verify, restore=restore)
