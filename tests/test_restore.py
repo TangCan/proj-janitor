@@ -800,6 +800,64 @@ class GitRestoreTests(unittest.TestCase):
                 "print('master')\n",
             )
 
+    def test_git_bundle_restore_surfaces_git_stderr_on_invalid_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_dir = root / "backups" / "app"
+            backup_dir.mkdir(parents=True)
+            bundle = backup_dir / "app-20261107-120000.bundle"
+            bundle.write_text("not a git bundle\n", encoding="utf-8")
+            manifest = backup_dir / "manifest-20261107-120000.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "created_at": "2026-11-07T00:00:00+00:00",
+                        "tool": "proj-janitor",
+                        "version": "0.1.0",
+                        "include_artifacts": False,
+                        "always_archive": False,
+                        "exclude_git_metadata": False,
+                        "records": [
+                            {
+                                "project": "app",
+                                "source": str(root / "app"),
+                                "archive": str(bundle),
+                                "archive_bytes": 16,
+                                "source_bytes": 1,
+                                "sha256": "00",
+                                "strategy": "git_bundle",
+                                "remote": None,
+                                "remote_url": None,
+                                "branch": "master",
+                                "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "upstream": None,
+                                "verified": "local-bundle",
+                                "fallback_reason": "branch has no upstream remote",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                RestoreError,
+                r"invalid Git bundle for app: .+",
+            ):
+                restore_from_manifest(manifest, root / "restored", verify=False)
+
+    def test_git_failure_detail_redacts_credentialed_urls(self) -> None:
+        self.assertEqual(
+            restore_module._redact_git_message(
+                "fatal: could not read Username for 'https://user:token@example.com/repo'"
+            ),
+            "remote URL details redacted",
+        )
+        self.assertEqual(
+            restore_module._redact_git_message("fatal: need a repository to verify a bundle"),
+            "fatal: need a repository to verify a bundle",
+        )
+
     @unittest.skipUnless(
         GIT_LFS_AVAILABLE and os.name != "nt",
         "git-lfs or a local-file LFS endpoint is not available",

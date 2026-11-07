@@ -636,7 +636,9 @@ def _restore_submodules(repo: Path, project: str) -> None:
             check=False,
         )
         if initialized.returncode:
-            raise RestoreError(f"cannot initialize submodules for {project}")
+            raise RestoreError(
+                f"cannot initialize submodules for {project}: {_git_failure_detail(initialized)}"
+            )
         updated = _run_git(
             [
                 "-c",
@@ -655,7 +657,9 @@ def _restore_submodules(repo: Path, project: str) -> None:
             check=False,
         )
         if updated.returncode:
-            raise RestoreError(f"cannot restore submodules for {project}")
+            raise RestoreError(
+                f"cannot restore submodules for {project}: {_git_failure_detail(updated)}"
+            )
         for relative, _ in modules:
             target = current.joinpath(*relative.parts)
             if target.is_symlink() or not target.is_dir():
@@ -703,13 +707,19 @@ def _restore_lfs(repo: Path, project: str) -> None:
         raise RestoreError(f"cannot inspect Git LFS configuration for {project}")
     version = _run_git(["-C", str(repo), "lfs", "version"], check=False)
     if version.returncode:
-        raise RestoreError(f"Git LFS is required to restore {project}")
+        raise RestoreError(
+            f"Git LFS is required to restore {project}: {_git_failure_detail(version)}"
+        )
     installed = _run_git(["-C", str(repo), "lfs", "install", "--local"], check=False)
     if installed.returncode:
-        raise RestoreError(f"cannot configure Git LFS for {project}")
+        raise RestoreError(
+            f"cannot configure Git LFS for {project}: {_git_failure_detail(installed)}"
+        )
     pulled = _run_git(["-C", str(repo), "lfs", "pull"], check=False)
     if pulled.returncode:
-        raise RestoreError(f"cannot restore Git LFS objects for {project}")
+        raise RestoreError(
+            f"cannot restore Git LFS objects for {project}: {_git_failure_detail(pulled)}"
+        )
 
 
 def _restore_git(plan: RestorePlan) -> None:
@@ -820,7 +830,9 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             raise RestoreError(f"sha256 mismatch for {plan.archive}")
         initialized = _run_git(["init", str(repo)], check=False)
         if initialized.returncode:
-            raise RestoreError(f"cannot initialize Git bundle restore for {plan.project}")
+            raise RestoreError(
+                f"cannot initialize Git bundle restore for {plan.project}: {_git_failure_detail(initialized)}"
+            )
         # Point HEAD at an unborn placeholder so fetch can update every branch in
         # the bundle, including the machine default (often `master`/`main`).
         # Modern Git refuses: "refusing to fetch into branch '…' checked out at …".
@@ -835,7 +847,9 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             check=False,
         )
         if prepared.returncode:
-            raise RestoreError(f"cannot prepare Git bundle restore for {plan.project}")
+            raise RestoreError(
+                f"cannot prepare Git bundle restore for {plan.project}: {_git_failure_detail(prepared)}"
+            )
         # `git bundle verify` requires a repository context on modern Git; running it
         # with the caller's cwd (e.g. $HOME) fails with "need a repository to verify a
         # bundle". Always verify inside the fresh restore repo.
@@ -844,7 +858,9 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             check=False,
         )
         if verified.returncode:
-            raise RestoreError(f"invalid Git bundle for {plan.project}")
+            raise RestoreError(
+                f"invalid Git bundle for {plan.project}: {_git_failure_detail(verified)}"
+            )
         fetched = _run_git(
             [
                 "-C",
@@ -858,20 +874,26 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             check=False,
         )
         if fetched.returncode:
-            raise RestoreError(f"cannot fetch Git bundle for {plan.project}")
+            raise RestoreError(
+                f"cannot fetch Git bundle for {plan.project}: {_git_failure_detail(fetched)}"
+            )
         checked = _run_git(
             ["-C", str(repo), "check-ref-format", "--branch", plan.branch],
             check=False,
         )
         if checked.returncode:
-            raise RestoreError(f"invalid branch in Git bundle manifest for {plan.project}")
+            raise RestoreError(
+                f"invalid branch in Git bundle manifest for {plan.project}: {_git_failure_detail(checked)}"
+            )
         checkout = _run_git(
             ["-C", str(repo), "checkout", "--force", "-B", plan.branch, plan.commit],
             check=False,
             extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
         )
         if checkout.returncode:
-            raise RestoreError(f"cannot check out Git bundle commit for {plan.project}")
+            raise RestoreError(
+                f"cannot check out Git bundle commit for {plan.project}: {_git_failure_detail(checkout)}"
+            )
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"], check=False)
         if head.returncode or head.stdout.strip().lower() != plan.commit.lower():
             raise RestoreError(f"Git bundle commit mismatch for {plan.project}")
@@ -1192,6 +1214,7 @@ def _run_git(
         timeout = _GIT_TIMEOUT_SECONDS
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    environment["GIT_PAGER"] = "cat"
     if extra_env is not None:
         environment.update(extra_env)
     command = " ".join(args[:2])
@@ -1227,13 +1250,39 @@ def _run_git(
         ["git", *args], process.returncode, stdout, stderr
     )
     if check and result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        if _git_args_have_sensitive_remote(args, sensitive_remote):
-            detail = "remote URL details redacted"
-        if not detail:
-            detail = f"exit code {result.returncode}"
+        detail = _git_failure_detail(result, args=args, sensitive_remote=sensitive_remote)
         raise RestoreError(f"git {command} failed: {detail}")
     return result
+
+
+def _git_failure_detail(
+    result: subprocess.CompletedProcess[str],
+    *,
+    args: list[str] | None = None,
+    sensitive_remote: str | None = None,
+) -> str:
+    """Return a single-line git failure detail, redacting credentialed URLs."""
+    if args is not None and _git_args_have_sensitive_remote(args, sensitive_remote):
+        return "remote URL details redacted"
+    detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+    if not detail:
+        return f"exit code {result.returncode}"
+    line = next(
+        (part.strip() for part in reversed(detail.splitlines()) if part.strip()),
+        detail,
+    )
+    return _redact_git_message(line)
+
+
+def _redact_git_message(message: str) -> str:
+    marker = "://"
+    idx = message.find(marker)
+    if idx >= 0:
+        after = message[idx + len(marker) :]
+        at = after.find("@")
+        if at > 0 and ":" in after[:at]:
+            return "remote URL details redacted"
+    return message
 
 
 def _git_args_have_sensitive_remote(

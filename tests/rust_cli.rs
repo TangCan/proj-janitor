@@ -1146,6 +1146,69 @@ fn backup_and_restore_git_bundle_when_branch_matches_init_default() {
 }
 
 #[test]
+fn restore_git_bundle_surfaces_git_stderr_on_invalid_bundle() {
+    let temp = TestDir::new();
+    let backup_dir = temp.0.join("backups/demo");
+    fs::create_dir_all(&backup_dir).unwrap();
+    let bundle = backup_dir.join("demo-20261107-120000.bundle");
+    fs::write(&bundle, b"not a git bundle\n").unwrap();
+    let manifest = backup_dir.join("manifest-20261107-120000.json");
+    let manifest_json = serde_json::json!({
+        "schema_version": 2,
+        "created_at": "2026-11-07T00:00:00+00:00",
+        "tool": "proj-janitor",
+        "version": "0.7.1",
+        "include_artifacts": false,
+        "always_archive": false,
+        "exclude_git_metadata": false,
+        "records": [{
+            "project": "demo",
+            "source": "/tmp/demo",
+            "archive": bundle,
+            "archive_bytes": 16,
+            "source_bytes": 1,
+            "sha256": "00",
+            "strategy": "git_bundle",
+            "remote": null,
+            "remote_url": null,
+            "branch": "master",
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "upstream": null,
+            "verified": "local-bundle",
+            "fallback_reason": "branch has no upstream remote"
+        }]
+    });
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&manifest_json).unwrap(),
+    )
+    .unwrap();
+
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .current_dir(&temp.0)
+        .arg("restore")
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(temp.0.join("restored"))
+        .arg("--no-verify")
+        .output()
+        .unwrap();
+    assert!(
+        !restore.status.success(),
+        "restore should fail for an invalid bundle"
+    );
+    let stderr = String::from_utf8_lossy(&restore.stderr);
+    assert!(
+        stderr.contains("invalid Git bundle for demo"),
+        "stderr should keep the high-level error: {stderr}"
+    );
+    assert!(
+        stderr.contains("fatal:") || stderr.contains("error:") || stderr.contains("bundle"),
+        "stderr should include git's failure detail: {stderr}"
+    );
+}
+
+#[test]
 fn backup_and_restore_unpushed_git_history_with_bundle() {
     let temp = TestDir::new();
     let project = temp.project();

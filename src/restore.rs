@@ -1007,10 +1007,10 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
             .args(["submodule", "--quiet", "init", "--"])
             .args(&paths)
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut init, project, "submodule init")?.success(),
-            "cannot initialize submodules for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut init, project, "submodule init")?,
+            format!("cannot initialize submodules for {project}"),
+        )?;
         let mut update = Command::new("git");
         update
             .args(["-c", "submodule.recurse=false"])
@@ -1027,10 +1027,10 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
             ])
             .args(&paths)
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut update, project, "submodule update")?.success(),
-            "cannot restore submodules for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut update, project, "submodule update")?,
+            format!("cannot restore submodules for {project}"),
+        )?;
 
         let parent = fs::canonicalize(parent)?;
         for module in modules {
@@ -1103,19 +1103,19 @@ fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
         .arg(repo)
         .args(["lfs", "install", "--local"])
         .stdout(Stdio::null());
-    anyhow::ensure!(
-        run_git_with_timeout(&mut install, project, "Git LFS install")?.success(),
-        "cannot configure Git LFS for {project}"
-    );
+    ensure_git(
+        run_git_with_timeout(&mut install, project, "Git LFS install")?,
+        format!("cannot configure Git LFS for {project}"),
+    )?;
     let mut pull = Command::new("git");
     pull.arg("-C")
         .arg(repo)
         .args(["lfs", "pull"])
         .stdout(Stdio::null());
-    anyhow::ensure!(
-        run_git_with_timeout(&mut pull, project, "Git LFS pull")?.success(),
-        "cannot restore Git LFS objects for {project}"
-    );
+    ensure_git(
+        run_git_with_timeout(&mut pull, project, "Git LFS pull")?,
+        format!("cannot restore Git LFS objects for {project}"),
+    )?;
     Ok(())
 }
 
@@ -1203,10 +1203,10 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             .arg(&temporary)
             .args(["init", "repo"])
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut init, project, "init")?.success(),
-            "git init failed for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut init, project, "init")?,
+            format!("git init failed for {project}"),
+        )?;
         let remote_suffix = temporary
             .file_name()
             .unwrap_or_default()
@@ -1226,10 +1226,10 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
                 .arg(format!("remote.{fetch_remote}.fetch"))
                 .arg(refspec)
                 .stdout(Stdio::null());
-            anyhow::ensure!(
-                run_git_with_timeout(&mut add_fetch, project, "config")?.success(),
-                "cannot configure Git fetch for {project}"
-            );
+            ensure_git(
+                run_git_with_timeout(&mut add_fetch, project, "config")?,
+                format!("cannot configure Git fetch for {project}"),
+            )?;
         }
         const CONFIG_PROBE_URL: &str = "https://projjan.invalid/";
         let probe_env = git_config_env(&format!("remote.{fetch_remote}.url"), CONFIG_PROBE_URL);
@@ -1248,7 +1248,7 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             }
             let probe_status = run_git_with_timeout(&mut probe, project, "config probe")?;
             drop(probe);
-            let supported = probe_status.success()
+            let supported = probe_status.status.success()
                 && fs::read_to_string(&probe_output)?.trim() == CONFIG_PROBE_URL;
             let _ = fs::remove_file(probe_output);
             supported
@@ -1276,10 +1276,10 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             fetch.arg("--").arg(url).args(refspecs);
         }
         fetch.stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut fetch, project, "fetch")?.success(),
-            "git fetch failed for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut fetch, project, "fetch")?,
+            format!("git fetch failed for {project}"),
+        )?;
         let mut remove_fetch_remote = Command::new("git");
         remove_fetch_remote
             .arg("-C")
@@ -1287,20 +1287,20 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             .args(["config", "--local", "--remove-section"])
             .arg(format!("remote.{fetch_remote}"))
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut remove_fetch_remote, project, "config")?.success(),
-            "cannot remove temporary Git remote for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut remove_fetch_remote, project, "config")?,
+            format!("cannot remove temporary Git remote for {project}"),
+        )?;
         let mut add_remote = Command::new("git");
         add_remote
             .arg("-C")
             .arg(&repo)
             .args(["remote", "add", "origin", &safe_url])
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut add_remote, project, "remote add")?.success(),
-            "cannot configure restored remote for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut add_remote, project, "remote add")?,
+            format!("cannot configure restored remote for {project}"),
+        )?;
         let mut checkout = Command::new("git");
         checkout
             .arg("-C")
@@ -1308,20 +1308,20 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             .args(["checkout", "--detach", commit])
             .env("GIT_LFS_SKIP_SMUDGE", "1")
             .stdout(Stdio::null());
-        anyhow::ensure!(
-            run_git_with_timeout(&mut checkout, project, "checkout")?.success(),
-            "git checkout failed for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut checkout, project, "checkout")?,
+            format!("git checkout failed for {project}"),
+        )?;
         let head_output = temporary.join("head");
         let mut head = Command::new("git");
         head.arg("-C")
             .arg(&repo)
             .args(["rev-parse", "HEAD"])
             .stdout(fs::File::create(&head_output)?);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut head, project, "rev-parse")?.success(),
-            "cannot verify restored commit for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut head, project, "rev-parse")?,
+            format!("cannot verify restored commit for {project}"),
+        )?;
         drop(head);
         let actual = fs::read_to_string(head_output)?.trim().to_owned();
         anyhow::ensure!(
@@ -1380,10 +1380,10 @@ fn restore_git_bundle(
         let repo = temporary.join("repo");
         let mut init = Command::new("git");
         init.current_dir(&temporary).args(["init", "repo"]);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut init, project, "init")?.success(),
-            "cannot initialize Git bundle restore for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut init, project, "init")?,
+            format!("cannot initialize Git bundle restore for {project}"),
+        )?;
         // Point HEAD at an unborn placeholder so fetch can update every branch in
         // the bundle, including the machine default (often `master`/`main`).
         // Modern Git refuses: "refusing to fetch into branch '…' checked out at …".
@@ -1393,10 +1393,10 @@ fn restore_git_bundle(
             "HEAD",
             "refs/heads/projjan-restore-temp",
         ]);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut detach_head, project, "bundle HEAD prepare")?.success(),
-            "cannot prepare Git bundle restore for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut detach_head, project, "bundle HEAD prepare")?,
+            format!("cannot prepare Git bundle restore for {project}"),
+        )?;
         // `git bundle verify` requires a repository context on modern Git; running it
         // with the caller's cwd (e.g. $HOME) fails with "need a repository to verify a
         // bundle". Always verify inside the fresh restore repo.
@@ -1406,10 +1406,10 @@ fn restore_git_bundle(
             .arg(&repo)
             .args(["bundle", "verify"])
             .arg(&git_bundle_path);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut verify, project, "bundle verify")?.success(),
-            "invalid Git bundle for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut verify, project, "bundle verify")?,
+            format!("invalid Git bundle for {project}"),
+        )?;
         let mut fetch = Command::new("git");
         fetch
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -1418,28 +1418,28 @@ fn restore_git_bundle(
             .args(["fetch", "--no-tags"])
             .arg(&git_bundle_path)
             .args(["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut fetch, project, "bundle fetch")?.success(),
-            "cannot fetch Git bundle for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut fetch, project, "bundle fetch")?,
+            format!("cannot fetch Git bundle for {project}"),
+        )?;
         let mut check_branch = Command::new("git");
         check_branch
             .arg("-C")
             .arg(&repo)
             .args(["check-ref-format", "--branch", branch]);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut check_branch, project, "branch validation")?.success(),
-            "invalid Git bundle branch for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut check_branch, project, "branch validation")?,
+            format!("invalid Git bundle branch for {project}"),
+        )?;
         let mut checkout = Command::new("git");
         checkout
             .arg("-C")
             .arg(&repo)
             .args(["checkout", "--force", "-B", branch, commit]);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut checkout, project, "checkout")?.success(),
-            "cannot check out Git bundle commit for {project}"
-        );
+        ensure_git(
+            run_git_with_timeout(&mut checkout, project, "checkout")?,
+            format!("cannot check out Git bundle commit for {project}"),
+        )?;
         let head = git_output(&repo, &["rev-parse", "HEAD"])
             .filter(|head| !head.is_empty())
             .ok_or_else(|| anyhow::anyhow!("cannot verify Git bundle commit for {project}"))?;
@@ -1459,40 +1459,98 @@ fn restore_git_bundle(
     result
 }
 
+struct GitRun {
+    status: ExitStatus,
+    stderr: String,
+}
+
+fn ensure_git(run: GitRun, message: String) -> anyhow::Result<()> {
+    if run.status.success() {
+        return Ok(());
+    }
+    let detail = summarize_git_stderr(&run.stderr);
+    if detail.is_empty() {
+        anyhow::bail!("{message}");
+    }
+    anyhow::bail!("{message}: {detail}");
+}
+
+fn summarize_git_stderr(stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let line = trimmed
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(trimmed);
+    redact_git_message(line)
+}
+
+fn redact_git_message(message: &str) -> String {
+    // Hide credentialed http(s) URLs (userinfo contains ':') that Git may echo.
+    if let Some(scheme) = message.find("://") {
+        let after = &message[scheme + 3..];
+        if let Some(at) = after.find('@') {
+            let userinfo = &after[..at];
+            if userinfo.contains(':') {
+                return "remote URL details redacted".to_owned();
+            }
+        }
+    }
+    message.to_owned()
+}
+
 fn run_git_with_timeout(
     command: &mut Command,
     project: &str,
     operation: &str,
-) -> anyhow::Result<ExitStatus> {
+) -> anyhow::Result<GitRun> {
     #[cfg(unix)]
     let interrupt = InterruptGuard::new()?;
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = command.stderr(Stdio::null()).spawn()?;
+    command.env("GIT_PAGER", "cat");
+    let mut child = command.stderr(Stdio::piped()).spawn()?;
+    let mut stderr_pipe = child.stderr.take();
+    let reader = thread::spawn(move || {
+        let mut output = String::new();
+        if let Some(handle) = &mut stderr_pipe {
+            let _ = handle.read_to_string(&mut output);
+        }
+        output
+    });
     let deadline = Instant::now() + GIT_TIMEOUT;
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
+            Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(error) => {
                 let _ = stop_child(&mut child);
+                let _ = reader.join();
                 return Err(error.into());
             }
         }
         #[cfg(unix)]
         if let Some(signal) = interrupt.requested() {
             stop_child(&mut child)?;
+            let _ = reader.join();
             return Err(RestoreInterrupted(signal).into());
         }
         if Instant::now() >= deadline {
             stop_child(&mut child)?;
+            let _ = reader.join();
             anyhow::bail!(
                 "git {operation} timed out after {} seconds for {project}",
                 GIT_TIMEOUT.as_secs()
             );
         }
         thread::sleep(Duration::from_millis(100));
-    }
+    };
+    let stderr = reader.join().unwrap_or_default();
+    Ok(GitRun { status, stderr })
 }
 
 fn git_config_env(key: &str, value: &str) -> Option<Vec<(String, String)>> {
