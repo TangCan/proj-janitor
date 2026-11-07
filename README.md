@@ -327,7 +327,7 @@ projjan verify <manifest> --check-remote --json
 python3 -m unittest discover -s tests -v
 ```
 
-验证快照（2026-11-06，Rust 0.7.0）：Python 224 项（223 通过、1 项 Windows 专属测试跳过）；Rust 71 项单元测试及 29 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
+验证快照（2026-11-07，Rust 0.7.1）：Python 225 项（224 通过、1 项 Windows 专属测试跳过）；Rust 71 项单元测试及 30 项 CLI 集成测试通过；`cargo fmt --check`、Clippy 和 Python/Rust archive、bundle、retention、远端预检及增量备份跨语言检查通过。完整 CI 状态见 GitHub Actions。版本化发布说明见 `docs/发布记录/`。Python 版除 Python 3.10 自动安装 `tomli` 外无第三方运行时依赖，要求 Python 3.10+。
 
 Rust 版开发检查：
 
