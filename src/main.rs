@@ -196,6 +196,10 @@ enum Action {
         skip_existing: bool,
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
+        #[arg(long, conflicts_with = "no_progress")]
+        progress: bool,
+        #[arg(long = "no-progress", conflicts_with = "progress")]
+        no_progress: bool,
         #[arg(long, value_name = "FILE")]
         decrypt_passphrase_file: Option<PathBuf>,
         #[arg(long)]
@@ -498,6 +502,8 @@ fn run() -> anyhow::Result<()> {
             no_continue_on_error,
             skip_existing,
             no_skip_existing,
+            progress,
+            no_progress,
             decrypt_passphrase_file,
             config,
             json,
@@ -543,6 +549,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.skip_existing)
                     .unwrap_or(false),
             );
+            let progress = resolve_tri_state(
+                progress,
+                no_progress,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.progress)
+                    .unwrap_or(false),
+            );
             anyhow::ensure!(
                 !(force && skip_existing),
                 "--force and --skip-existing cannot be combined"
@@ -564,6 +578,7 @@ fn run() -> anyhow::Result<()> {
                 force,
                 continue_on_error,
                 skip_existing,
+                progress,
                 decrypt_passphrase_file,
                 json,
             )

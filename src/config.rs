@@ -93,6 +93,9 @@ pub(crate) struct RestoreConfig {
     /// Skip projects whose restore target directory already exists.
     #[serde(default)]
     pub(crate) skip_existing: bool,
+    /// Emit per-project restore progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
 }
 
 /// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
@@ -316,6 +319,15 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[restore]\nskip_existing = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.skip_existing);
+        assert!(!config.restore.progress);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_progress() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nprogress = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.progress);
     }
 
     #[test]

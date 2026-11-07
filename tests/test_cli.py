@@ -496,6 +496,44 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((original / "node_modules").exists())
 
+    def test_restore_progress_reports_per_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            dest = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifest = next((dest / project.name).glob("manifest-*.json"))
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--progress",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("progress: restoring 1/1:", err)
+            self.assertIn("progress: done, restored 1", err)
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(root / "dry"),
+                "--dry-run",
+                "--progress",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("progress: would restore 1 project(s)", err)
+
     def test_restore_skip_existing_leaves_target_and_restores_others(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

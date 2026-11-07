@@ -946,6 +946,7 @@ pub(crate) fn restore_cmd(
     force: bool,
     continue_on_error: bool,
     skip_existing: bool,
+    progress: bool,
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -1140,6 +1141,17 @@ pub(crate) fn restore_cmd(
             }
             println!("Dry run.")
         }
+        if progress {
+            let skips = plans.iter().filter(|(_, _, _, _, skip)| *skip).count();
+            if skips > 0 {
+                eprintln!(
+                    "progress: would restore {} project(s) ({skips} skip existing)",
+                    plans.len()
+                );
+            } else {
+                eprintln!("progress: would restore {} project(s)", plans.len());
+            }
+        }
         return Ok(());
     }
     let has_overwrite = plans.iter().any(|(_, _, _, overwrite, _)| *overwrite);
@@ -1237,10 +1249,24 @@ pub(crate) fn restore_cmd(
     }
     let mut done: Vec<(String, String, PathBuf, bool)> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
-    for (r, target, archive, _, skip) in &plans {
+    let total = plans.len();
+    for (index, (r, target, archive, _, skip)) in plans.iter().enumerate() {
+        let index = index + 1;
         if *skip {
+            if progress {
+                eprintln!(
+                    "progress: skipped {index}/{total}: {} ({}, existing)",
+                    r.project, r.strategy
+                );
+            }
             done.push((r.project.clone(), r.strategy.clone(), target.clone(), true));
             continue;
+        }
+        if progress {
+            eprintln!(
+                "progress: restoring {index}/{total}: {} ({})",
+                r.project, r.strategy
+            );
         }
         let result = (|| -> anyhow::Result<()> {
             fs::create_dir_all(
@@ -1366,6 +1392,14 @@ pub(crate) fn restore_cmd(
                 println!("[skipped] {p} -> {}", t.display())
             }
         }
+    }
+    if progress {
+        let restored = done.iter().filter(|(_, _, _, skipped)| !*skipped).count();
+        let skipped = done.iter().filter(|(_, _, _, skipped)| *skipped).count();
+        eprintln!(
+            "progress: done, restored {restored}, skipped {skipped}, failed {}",
+            failures.len()
+        );
     }
     if !failures.is_empty() {
         anyhow::bail!("one or more restore operations failed ({})", failures.len());

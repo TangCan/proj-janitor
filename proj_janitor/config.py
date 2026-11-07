@@ -179,6 +179,7 @@ class RestoreConfig:
         "force",
         "continue_on_error",
         "skip_existing",
+        "progress",
     )
 
     def __init__(
@@ -189,6 +190,7 @@ class RestoreConfig:
         force: bool = False,
         continue_on_error: bool = False,
         skip_existing: bool = False,
+        progress: bool = False,
     ) -> None:
         self.check_remote = check_remote
         self.require_dest = require_dest
@@ -196,6 +198,7 @@ class RestoreConfig:
         self.force = force
         self.continue_on_error = continue_on_error
         self.skip_existing = skip_existing
+        self.progress = progress
 
 
 class Config:
@@ -413,6 +416,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "force",
         "continue_on_error",
         "skip_existing",
+        "progress",
     }
     if set(restore_data) - allowed_restore:
         raise ConfigError(
@@ -448,6 +452,9 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["skip_existing"], "[restore].skip_existing"
         )
         if "skip_existing" in restore_data
+        else False,
+        progress=_parse_bool(restore_data["progress"], "[restore].progress")
+        if "progress" in restore_data
         else False,
     )
 

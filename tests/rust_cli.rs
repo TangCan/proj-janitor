@@ -3001,6 +3001,65 @@ fn scan_many_sibling_projects() {
 }
 
 #[test]
+fn restore_progress_reports_per_project() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "data\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let project_dir = dest.join(project.file_name().unwrap());
+    let manifest = fs::read_dir(&project_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let out = temp.0.join("restored");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .arg("--progress")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("progress: restoring 1/1:"), "{stderr}");
+    assert!(stderr.contains("progress: done, restored 1"), "{stderr}");
+
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(temp.0.join("dry"))
+        .args(["--dry-run", "--progress"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(dry.status.success());
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(
+        dry_err.contains("progress: would restore 1 project(s)"),
+        "{dry_err}"
+    );
+}
+
+#[test]
 fn restore_skip_existing_leaves_target_and_restores_others() {
     let temp = TestDir::new();
     let mut records = Vec::new();

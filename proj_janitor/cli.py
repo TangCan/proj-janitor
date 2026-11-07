@@ -334,6 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
         force=None,
         continue_on_error=None,
         skip_existing=None,
+        progress=None,
     )
     restore_remote = restore.add_mutually_exclusive_group()
     restore_remote.add_argument(
@@ -420,6 +421,22 @@ def build_parser() -> argparse.ArgumentParser:
             "refuse existing restore targets even when "
             "[restore].skip_existing is true"
         ),
+    )
+    restore_progress = restore.add_mutually_exclusive_group()
+    restore_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print per-project restore progress on stderr "
+            "(overrides [restore].progress)"
+        ),
+    )
+    restore_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable restore progress even when [restore].progress is true",
     )
     restore.add_argument(
         "--decrypt-passphrase-file",
@@ -850,6 +867,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.skip_existing,
         config.restore.skip_existing if config else False,
     )
+    progress = resolve_tri_state(
+        args.progress,
+        config.restore.progress if config else False,
+    )
     decrypt_passphrase_file = args.decrypt_passphrase_file or (
         config.restore.decrypt_passphrase_file if config else None
     )
@@ -897,6 +918,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             print("Targets are the original backup locations:")
         for plan in plans:
             _print_restore_plan(plan)
+        if progress:
+            skips = sum(1 for plan in plans if plan.skip)
+            print(
+                f"progress: would restore {len(plans)} project(s)"
+                + (f" ({skips} skip existing)" if skips else ""),
+                file=sys.stderr,
+            )
         print("Dry run. Re-run without --dry-run to restore.")
         return 0
 
@@ -948,6 +976,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
             continue_on_error=continue_on_error,
+            progress=progress,
         )
     except PartialRestoreError as exc:
         results = exc.results

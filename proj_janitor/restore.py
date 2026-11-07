@@ -7,6 +7,7 @@ import signal
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -103,6 +104,7 @@ def execute_restore(
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
     continue_on_error: bool = False,
+    progress: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
     if verify:
@@ -157,8 +159,15 @@ def execute_restore(
         ) from exc
     results: list[RestoreResult] = []
     failures: list[tuple[str, str]] = []
-    for plan in plan_list:
+    total = len(plan_list)
+    for index, plan in enumerate(plan_list, start=1):
         if plan.skip:
+            if progress:
+                print(
+                    f"progress: skipped {index}/{total}: {plan.project} "
+                    f"({plan.strategy}, existing)",
+                    file=sys.stderr,
+                )
             results.append(
                 RestoreResult(
                     project=plan.project,
@@ -168,6 +177,12 @@ def execute_restore(
                 )
             )
             continue
+        if progress:
+            print(
+                f"progress: restoring {index}/{total}: {plan.project} "
+                f"({plan.strategy})",
+                file=sys.stderr,
+            )
         try:
             results.append(
                 _restore_one(
@@ -187,6 +202,14 @@ def execute_restore(
             )
             suffix = f"; already restored: {completed}" if completed else ""
             raise RestoreError(f"{message}{suffix}") from exc
+    if progress:
+        restored = sum(1 for result in results if not result.skipped)
+        skipped = sum(1 for result in results if result.skipped)
+        print(
+            f"progress: done, restored {restored}, skipped {skipped}, "
+            f"failed {len(failures)}",
+            file=sys.stderr,
+        )
     if failures:
         raise PartialRestoreError(results, failures)
     return results
