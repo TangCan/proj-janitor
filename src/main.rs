@@ -188,6 +188,10 @@ enum Action {
         force: bool,
         #[arg(long = "no-force", conflicts_with = "force")]
         no_force: bool,
+        #[arg(long, conflicts_with = "no_continue_on_error")]
+        continue_on_error: bool,
+        #[arg(long = "no-continue-on-error", conflicts_with = "continue_on_error")]
+        no_continue_on_error: bool,
         #[arg(long, value_name = "FILE")]
         decrypt_passphrase_file: Option<PathBuf>,
         #[arg(long)]
@@ -486,6 +490,8 @@ fn run() -> anyhow::Result<()> {
             no_require_dest,
             force,
             no_force,
+            continue_on_error,
+            no_continue_on_error,
             decrypt_passphrase_file,
             config,
             json,
@@ -515,6 +521,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.force)
                     .unwrap_or(false),
             );
+            let continue_on_error = resolve_tri_state(
+                continue_on_error,
+                no_continue_on_error,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.continue_on_error)
+                    .unwrap_or(false),
+            );
             let decrypt_passphrase_file = decrypt_passphrase_file.or_else(|| {
                 config
                     .as_ref()
@@ -530,6 +544,7 @@ fn run() -> anyhow::Result<()> {
                 check_remote,
                 require_dest,
                 force,
+                continue_on_error,
                 decrypt_passphrase_file,
                 json,
             )

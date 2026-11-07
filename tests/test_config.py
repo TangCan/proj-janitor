@@ -227,6 +227,16 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.restore.require_dest)
 
+    def test_loads_restore_continue_on_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".proj-janitor.toml"
+            path.write_text(
+                "[restore]\ncontinue_on_error = true\n", encoding="utf-8"
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.restore.continue_on_error)
+
     def test_loads_restore_force(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cfg.toml"

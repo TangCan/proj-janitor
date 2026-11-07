@@ -172,7 +172,13 @@ class VerifyConfig:
 
 
 class RestoreConfig:
-    __slots__ = ("check_remote", "require_dest", "decrypt_passphrase_file", "force")
+    __slots__ = (
+        "check_remote",
+        "require_dest",
+        "decrypt_passphrase_file",
+        "force",
+        "continue_on_error",
+    )
 
     def __init__(
         self,
@@ -180,11 +186,13 @@ class RestoreConfig:
         require_dest: bool = False,
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
+        continue_on_error: bool = False,
     ) -> None:
         self.check_remote = check_remote
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
+        self.continue_on_error = continue_on_error
 
 
 class Config:
@@ -400,6 +408,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "require_dest",
         "decrypt_passphrase_file",
         "force",
+        "continue_on_error",
     }
     if set(restore_data) - allowed_restore:
         raise ConfigError(
@@ -425,6 +434,11 @@ def load_config(path: Path | None = None) -> Config | None:
         else None,
         force=_parse_bool(restore_data["force"], "[restore].force")
         if "force" in restore_data
+        else False,
+        continue_on_error=_parse_bool(
+            restore_data["continue_on_error"], "[restore].continue_on_error"
+        )
+        if "continue_on_error" in restore_data
         else False,
     )
 

@@ -944,6 +944,7 @@ pub(crate) fn restore_cmd(
     check_remote: bool,
     require_dest: bool,
     force: bool,
+    continue_on_error: bool,
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -1223,6 +1224,7 @@ pub(crate) fn restore_cmd(
         }
     }
     let mut done = Vec::new();
+    let mut failures: Vec<(String, String)> = Vec::new();
     for (r, target, archive, _) in &plans {
         let result = (|| -> anyhow::Result<()> {
             fs::create_dir_all(
@@ -1297,6 +1299,11 @@ pub(crate) fn restore_cmd(
             Ok(())
         })();
         if let Err(error) = result {
+            if continue_on_error {
+                eprintln!("error: {}: {error:#}", r.project);
+                failures.push((r.project.clone(), format!("{error:#}")));
+                continue;
+            }
             if done.is_empty() {
                 return Err(error);
             }
@@ -1312,17 +1319,33 @@ pub(crate) fn restore_cmd(
         done.push((r.project.clone(), r.strategy.clone(), target.clone()));
     }
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &serde_json::json!({"dry_run":false,"mode":if dest.is_some(){"dest"}else{"original"},"projects":done.iter().map(|(p,s,t)|serde_json::json!({"project":p,"strategy":s,"target":t})).collect::<Vec<_>>()})
-            )?
-        )
+        let mut payload = serde_json::json!({
+            "dry_run": false,
+            "mode": if dest.is_some() { "dest" } else { "original" },
+            "projects": done.iter().map(|(p, s, t)| {
+                serde_json::json!({"project": p, "strategy": s, "target": t})
+            }).collect::<Vec<_>>(),
+        });
+        if !failures.is_empty() {
+            payload["failures"] = serde_json::json!(
+                failures
+                    .iter()
+                    .map(|(project, error)| serde_json::json!({
+                        "project": project,
+                        "error": error,
+                    }))
+                    .collect::<Vec<_>>()
+            );
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         println!("Restored {} project(s).", done.len());
-        for (p, s, t) in done {
+        for (p, s, t) in &done {
             println!("[{s}] {p} -> {}", t.display())
         }
+    }
+    if !failures.is_empty() {
+        anyhow::bail!("one or more restore operations failed ({})", failures.len());
     }
     Ok(())
 }

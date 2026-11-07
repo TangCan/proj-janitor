@@ -496,6 +496,47 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((original / "node_modules").exists())
 
+    def test_restore_continue_on_error_restores_remaining_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, first_record = archive_backup(root / "a", "first")
+            _, _, second_record = archive_backup(root / "b", "second")
+            _, _, third_record = archive_backup(root / "c", "third")
+            Path(second_record["archive"]).write_bytes(b"not a gzip archive")
+            second_record["sha256"] = backup_module.sha256_file(
+                Path(second_record["archive"])
+            )
+            manifest = write_manifest(
+                root / "manifest.json",
+                [first_record, second_record, third_record],
+            )
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--continue-on-error",
+                "--json",
+            )
+            self.assertEqual(code, 1, out + err)
+            payload = json.loads(out)
+            self.assertEqual(
+                [p["project"] for p in payload["projects"]],
+                ["first", "third"],
+            )
+            self.assertEqual(
+                [f["project"] for f in payload["failures"]],
+                ["second"],
+            )
+            self.assertIn("second", err)
+            self.assertTrue((restored / "first").exists())
+            self.assertFalse((restored / "second").exists())
+            self.assertTrue((restored / "third").exists())
+
     def test_restore_force_overwrites_existing_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

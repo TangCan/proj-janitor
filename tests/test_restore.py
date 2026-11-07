@@ -21,6 +21,7 @@ from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
 import proj_janitor.scanner as scanner_module
 from proj_janitor.restore import (
+    PartialRestoreError,
     RestoreError,
     execute_restore,
     plan_restore,
@@ -326,6 +327,28 @@ class RestoreTests(unittest.TestCase):
 
             self.assertTrue((restored / "first" / "src" / "main.py").is_file())
             self.assertFalse((restored / "second").exists())
+
+            shutil.rmtree(restored)
+            _, _, third_record = archive_backup(root / "third", "third")
+            write_manifest(
+                root / "manifest.json",
+                [first_record, second_record, third_record],
+            )
+            with self.assertRaises(PartialRestoreError) as raised:
+                restore_from_manifest(
+                    manifest, restored, continue_on_error=True, verify=False
+                )
+            self.assertEqual(
+                [result.project for result in raised.exception.results],
+                ["first", "third"],
+            )
+            self.assertEqual(
+                [project for project, _ in raised.exception.failures],
+                ["second"],
+            )
+            self.assertTrue((restored / "first" / "src" / "main.py").is_file())
+            self.assertFalse((restored / "second").exists())
+            self.assertTrue((restored / "third" / "src" / "main.py").is_file())
 
     def test_restore_rechecks_archive_after_plan_before_extracting(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

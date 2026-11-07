@@ -1667,6 +1667,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -1682,6 +1683,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1711,6 +1713,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -1721,6 +1724,56 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         "restore me\n"
     );
     assert!(!failed_restore_root.join("second").exists());
+
+    let third_source = temp.0.join("third");
+    fs::create_dir_all(&third_source).unwrap();
+    fs::write(third_source.join("data.txt"), "third project\n").unwrap();
+    let third_archive = backup_dir.join("third.tar.gz");
+    create_archive(&third_source, &third_archive, true, false, &[], false).unwrap();
+    let mut third_record = manifest.records[0].clone();
+    third_record.project = "third".into();
+    third_record.source = third_source.to_string_lossy().into_owned();
+    third_record.archive = Some(third_archive.to_string_lossy().into_owned());
+    third_record.archive_bytes = fs::metadata(&third_archive).unwrap().len();
+    third_record.source_bytes = tree_size(&third_source).unwrap();
+    third_record.sha256 = Some(sha256(&third_archive).unwrap());
+    manifest.records.push(third_record);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let continued = temp.0.join("continued-restore");
+    let error = restore_cmd(
+        &manifest_path,
+        Some(continued.clone()),
+        &[],
+        false,
+        true, // --no-verify: second archive bytes no longer match gzip
+        false,
+        false,
+        false,
+        false,
+        true, // --continue-on-error
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("one or more restore operations failed"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read_to_string(continued.join("demo/data.txt")).unwrap(),
+        "restore me\n"
+    );
+    assert!(!continued.join("second").exists());
+    assert_eq!(
+        fs::read_to_string(continued.join("third/data.txt")).unwrap(),
+        "third project\n"
+    );
 }
 
 #[test]
@@ -1827,6 +1880,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         false,
         false,
         true,
+        false,
         false,
         false,
         false,
@@ -1961,6 +2015,7 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             false,
             false,
             false,
+            false,
             None,
             false,
         )
@@ -2024,6 +2079,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             true,
             false,
             true,
+            false,
             false,
             false,
             false,
@@ -2422,6 +2478,7 @@ fn restore_check_remote_blocks_unreachable_remote() {
         true,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -2481,6 +2538,7 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         false,
         true,
         true,
+        false,
         false,
         false,
         None,

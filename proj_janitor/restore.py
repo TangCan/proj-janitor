@@ -42,6 +42,20 @@ class GitTimeoutError(RestoreError):
     pass
 
 
+class PartialRestoreError(RestoreError):
+    """Raised when ``continue_on_error`` kept going after one or more project failures."""
+
+    def __init__(
+        self,
+        results: list[RestoreResult],
+        failures: list[tuple[str, str]],
+    ) -> None:
+        self.results = results
+        self.failures = failures
+        detail = "; ".join(f"{project}: {error}" for project, error in failures)
+        super().__init__(f"one or more restore operations failed ({detail})")
+
+
 def restore_from_manifest(
     manifest_path: Path,
     dest: Path | None,
@@ -50,6 +64,7 @@ def restore_from_manifest(
     verify: bool = True,
     check_remote: bool = False,
     force: bool = False,
+    continue_on_error: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
         manifest_path,
@@ -62,7 +77,11 @@ def restore_from_manifest(
         return plans, []
 
     results = execute_restore(
-        plans, verify=verify, check_remote=check_remote, force=force
+        plans,
+        verify=verify,
+        check_remote=check_remote,
+        force=force,
+        continue_on_error=continue_on_error,
     )
     if verify:
         plans = [
@@ -81,6 +100,7 @@ def execute_restore(
     check_remote: bool = False,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    continue_on_error: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
     if verify:
@@ -132,6 +152,7 @@ def execute_restore(
             f"cannot create restore target directory: {exc}"
         ) from exc
     results: list[RestoreResult] = []
+    failures: list[tuple[str, str]] = []
     for plan in plan_list:
         try:
             results.append(
@@ -143,13 +164,17 @@ def execute_restore(
                 )
             )
         except (OSError, RestoreError) as exc:
+            message = f"cannot restore {plan.project}: {exc}"
+            if continue_on_error:
+                failures.append((plan.project, str(exc)))
+                continue
             completed = ", ".join(
                 f"{result.project} -> {result.target}" for result in results
             )
             suffix = f"; already restored: {completed}" if completed else ""
-            raise RestoreError(
-                f"cannot restore {plan.project}: {exc}{suffix}"
-            ) from exc
+            raise RestoreError(f"{message}{suffix}") from exc
+    if failures:
+        raise PartialRestoreError(results, failures)
     return results
 
 

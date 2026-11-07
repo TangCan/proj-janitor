@@ -41,6 +41,7 @@ from proj_janitor.models import (
     human_size,
 )
 from proj_janitor.restore import (
+    PartialRestoreError,
     RestoreError,
     execute_restore,
     plan_restore,
@@ -327,7 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
             "or overwriting existing targets with --force"
         ),
     )
-    restore.set_defaults(check_remote=None, require_dest=None, force=None)
+    restore.set_defaults(
+        check_remote=None,
+        require_dest=None,
+        force=None,
+        continue_on_error=None,
+    )
     restore_remote = restore.add_mutually_exclusive_group()
     restore_remote.add_argument(
         "--check-remote",
@@ -375,6 +381,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="force",
         help="refuse existing restore targets even when [restore].force is true",
+    )
+    restore_continue = restore.add_mutually_exclusive_group()
+    restore_continue.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        dest="continue_on_error",
+        help=(
+            "keep restoring remaining projects after a per-project failure "
+            "(overrides [restore].continue_on_error); still exits non-zero"
+        ),
+    )
+    restore_continue.add_argument(
+        "--no-continue-on-error",
+        action="store_false",
+        dest="continue_on_error",
+        help=(
+            "stop at the first per-project failure even when "
+            "[restore].continue_on_error is true"
+        ),
     )
     restore.add_argument(
         "--decrypt-passphrase-file",
@@ -797,6 +822,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.force,
         config.restore.force if config else False,
     )
+    continue_on_error = resolve_tri_state(
+        args.continue_on_error,
+        config.restore.continue_on_error if config else False,
+    )
     decrypt_passphrase_file = args.decrypt_passphrase_file or (
         config.restore.decrypt_passphrase_file if config else None
     )
@@ -878,6 +907,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 2
 
+    results: list[RestoreResult] = []
+    failures: list[tuple[str, str]] = []
     try:
         results = execute_restore(
             plans,
@@ -885,7 +916,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             check_remote=check_remote,
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
+            continue_on_error=continue_on_error,
         )
+    except PartialRestoreError as exc:
+        results = exc.results
+        failures = list(exc.failures)
+        for project, error in failures:
+            print(f"error: {project}: {error}", file=sys.stderr)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -896,12 +933,22 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             "mode": mode,
             "projects": [_restore_result_json(result) for result in results],
         }
+        if failures:
+            payload["failures"] = [
+                {"project": project, "error": error} for project, error in failures
+            ]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
+        return 1 if failures else 0
 
     print(f"Restored {len(results)} project(s).")
     for result in results:
         print(f"  [{result.strategy}] {result.project} -> {result.target}")
+    if failures:
+        print(
+            f"error: one or more restore operations failed ({len(failures)})",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
