@@ -928,7 +928,21 @@ class GitRestoreTests(unittest.TestCase):
             self.assertEqual(records[0].strategy, "git", records[0].fallback_reason)
             self.assertIsNone(records[0].archive)
             object_hash = hashlib.sha256(payload).hexdigest()
-            self.assertIn(object_hash, records[0].lfs_objects or [])
+            lfs_objects = records[0].lfs_objects or []
+            self.assertTrue(
+                any(
+                    (
+                        item == object_hash
+                        or (
+                            isinstance(item, dict)
+                            and item.get("oid") == object_hash
+                            and item.get("size") == len(payload)
+                        )
+                    )
+                    for item in lfs_objects
+                ),
+                lfs_objects,
+            )
 
             restored_dest = root / "restored"
             remote_url = remote.resolve().as_uri()
@@ -940,7 +954,12 @@ class GitRestoreTests(unittest.TestCase):
                 "GIT_CONFIG_VALUE_1": "always",
             }
             with mock.patch.dict(os.environ, git_config):
-                _, results = restore_from_manifest(manifests[0], restored_dest)
+                verified = verify_manifest(manifests[0], check_remote=True)
+                self.assertEqual(verified[0]["status"], "remote-verified")
+                self.assertEqual(verified[0]["lfs"][0]["status"], "lfs-verified")
+                _, results = restore_from_manifest(
+                    manifests[0], restored_dest, check_remote=True
+                )
 
             self.assertEqual(results[0].strategy, "git")
             self.assertEqual(
@@ -958,6 +977,15 @@ class GitRestoreTests(unittest.TestCase):
             lfs_object.unlink()
             failed_dest = root / "missing-lfs-restore"
             with mock.patch.dict(os.environ, git_config):
+                unavailable = verify_manifest(manifests[0], check_remote=True)
+                self.assertEqual(unavailable[0]["status"], "lfs-unavailable")
+                self.assertEqual(unavailable[0]["lfs"][0]["status"], "lfs-missing")
+                with self.assertRaises(RestoreError) as raised:
+                    restore_from_manifest(
+                        manifests[0], failed_dest, check_remote=True
+                    )
+                self.assertIn("LFS object", str(raised.exception))
+                self.assertFalse((failed_dest / "lfs-app").exists())
                 with self.assertRaises(RestoreError):
                     restore_from_manifest(manifests[0], failed_dest)
             self.assertFalse((failed_dest / "lfs-app").exists())

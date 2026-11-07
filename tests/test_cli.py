@@ -1180,7 +1180,8 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn(f"remote ls-remote-failed for {root / 'gone.git'}", out)
             self.assertIn(
-                "error: one or more remotes could not be reached", err
+                "error: one or more remotes or LFS objects could not be verified",
+                err,
             )
 
             code, out, err = run_cli(
@@ -1191,7 +1192,9 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(
                 json.loads(out)["projects"][0]["status"], "remote-unreachable"
             )
-            self.assertIn("could not be reached", err)
+            self.assertIn(
+                "one or more remotes or LFS objects could not be verified", err
+            )
 
     def test_restore_check_remote_blocks_unreachable_remote(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

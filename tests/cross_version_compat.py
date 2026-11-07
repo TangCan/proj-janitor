@@ -327,7 +327,10 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             f"unreachable remote should exit non-zero: exit={result.returncode}, "
             f"stderr={result.stderr}"
         )
-        assert "one or more remotes could not be reached" in result.stderr
+        assert (
+            "one or more remotes or LFS objects could not be verified"
+            in result.stderr
+        )
         probe_results.append(json.loads(result.stdout))
     assert probe_results[0] == probe_results[1], (
         "Python and Rust remote probe results differ"
@@ -357,7 +360,9 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         "Python and Rust --check-remote text reports differ:\n"
         f"{text_reports[0]}\n---\n{text_reports[1]}"
     )
-    assert "one or more remotes could not be reached" in text_reports[0]
+    assert (
+        "one or more remotes or LFS objects could not be verified" in text_reports[0]
+    )
 
     bundle_project = root / "bundle-project"
     bundle_project.mkdir()

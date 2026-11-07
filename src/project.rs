@@ -386,26 +386,61 @@ pub(crate) fn collect_submodules(
     Ok(out)
 }
 
-/// Collect the Git LFS pointer object OIDs for a git strategy record, or None
-/// when the project has no LFS-tracked objects. LFS object *availability* is
-/// not probed here (that requires the LFS batch API); this only records the
-/// OIDs so a restore can later verify the objects it needs.
-pub(crate) fn collect_lfs_objects(path: &Path) -> Option<Vec<String>> {
+/// Collect Git LFS pointer objects (`oid` + exact `size`) for a git strategy
+/// record, or None when the project has no LFS-tracked objects.
+///
+/// OIDs come from `git lfs ls-files --long`; sizes are read from the pointer
+/// blob at `HEAD:<path>` so availability probes can call the LFS batch API
+/// without downloading objects.
+pub(crate) fn collect_lfs_objects(path: &Path) -> Option<Vec<crate::LfsObjectRef>> {
     // `--long` prints the full 64-hex OID; the default abbreviates to 10 hex.
     let output = git_output(path, &["lfs", "ls-files", "--long"])?;
-    let mut oids = Vec::new();
+    let mut objects = Vec::new();
     for line in output.lines() {
-        // Format: `<oid> <mode> <path>` (the OID is the first field).
-        let mut fields = line.split_whitespace();
-        let oid = fields.next().unwrap_or_default();
-        let _mode = fields.next();
-        if oid.len() == 64 && oid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            oids.push(oid.to_owned());
+        // Format: `<oid> <mode> <path>` (path may contain spaces).
+        let Some((oid, after_oid)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let after_oid = after_oid.trim_start();
+        let Some((_mode, file_path)) = after_oid.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let file_path = file_path.trim_start();
+        if oid.len() != 64 || !oid.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        if file_path.is_empty() {
+            continue;
+        }
+        let Some(size) = lfs_pointer_size(path, file_path) else {
+            continue;
+        };
+        objects.push(crate::LfsObjectRef::Object {
+            oid: oid.to_owned(),
+            size,
+        });
+    }
+    objects.sort_by(|left, right| left.oid().cmp(right.oid()));
+    objects.dedup_by(|left, right| left.oid() == right.oid());
+    if objects.is_empty() {
+        None
+    } else {
+        Some(objects)
+    }
+}
+
+/// Parse `size N` from the LFS pointer blob stored at `HEAD:<rel_path>`.
+fn lfs_pointer_size(repo: &Path, rel_path: &str) -> Option<u64> {
+    let pointer = git_output(repo, &["cat-file", "-p", &format!("HEAD:{rel_path}")])?;
+    for line in pointer.lines() {
+        let Some(value) = line.strip_prefix("size ") else {
+            continue;
+        };
+        if let Ok(size) = value.trim().parse::<u64>() {
+            return Some(size);
         }
     }
-    oids.sort();
-    oids.dedup();
-    if oids.is_empty() { None } else { Some(oids) }
+    None
 }
 
 pub(crate) fn submodule_url_supported(url: &str) -> bool {

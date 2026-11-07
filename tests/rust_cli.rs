@@ -410,16 +410,39 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
         .as_array()
         .unwrap();
     assert!(
-        lfs_objects
-            .iter()
-            .any(|value| value == object_hash.as_str()),
-        "lfs_objects should contain the tracked payload OID"
+        lfs_objects.iter().any(|value| {
+            value == object_hash.as_str()
+                || (value["oid"] == object_hash.as_str() && value["size"] == payload.len() as u64)
+        }),
+        "lfs_objects should contain the tracked payload OID+size: {lfs_objects:?}"
     );
 
     let restored_dest = temp.0.join("restored");
     let remote_url = git_file_url(&remote);
+    let verify = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--json"])
+        .arg(&manifest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(
+        verify.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verify.stderr)
+    );
+    let verified_json: serde_json::Value = serde_json::from_slice(&verify.stdout).unwrap();
+    assert_eq!(verified_json["projects"][0]["status"], "remote-verified");
+    assert_eq!(
+        verified_json["projects"][0]["lfs"][0]["status"],
+        "lfs-verified"
+    );
+
     let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
-        .args(["restore"])
+        .args(["restore", "--check-remote"])
         .arg(&manifest)
         .arg("--dest")
         .arg(&restored_dest)
@@ -446,7 +469,42 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
         .join(&object_hash[2..4])
         .join(&object_hash);
     fs::remove_file(lfs_object).unwrap();
+    let missing_verify = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--json"])
+        .arg(&manifest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(!missing_verify.status.success());
+    let missing_json: serde_json::Value = serde_json::from_slice(&missing_verify.stdout).unwrap();
+    assert_eq!(missing_json["projects"][0]["status"], "lfs-unavailable");
+    assert_eq!(
+        missing_json["projects"][0]["lfs"][0]["status"],
+        "lfs-missing"
+    );
+
     let failed_dest = temp.0.join("missing-lfs-restore");
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--check-remote"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&failed_dest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(!blocked.status.success());
+    let blocked_err = String::from_utf8_lossy(&blocked.stderr);
+    assert!(blocked_err.contains("LFS object"), "{blocked_err}");
+    assert!(!failed_dest.join("lfs-app").exists());
+
     let failed_restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["restore"])
         .arg(&manifest)
@@ -1975,7 +2033,7 @@ fn verify_check_remote_reports_unreachable_and_keeps_credentials_hidden() {
         "unreachable remote should exit non-zero"
     );
     assert!(
-        stderr.contains("one or more remotes could not be reached"),
+        stderr.contains("one or more remotes or LFS objects could not be verified"),
         "{stderr}"
     );
     let result: serde_json::Value = serde_json::from_str(&stdout).unwrap();

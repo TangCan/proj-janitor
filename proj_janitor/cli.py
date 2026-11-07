@@ -590,22 +590,55 @@ def _verify_remote_line(result: dict) -> str:
         shown = ", ".join(refs[:3])
         if len(refs) > 3:
             shown += f" (+{len(refs) - 3} more)"
-        return f"[git] {project}: commit {commit} is at {shown} on {url}"
-    if status == "remote-moved":
-        return (
+        line = f"[git] {project}: commit {commit} is at {shown} on {url}"
+    elif status == "remote-moved":
+        line = (
             f"[git] {project}: remote reachable, but no remote ref points at "
             f"commit {commit} on {url}; restore fetches by SHA, so the commit "
             "may still be reachable from another ref"
         )
-    if status == "remote-unreachable":
-        return f"[git] {project}: remote {remote['reason']} for {url}"
-    return f"[git] {project}: remote {remote['reason']}; not contacted"
+    elif status == "remote-unreachable":
+        line = f"[git] {project}: remote {remote['reason']} for {url}"
+    elif status == "lfs-unavailable":
+        line = f"[git] {project}: LFS objects unavailable on {url}"
+    else:
+        line = f"[git] {project}: remote {remote['reason']}; not contacted"
+    for sub in result.get("submodules") or []:
+        if not isinstance(sub, dict):
+            continue
+        line += (
+            f"\n  submodule {sub.get('path')}: {sub.get('status')} "
+            f"on {sub.get('url')}"
+        )
+    for obj in result.get("lfs") or []:
+        if not isinstance(obj, dict):
+            continue
+        oid = str(obj.get("oid") or "")
+        short = oid[:12]
+        status = str(obj.get("status") or "lfs-skipped")
+        reason = obj.get("reason")
+        if status == "lfs-verified":
+            detail = f"available ({short})"
+        elif status == "lfs-missing":
+            detail = f"missing ({short}; {reason or 'object-not-found'})"
+        elif status == "lfs-unreachable":
+            detail = f"unreachable ({short}; {reason or 'lfs-probe-failed'})"
+        else:
+            detail = f"skipped ({short}; {reason or 'not-probed'})"
+        line += f"\n  lfs {detail}"
+    return line
 
 
 def _verify_exit_code(results: list[dict]) -> int:
-    if any(result["status"] == "remote-unreachable" for result in results):
+    if any(
+        result["status"] in ("remote-unreachable", "lfs-unavailable")
+        for result in results
+    ):
         sys.stdout.flush()
-        print("error: one or more remotes could not be reached", file=sys.stderr)
+        print(
+            "error: one or more remotes or LFS objects could not be verified",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

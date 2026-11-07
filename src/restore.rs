@@ -207,11 +207,17 @@ pub(crate) fn verify_cmd(
                 if check_remote {
                     let probe = probe_remote(url, commit)?;
                     let submodules = probe_submodules(record)?;
+                    let lfs = probe_lfs_objects(url, record.lfs_objects.as_deref().unwrap_or(&[]))?;
                     let status = if submodules
                         .iter()
                         .any(|module| module.remote.status == "remote-unreachable")
+                        || RemoteCheck::status(&probe) == "remote-unreachable"
                     {
                         "remote-unreachable".to_owned()
+                    } else if lfs.iter().any(|object| {
+                        object.status == "lfs-missing" || object.status == "lfs-unreachable"
+                    }) {
+                        "lfs-unavailable".to_owned()
                     } else {
                         RemoteCheck::status(&probe).to_owned()
                     };
@@ -228,6 +234,7 @@ pub(crate) fn verify_cmd(
                             &probe,
                         )),
                         submodules,
+                        lfs,
                     });
                 } else {
                     results.push(VerifyResult {
@@ -239,6 +246,7 @@ pub(crate) fn verify_cmd(
                         commit: Some(commit.to_owned()),
                         remote: None,
                         submodules: Vec::new(),
+                        lfs: Vec::new(),
                     });
                 }
             }
@@ -296,9 +304,9 @@ pub(crate) fn verify_cmd(
     }
     if results
         .iter()
-        .any(|result| result.status == "remote-unreachable")
+        .any(|result| result.status == "remote-unreachable" || result.status == "lfs-unavailable")
     {
-        anyhow::bail!("one or more remotes could not be reached");
+        anyhow::bail!("one or more remotes or LFS objects could not be verified");
     }
     Ok(())
 }
@@ -312,6 +320,14 @@ struct VerifyResult {
     commit: Option<String>,
     remote: Option<RemoteCheck>,
     submodules: Vec<SubmoduleCheck>,
+    lfs: Vec<LfsCheck>,
+}
+
+struct LfsCheck {
+    oid: String,
+    size: Option<u64>,
+    status: &'static str,
+    reason: Option<&'static str>,
 }
 
 struct SubmoduleCheck {
@@ -345,6 +361,7 @@ impl VerifyResult {
             commit,
             remote: None,
             submodules: Vec::new(),
+            lfs: Vec::new(),
         }
     }
 
@@ -389,6 +406,21 @@ impl VerifyResult {
                     .collect(),
             );
         }
+        if !self.lfs.is_empty() {
+            value["lfs"] = serde_json::Value::Array(
+                self.lfs
+                    .iter()
+                    .map(|object| {
+                        serde_json::json!({
+                            "oid": object.oid,
+                            "size": object.size,
+                            "status": object.status,
+                            "reason": object.reason,
+                        })
+                    })
+                    .collect(),
+            );
+        }
         value
     }
 
@@ -418,6 +450,26 @@ impl VerifyResult {
         for sub in &self.submodules {
             line.push('\n');
             line.push_str(&sub.remote.submodule_line(&sub.path));
+        }
+        for object in &self.lfs {
+            line.push('\n');
+            let short_oid = &object.oid[..12.min(object.oid.len())];
+            let detail = match object.status {
+                "lfs-verified" => format!("available ({short_oid})"),
+                "lfs-missing" => format!(
+                    "missing ({short_oid}; {})",
+                    object.reason.unwrap_or("object-not-found")
+                ),
+                "lfs-unreachable" => format!(
+                    "unreachable ({short_oid}; {})",
+                    object.reason.unwrap_or("lfs-probe-failed")
+                ),
+                _ => format!(
+                    "skipped ({short_oid}; {})",
+                    object.reason.unwrap_or("not-probed")
+                ),
+            };
+            line.push_str(&format!("  lfs {detail}"));
         }
         line
     }
@@ -614,6 +666,268 @@ fn probe_submodules(record: &crate::Record) -> anyhow::Result<Vec<SubmoduleCheck
             let probe = probe_remote(&sub.url, &sub.commit)?;
             checks.push(SubmoduleCheck::new(&sub.path, &sub.url, &probe));
         }
+    }
+    Ok(checks)
+}
+
+/// Probe LFS object availability for a git-strategy record without downloading
+/// objects. Local/file remotes (including `url.*.insteadOf` rewrites) check the
+/// on-disk LFS object store; HTTPS remotes use the LFS batch API.
+fn probe_lfs_objects(
+    remote_url: &str,
+    objects: &[crate::LfsObjectRef],
+) -> anyhow::Result<Vec<LfsCheck>> {
+    if objects.is_empty() {
+        return Ok(Vec::new());
+    }
+    if redact_remote(remote_url) != remote_url {
+        return Ok(objects
+            .iter()
+            .map(|object| LfsCheck {
+                oid: object.oid().to_owned(),
+                size: object.size(),
+                status: "lfs-skipped",
+                reason: Some("credentials-in-remote-url"),
+            })
+            .collect());
+    }
+    let effective = rewrite_remote_url(remote_url);
+    if let Some(root) = local_lfs_store_root(&effective) {
+        return Ok(objects
+            .iter()
+            .map(|object| {
+                let oid = object.oid();
+                let path = root.join(&oid[..2]).join(&oid[2..4]).join(oid);
+                if path.is_file() {
+                    LfsCheck {
+                        oid: oid.to_owned(),
+                        size: object.size(),
+                        status: "lfs-verified",
+                        reason: None,
+                    }
+                } else {
+                    LfsCheck {
+                        oid: oid.to_owned(),
+                        size: object.size(),
+                        status: "lfs-missing",
+                        reason: Some("object-not-found"),
+                    }
+                }
+            })
+            .collect());
+    }
+    if effective.starts_with("https://") {
+        return probe_lfs_batch(&effective, objects);
+    }
+    Ok(objects
+        .iter()
+        .map(|object| LfsCheck {
+            oid: object.oid().to_owned(),
+            size: object.size(),
+            status: "lfs-skipped",
+            reason: Some("unsupported-lfs-endpoint"),
+        })
+        .collect())
+}
+
+/// Apply `url.<base>.insteadOf` rewrites from the current Git config (including
+/// `GIT_CONFIG_*` env overrides) using the longest matching prefix.
+fn rewrite_remote_url(url: &str) -> String {
+    let Ok(output) = Command::new("git")
+        .args(["config", "--get-regexp", r"^url\..+\.insteadof$"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+    else {
+        return url.to_owned();
+    };
+    if !output.status.success() {
+        return url.to_owned();
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let mut best: Option<(usize, String)> = None;
+    for line in listing.lines() {
+        let Some((key, prefix)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let prefix = prefix.trim();
+        if prefix.is_empty() || !url.starts_with(prefix) {
+            continue;
+        }
+        let Some(base) = key
+            .strip_prefix("url.")
+            .and_then(|value| value.strip_suffix(".insteadof"))
+        else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(len, _)| prefix.len() > *len) {
+            best = Some((prefix.len(), format!("{base}{}", &url[prefix.len()..])));
+        }
+    }
+    best.map(|(_, rewritten)| rewritten)
+        .unwrap_or_else(|| url.to_owned())
+}
+
+/// Return the local LFS object store root (`…/lfs/objects`) for file/path remotes.
+fn local_lfs_store_root(url: &str) -> Option<PathBuf> {
+    let path = if url.starts_with("file://") {
+        let parsed = Url::parse(url).ok()?;
+        if parsed.scheme() != "file" {
+            return None;
+        }
+        parsed.to_file_path().ok()?
+    } else if url.starts_with('/') || (cfg!(windows) && Path::new(url).is_absolute()) {
+        PathBuf::from(url)
+    } else {
+        return None;
+    };
+    let store = path.join("lfs").join("objects");
+    if store.is_dir() || path.exists() {
+        Some(store)
+    } else {
+        None
+    }
+}
+
+fn probe_lfs_batch(
+    remote_url: &str,
+    objects: &[crate::LfsObjectRef],
+) -> anyhow::Result<Vec<LfsCheck>> {
+    let mut checks = Vec::with_capacity(objects.len());
+    let mut batch = Vec::new();
+    for object in objects {
+        match object.size() {
+            Some(size) => batch.push((object.oid().to_owned(), size)),
+            None => checks.push(LfsCheck {
+                oid: object.oid().to_owned(),
+                size: None,
+                status: "lfs-skipped",
+                reason: Some("oid-only-no-size"),
+            }),
+        }
+    }
+    if batch.is_empty() {
+        return Ok(checks);
+    }
+    let endpoint = format!(
+        "{}/info/lfs/objects/batch",
+        remote_url.trim_end_matches('/')
+    );
+    let body = serde_json::json!({
+        "operation": "download",
+        "transfers": ["basic"],
+        "objects": batch.iter().map(|(oid, size)| serde_json::json!({
+            "oid": oid,
+            "size": size,
+        })).collect::<Vec<_>>(),
+    });
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(REMOTE_PROBE_TIMEOUT)
+        .timeout_read(REMOTE_PROBE_TIMEOUT)
+        .build();
+    let response = match agent
+        .post(&endpoint)
+        .set("Accept", "application/vnd.git-lfs+json")
+        .set("Content-Type", "application/vnd.git-lfs+json")
+        .send_json(body)
+    {
+        Ok(response) => response,
+        Err(ureq::Error::Status(401 | 403, _)) => {
+            return Ok(batch
+                .into_iter()
+                .map(|(oid, size)| LfsCheck {
+                    oid,
+                    size: Some(size),
+                    status: "lfs-unreachable",
+                    reason: Some("lfs-auth-required"),
+                })
+                .chain(checks)
+                .collect());
+        }
+        Err(ureq::Error::Status(404, _)) => {
+            return Ok(batch
+                .into_iter()
+                .map(|(oid, size)| LfsCheck {
+                    oid,
+                    size: Some(size),
+                    status: "lfs-missing",
+                    reason: Some("lfs-batch-not-found"),
+                })
+                .chain(checks)
+                .collect());
+        }
+        Err(_) => {
+            return Ok(batch
+                .into_iter()
+                .map(|(oid, size)| LfsCheck {
+                    oid,
+                    size: Some(size),
+                    status: "lfs-unreachable",
+                    reason: Some("lfs-batch-failed"),
+                })
+                .chain(checks)
+                .collect());
+        }
+    };
+    let parsed: serde_json::Value = match response.into_json() {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(batch
+                .into_iter()
+                .map(|(oid, size)| LfsCheck {
+                    oid,
+                    size: Some(size),
+                    status: "lfs-unreachable",
+                    reason: Some("lfs-batch-invalid-json"),
+                })
+                .chain(checks)
+                .collect());
+        }
+    };
+    let reported = parsed
+        .get("objects")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut by_oid = std::collections::HashMap::new();
+    for entry in reported {
+        if let Some(oid) = entry.get("oid").and_then(|value| value.as_str()) {
+            by_oid.insert(oid.to_owned(), entry);
+        }
+    }
+    for (oid, size) in batch {
+        let check = match by_oid.get(&oid) {
+            Some(entry) if entry.get("error").is_some() => LfsCheck {
+                oid,
+                size: Some(size),
+                status: "lfs-missing",
+                reason: Some("object-not-found"),
+            },
+            Some(entry)
+                if entry
+                    .pointer("/actions/download")
+                    .is_some_and(|value| !value.is_null()) =>
+            {
+                LfsCheck {
+                    oid,
+                    size: Some(size),
+                    status: "lfs-verified",
+                    reason: None,
+                }
+            }
+            Some(_) => LfsCheck {
+                oid,
+                size: Some(size),
+                status: "lfs-missing",
+                reason: Some("no-download-action"),
+            },
+            None => LfsCheck {
+                oid,
+                size: Some(size),
+                status: "lfs-unreachable",
+                reason: Some("lfs-batch-incomplete"),
+            },
+        };
+        checks.push(check);
     }
     Ok(checks)
 }
@@ -878,6 +1192,19 @@ pub(crate) fn restore_cmd(
                         );
                     }
                 }
+            }
+            let lfs = probe_lfs_objects(url, record.lfs_objects.as_deref().unwrap_or(&[]))?;
+            if let Some(missing) = lfs
+                .iter()
+                .find(|object| object.status == "lfs-missing" || object.status == "lfs-unreachable")
+            {
+                anyhow::bail!(
+                    "cannot restore {}: LFS object {} is {} ({})",
+                    record.project,
+                    &missing.oid[..12.min(missing.oid.len())],
+                    missing.status,
+                    missing.reason.unwrap_or("unavailable")
+                );
             }
         }
     }

@@ -262,26 +262,47 @@ def collect_submodules(path: Path, commit: str) -> list[dict]:
     return out
 
 
-def collect_lfs_objects(path: Path) -> list[str] | None:
-    """Return the Git LFS pointer object OIDs for a git strategy record.
+def collect_lfs_objects(path: Path) -> list[dict[str, object]] | None:
+    """Return Git LFS pointer objects (`oid` + `size`) for a git strategy record.
 
     Mirrors the Rust `collect_lfs_objects`: reads `git lfs ls-files --long`
-    (full OIDs) and keeps the unique 64-hex OIDs. Returns None when the project
-    has no LFS-tracked objects. LFS object *availability* is not probed here.
+    for full OIDs, then reads each pointer blob at ``HEAD:<path>`` for the
+    exact byte size used by availability probes. Returns None when the project
+    has no LFS-tracked objects.
     """
     output = _git_output(path, "lfs", "ls-files", "--long")
     if output is None:
         return None
-    oids: list[str] = []
+    objects: dict[str, dict[str, object]] = {}
     for line in output.splitlines():
-        fields = line.split()
-        if not fields:
+        oid, _sep, rest = line.partition(" ")
+        rest = rest.lstrip()
+        _mode, _sep, file_path = rest.partition(" ")
+        file_path = file_path.lstrip()
+        if (
+            len(oid) != 64
+            or any(c not in "0123456789abcdefABCDEF" for c in oid)
+            or not file_path
+        ):
             continue
-        oid = fields[0]
-        if len(oid) == 64 and all(c in "0123456789abcdefABCDEF" for c in oid):
-            oids.append(oid)
-    oids = sorted(set(oids))
-    return oids or None
+        size = _lfs_pointer_size(path, file_path)
+        if size is None:
+            continue
+        objects[oid] = {"oid": oid, "size": size}
+    return [objects[key] for key in sorted(objects)] or None
+
+
+def _lfs_pointer_size(repo: Path, rel_path: str) -> int | None:
+    pointer = _git_output(repo, "cat-file", "-p", f"HEAD:{rel_path}")
+    if pointer is None:
+        return None
+    for line in pointer.splitlines():
+        if line.startswith("size "):
+            try:
+                return int(line[5:].strip())
+            except ValueError:
+                return None
+    return None
 
 
 def is_supported_submodule_url(url: str) -> bool:

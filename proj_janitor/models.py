@@ -107,6 +107,7 @@ class RestorePlan:
     inventory: list | None = None
     manifest_dir: Path | None = None
     submodules: list | None = None
+    lfs_objects: list | None = None
 
 
 @dataclass(frozen=True)

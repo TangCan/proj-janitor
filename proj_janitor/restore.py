@@ -13,7 +13,9 @@ import threading
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 
 from proj_janitor.backup import (
     _portable_path_key,
@@ -108,6 +110,13 @@ def execute_restore(
                         f"cannot restore {plan.project}: submodule {sub_path} remote "
                         f"{redact_remote_url(sub_url)} is unreachable ({sub_reason})"
                     )
+            for lfs_check in _probe_lfs_objects(plan.remote_url, plan.lfs_objects or []):
+                if lfs_check["status"] in ("lfs-missing", "lfs-unreachable"):
+                    oid = str(lfs_check["oid"])
+                    raise RestoreError(
+                        f"cannot restore {plan.project}: LFS object {oid[:12]} is "
+                        f"{lfs_check['status']} ({lfs_check.get('reason') or 'unavailable'})"
+                    )
     try:
         for plan in plan_list:
             plan.target.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +200,11 @@ def plan_restore(
                     submodules=(
                         record.get("submodules")
                         if isinstance(record.get("submodules"), list)
+                        else None
+                    ),
+                    lfs_objects=(
+                        record.get("lfs_objects")
+                        if isinstance(record.get("lfs_objects"), list)
                         else None
                     ),
                 )
@@ -303,6 +317,234 @@ def _probe_remote(remote_url: str, commit: str) -> tuple[str, str | None, list[s
     return "remote-moved", "no-ref-matches-commit", []
 
 
+def _probe_lfs_objects(
+    remote_url: str, objects: list
+) -> list[dict[str, object]]:
+    """Probe LFS object availability without downloading payloads."""
+    if not objects:
+        return []
+    normalized: list[tuple[str, int | None]] = []
+    for item in objects:
+        if isinstance(item, str):
+            normalized.append((item, None))
+        elif isinstance(item, dict):
+            oid = item.get("oid")
+            size = item.get("size")
+            if not isinstance(oid, str):
+                continue
+            normalized.append(
+                (oid, size if isinstance(size, int) and size >= 0 else None)
+            )
+    if not normalized:
+        return []
+    if redact_remote_url(remote_url) != remote_url:
+        return [
+            {
+                "oid": oid,
+                "size": size,
+                "status": "lfs-skipped",
+                "reason": "credentials-in-remote-url",
+            }
+            for oid, size in normalized
+        ]
+    effective = _rewrite_remote_url(remote_url)
+    store = _local_lfs_store_root(effective)
+    if store is not None:
+        checks: list[dict[str, object]] = []
+        for oid, size in normalized:
+            path = store / oid[:2] / oid[2:4] / oid
+            if path.is_file():
+                checks.append(
+                    {
+                        "oid": oid,
+                        "size": size,
+                        "status": "lfs-verified",
+                        "reason": None,
+                    }
+                )
+            else:
+                checks.append(
+                    {
+                        "oid": oid,
+                        "size": size,
+                        "status": "lfs-missing",
+                        "reason": "object-not-found",
+                    }
+                )
+        return checks
+    if effective.startswith("https://"):
+        return _probe_lfs_batch(effective, normalized)
+    return [
+        {
+            "oid": oid,
+            "size": size,
+            "status": "lfs-skipped",
+            "reason": "unsupported-lfs-endpoint",
+        }
+        for oid, size in normalized
+    ]
+
+
+def _rewrite_remote_url(url: str) -> str:
+    try:
+        result = _run_git(
+            ["config", "--get-regexp", r"^url\..+\.insteadof$"],
+            timeout=_REMOTE_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (RestoreError, GitTimeoutError):
+        return url
+    if result.returncode != 0:
+        return url
+    best: tuple[int, str] | None = None
+    for line in result.stdout.splitlines():
+        key, sep, prefix = line.partition(" ")
+        if not sep:
+            continue
+        prefix = prefix.strip()
+        if not prefix or not url.startswith(prefix):
+            continue
+        if not key.startswith("url.") or not key.endswith(".insteadof"):
+            continue
+        base = key[len("url.") : -len(".insteadof")]
+        rewritten = f"{base}{url[len(prefix) :]}"
+        if best is None or len(prefix) > best[0]:
+            best = (len(prefix), rewritten)
+    return best[1] if best is not None else url
+
+
+def _local_lfs_store_root(url: str) -> Path | None:
+    if url.startswith("file://"):
+        parsed = urlsplit(url)
+        if parsed.scheme != "file":
+            return None
+        path = Path(parsed.path)
+        # file:///C:/... on Windows keeps the drive in path; Unix is absolute.
+        if os.name == "nt" and path.parts and path.parts[0] == "\\":
+            path = Path(str(path)[1:]) if len(str(path)) > 1 else path
+    elif url.startswith("/") or (os.name == "nt" and Path(url).is_absolute()):
+        path = Path(url)
+    else:
+        return None
+    store = path / "lfs" / "objects"
+    if store.is_dir() or path.exists():
+        return store
+    return None
+
+
+def _probe_lfs_batch(
+    remote_url: str, objects: list[tuple[str, int | None]]
+) -> list[dict[str, object]]:
+    checks: list[dict[str, object]] = []
+    batch: list[tuple[str, int]] = []
+    for oid, size in objects:
+        if size is None:
+            checks.append(
+                {
+                    "oid": oid,
+                    "size": None,
+                    "status": "lfs-skipped",
+                    "reason": "oid-only-no-size",
+                }
+            )
+        else:
+            batch.append((oid, size))
+    if not batch:
+        return checks
+    endpoint = f"{remote_url.rstrip('/')}/info/lfs/objects/batch"
+    body = json.dumps(
+        {
+            "operation": "download",
+            "transfers": ["basic"],
+            "objects": [{"oid": oid, "size": size} for oid, size in batch],
+        }
+    ).encode("utf-8")
+    request = Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/vnd.git-lfs+json",
+            "Content-Type": "application/vnd.git-lfs+json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=_REMOTE_PROBE_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        reason = {
+            401: "lfs-auth-required",
+            403: "lfs-auth-required",
+            404: "lfs-batch-not-found",
+        }.get(exc.code, "lfs-batch-failed")
+        status = "lfs-missing" if exc.code == 404 else "lfs-unreachable"
+        return [
+            {
+                "oid": oid,
+                "size": size,
+                "status": status,
+                "reason": reason,
+            }
+            for oid, size in batch
+        ] + checks
+    except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return [
+            {
+                "oid": oid,
+                "size": size,
+                "status": "lfs-unreachable",
+                "reason": "lfs-batch-failed",
+            }
+            for oid, size in batch
+        ] + checks
+    reported = {
+        entry["oid"]: entry
+        for entry in payload.get("objects") or []
+        if isinstance(entry, dict) and isinstance(entry.get("oid"), str)
+    }
+    for oid, size in batch:
+        entry = reported.get(oid)
+        if entry is None:
+            checks.append(
+                {
+                    "oid": oid,
+                    "size": size,
+                    "status": "lfs-unreachable",
+                    "reason": "lfs-batch-incomplete",
+                }
+            )
+        elif entry.get("error") is not None:
+            checks.append(
+                {
+                    "oid": oid,
+                    "size": size,
+                    "status": "lfs-missing",
+                    "reason": "object-not-found",
+                }
+            )
+        elif isinstance(entry.get("actions"), dict) and entry["actions"].get(
+            "download"
+        ):
+            checks.append(
+                {
+                    "oid": oid,
+                    "size": size,
+                    "status": "lfs-verified",
+                    "reason": None,
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "oid": oid,
+                    "size": size,
+                    "status": "lfs-missing",
+                    "reason": "no-download-action",
+                }
+            )
+    return checks
+
+
 def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
@@ -396,6 +638,16 @@ def verify_manifest(
                     entry["status"] = "remote-unreachable"
                 if not submodule_checks:
                     del entry["submodules"]
+                lfs_checks = _probe_lfs_objects(
+                    remote_url, record.get("lfs_objects") or []
+                )
+                if lfs_checks:
+                    entry["lfs"] = lfs_checks
+                    if entry["status"] != "remote-unreachable" and any(
+                        check.get("status") in ("lfs-missing", "lfs-unreachable")
+                        for check in lfs_checks
+                    ):
+                        entry["status"] = "lfs-unavailable"
             results.append(entry)
         elif strategy == "git_bundle":
             bundle = _resolve_archive(record, manifest_path.parent, project)

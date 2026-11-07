@@ -956,7 +956,7 @@ Git-only 记录的 `projects[].status` 在含 `submodules` 且任一子模块远
 | `inventory` | array[object] \| null | `null` | `null` | 本快照的完整文件清单：每项 `{path, sha256, size}`（path 为项目根相对、POSIX 分隔） |
 | `incremental` | object \| null | `null` | `null` | 差异快照才有：`{base: <上一快照清单文件名>, deleted: [path...]}`；完整快照为 `null` |
 | `submodules` | array[object] \| null | Git 记录：`[{path, url, commit}]`，为备份时 `.gitmodules` 中的每个子模块记录其路径、远程 URL 与父树中固定的 gitlink 提交 | `null` | `null` |
-| `lfs_objects` | array[string] \| null | Git 记录：`[<64 位十六进制 OID>]`，为备份时 `git lfs ls-files --long` 记录到的 Git LFS 指针对象 OID（仅记录，不探测可用性） | `null` | `null` |
+| `lfs_objects` | array[object\|string] \| null | Git 记录：新备份为 `[{oid,size}]`（`git lfs ls-files --long` + `HEAD:<path>` pointer 的精确字节数）；旧清单中的裸 OID 字符串仍可读。`verify`/`restore --check-remote` 会探测可用性（本地对象库或 HTTPS LFS batch，不下载） | `null` | `null` |
 
 `fallback_reason` 的常见值：
 

@@ -32,6 +32,7 @@ toml = "0.8"
 unicode-normalization = "0.1"
 walkdir = "2.5"
 url = "2.5"
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

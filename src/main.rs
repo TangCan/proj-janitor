@@ -210,9 +210,36 @@ pub(crate) struct Record {
     /// Submodule URL -> pinned commit map for git-strategy records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) submodules: Option<Vec<SubmoduleInfo>>,
-    /// Git LFS pointer object OIDs for git-strategy records.
+    /// Git LFS pointer objects for git-strategy records (`oid` + `size`).
+    /// Legacy manifests may store bare OID strings; those remain readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) lfs_objects: Option<Vec<String>>,
+    pub(crate) lfs_objects: Option<Vec<LfsObjectRef>>,
+}
+
+/// One LFS object recorded at backup time. New backups always write
+/// `{oid, size}`; older manifests may still contain a bare OID string.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(untagged)]
+pub(crate) enum LfsObjectRef {
+    /// Legacy CR-094 form: OID only (availability probe needs a re-backup).
+    Oid(String),
+    /// Current form: OID plus exact byte size from the LFS pointer blob.
+    Object { oid: String, size: u64 },
+}
+
+impl LfsObjectRef {
+    pub(crate) fn oid(&self) -> &str {
+        match self {
+            Self::Oid(oid) | Self::Object { oid, .. } => oid,
+        }
+    }
+
+    pub(crate) fn size(&self) -> Option<u64> {
+        match self {
+            Self::Oid(_) => None,
+            Self::Object { size, .. } => Some(*size),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
