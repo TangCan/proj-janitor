@@ -2958,3 +2958,81 @@ fn scan_many_sibling_projects() {
     let projects: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
     assert_eq!(projects.len(), count);
 }
+
+#[test]
+fn restore_force_replaces_existing_target_with_yes() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "fresh\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let project_dir = dest.join(project.file_name().unwrap());
+    let manifest = fs::read_dir(&project_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let out = temp.0.join("restored");
+    let target = out.join(project.file_name().unwrap());
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("stale.txt"), "old\n").unwrap();
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .arg("--force")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    let refused_err = String::from_utf8_lossy(&refused.stderr);
+    assert!(refused_err.contains("--yes"), "{refused_err}");
+    assert!(target.join("stale.txt").is_file());
+
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--force", "--yes", "--dry-run", "--json"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let dry_json: serde_json::Value = serde_json::from_slice(&dry.stdout).unwrap();
+    assert_eq!(dry_json["projects"][0]["overwrite"], true);
+
+    let forced = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--force", "--yes"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        forced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    assert!(!target.join("stale.txt").exists());
+    assert_eq!(
+        fs::read_to_string(target.join("ok.txt")).unwrap(),
+        "fresh\n"
+    );
+}

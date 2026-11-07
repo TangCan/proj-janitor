@@ -48,17 +48,21 @@ def restore_from_manifest(
     dry_run: bool = False,
     verify: bool = True,
     check_remote: bool = False,
+    force: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
         manifest_path,
         dest,
         projects=projects,
         verify=verify if dry_run else False,
+        force=force,
     )
     if dry_run:
         return plans, []
 
-    results = execute_restore(plans, verify=verify, check_remote=check_remote)
+    results = execute_restore(
+        plans, verify=verify, check_remote=check_remote, force=force
+    )
     if verify:
         plans = [
             replace(plan, hash_verified=True)
@@ -75,6 +79,7 @@ def execute_restore(
     verify: bool = True,
     check_remote: bool = False,
     decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
     if verify:
@@ -133,6 +138,7 @@ def execute_restore(
                     plan,
                     verify=verify,
                     decrypt_passphrase_file=decrypt_passphrase_file,
+                    force=force,
                 )
             )
         except (OSError, RestoreError) as exc:
@@ -151,6 +157,7 @@ def plan_restore(
     dest: Path | None,
     projects: Iterable[str] = (),
     verify: bool = True,
+    force: bool = False,
 ) -> list[RestorePlan]:
     manifest_path, manifest = load_manifest(manifest_path)
     if dest is not None:
@@ -184,8 +191,7 @@ def plan_restore(
                 f"(including Unicode normalization): {target}"
             )
         seen_portable_targets.add(portable_target)
-        if target.exists() or target.is_symlink():
-            raise RestoreError(f"restore target already exists: {target}")
+        overwrite = _plan_overwrite(target, force=force)
 
         strategy = record.get("strategy")
         if strategy == "git":
@@ -214,6 +220,7 @@ def plan_restore(
                         if isinstance(record.get("lfs_objects"), list)
                         else None
                     ),
+                    overwrite=overwrite,
                 )
             )
             continue
@@ -245,6 +252,7 @@ def plan_restore(
                         if isinstance(record.get("encryption"), str)
                         else None
                     ),
+                    overwrite=overwrite,
                 )
             )
             continue
@@ -280,6 +288,7 @@ def plan_restore(
                         if isinstance(record.get("encryption"), str)
                         else None
                     ),
+                    overwrite=overwrite,
                 )
             )
             continue
@@ -288,6 +297,40 @@ def plan_restore(
             f"unsupported backup strategy for {project}: {strategy!r}"
         )
     return plans
+
+
+def _plan_overwrite(target: Path, *, force: bool) -> bool:
+    """Validate an existing restore target. Return True when force will replace it."""
+    if target.is_symlink():
+        raise RestoreError(f"restore target is a symlink: {target}")
+    if not target.exists():
+        return False
+    if not force:
+        raise RestoreError(f"restore target already exists: {target}")
+    if not target.is_dir():
+        raise RestoreError(f"restore target exists and is not a directory: {target}")
+    return True
+
+
+def _publish_restored_tree(staged: Path, target: Path, *, force: bool) -> None:
+    """Move a staged restore tree into place, optionally replacing an existing directory."""
+    if target.is_symlink():
+        raise RestoreError(f"restore target is a symlink: {target}")
+    if target.exists():
+        if not force:
+            raise RestoreError(f"restore target already exists: {target}")
+        if not target.is_dir():
+            raise RestoreError(
+                f"restore target exists and is not a directory: {target}"
+            )
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            raise RestoreError(f"cannot replace restore target {target}: {exc}") from exc
+    try:
+        staged.rename(target)
+    except OSError as exc:
+        raise RestoreError(f"cannot publish restore target {target}: {exc}") from exc
 
 
 def _verify_archive_hash(archive: Path, project: str, expected: str | None) -> str:
@@ -871,21 +914,31 @@ def _restore_one(
     *,
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
 ) -> RestoreResult:
     if plan.strategy == "git":
-        _restore_git(plan)
+        _restore_git(plan, force=force)
     elif plan.strategy == "git_bundle":
         _restore_git_bundle(
-            plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+            plan,
+            verify=verify,
+            decrypt_passphrase_file=decrypt_passphrase_file,
+            force=force,
         )
     elif plan.strategy == "archive":
         if plan.incremental:
             _restore_incremental(
-                plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+                plan,
+                verify=verify,
+                decrypt_passphrase_file=decrypt_passphrase_file,
+                force=force,
             )
         else:
             _restore_archive(
-                plan, verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+                plan,
+                verify=verify,
+                decrypt_passphrase_file=decrypt_passphrase_file,
+                force=force,
             )
     else:
         raise RestoreError(f"unsupported strategy: {plan.strategy}")
@@ -1002,10 +1055,10 @@ def _restore_lfs(repo: Path, project: str) -> None:
         )
 
 
-def _restore_git(plan: RestorePlan) -> None:
+def _restore_git(plan: RestorePlan, *, force: bool = False) -> None:
     if plan.remote_url is None or plan.commit is None:
         raise RestoreError(f"incomplete git restore plan for {plan.project}")
-    if plan.target.exists() or plan.target.is_symlink():
+    if not force and (plan.target.exists() or plan.target.is_symlink()):
         raise RestoreError(f"restore target already exists: {plan.target}")
 
     plan.target.parent.mkdir(parents=True, exist_ok=True)
@@ -1082,9 +1135,7 @@ def _restore_git(plan: RestorePlan) -> None:
                 f"restored HEAD {head} does not match {plan.commit}"
             )
         _restore_submodules(repo, plan.project)
-        if plan.target.exists() or plan.target.is_symlink():
-            raise RestoreError(f"restore target already exists: {plan.target}")
-        repo.rename(plan.target)
+        _publish_restored_tree(repo, plan.target, force=force)
     finally:
         _cleanup_restore_temp(temporary)
 
@@ -1094,6 +1145,7 @@ def _restore_git_bundle(
     *,
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
 ) -> None:
     from proj_janitor.crypto import (
         archive_is_encrypted,
@@ -1103,7 +1155,7 @@ def _restore_git_bundle(
 
     if plan.archive is None or plan.commit is None or plan.branch is None:
         raise RestoreError(f"incomplete git bundle restore plan for {plan.project}")
-    if plan.target.exists() or plan.target.is_symlink():
+    if not force and (plan.target.exists() or plan.target.is_symlink()):
         raise RestoreError(f"restore target already exists: {plan.target}")
     plan.target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
@@ -1201,9 +1253,7 @@ def _restore_git_bundle(
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"], check=False)
         if head.returncode or head.stdout.strip().lower() != plan.commit.lower():
             raise RestoreError(f"Git bundle commit mismatch for {plan.project}")
-        if plan.target.exists() or plan.target.is_symlink():
-            raise RestoreError(f"restore target already exists: {plan.target}")
-        repo.rename(plan.target)
+        _publish_restored_tree(repo, plan.target, force=force)
     finally:
         if decrypted is not None:
             cleanup_decrypt_temp(decrypted)
@@ -1215,6 +1265,7 @@ def _restore_archive(
     *,
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
 ) -> None:
     from proj_janitor.crypto import (
         archive_is_encrypted,
@@ -1224,7 +1275,7 @@ def _restore_archive(
 
     if plan.archive is None:
         raise RestoreError(f"incomplete archive restore plan for {plan.project}")
-    if plan.target.exists() or plan.target.is_symlink():
+    if not force and (plan.target.exists() or plan.target.is_symlink()):
         raise RestoreError(f"restore target already exists: {plan.target}")
 
     archive_path = plan.archive
@@ -1272,9 +1323,7 @@ def _restore_archive(
                     raise RestoreError(
                         f"archive does not contain project directory: {plan.project}"
                     )
-                if plan.target.exists() or plan.target.is_symlink():
-                    raise RestoreError(f"restore target already exists: {plan.target}")
-                extracted.rename(plan.target)
+                _publish_restored_tree(extracted, plan.target, force=force)
             finally:
                 _cleanup_restore_temp(temporary)
     finally:
@@ -1287,6 +1336,7 @@ def _restore_incremental(
     *,
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
 ) -> None:
     if plan.archive is None:
         raise RestoreError(f"incomplete incremental restore plan for {plan.project}")
@@ -1349,7 +1399,10 @@ def _restore_incremental(
         current = base_plan
 
     _restore_archive(
-        chain[0], verify=verify, decrypt_passphrase_file=decrypt_passphrase_file
+        chain[0],
+        verify=verify,
+        decrypt_passphrase_file=decrypt_passphrase_file,
+        force=force,
     )
     for delta_plan in chain[1:]:
         deleted = (delta_plan.incremental or {}).get("deleted") or []

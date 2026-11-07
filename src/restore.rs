@@ -25,8 +25,8 @@ use crate::{
     Manifest, Record,
     archive::{
         create_private_temp_dir, extract_archive, extract_archive_with_hash,
-        extract_incremental_delta, portable_path_key, remove_deleted_paths, safe_windows_component,
-        sha256,
+        extract_incremental_delta, portable_path_key, publish_restored_tree, remove_deleted_paths,
+        safe_windows_component, sha256,
     },
     crypto::{archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp},
     expand,
@@ -943,6 +943,7 @@ pub(crate) fn restore_cmd(
     yes: bool,
     check_remote: bool,
     require_dest: bool,
+    force: bool,
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -994,11 +995,7 @@ pub(crate) fn restore_cmd(
             "restore targets collide on case-insensitive filesystems (including Unicode normalization): {}",
             target.display()
         );
-        anyhow::ensure!(
-            !target.exists() && !target.is_symlink(),
-            "restore target already exists: {}",
-            target.display()
-        );
+        let overwrite = plan_overwrite(&target, force)?;
         let archive = match r.strategy.as_str() {
             "archive" => Some(resolve_archive(
                 r,
@@ -1072,13 +1069,13 @@ pub(crate) fn restore_cmd(
                 a.display()
             );
         }
-        plans.push((r.clone(), target, archive));
+        plans.push((r.clone(), target, archive, overwrite));
     }
     if dry {
         if json {
             let vals: Vec<_> = plans
                 .iter()
-                .map(|(r, t, a)| {
+                .map(|(r, t, a, overwrite)| {
                     serde_json::json!({
                         "project": r.project,
                         "strategy": r.strategy,
@@ -1089,6 +1086,7 @@ pub(crate) fn restore_cmd(
                         "sha256": r.sha256,
                         "sha256_verified": matches!(r.strategy.as_str(), "archive" | "git_bundle") && !no_verify,
                         "in_place": dest.is_none(),
+                        "overwrite": overwrite,
                     })
                 })
                 .collect();
@@ -1099,10 +1097,11 @@ pub(crate) fn restore_cmd(
                 )?
             )
         } else {
-            for (r, t, a) in &plans {
+            for (r, t, a, overwrite) in &plans {
+                let suffix = if *overwrite { " (overwrite)" } else { "" };
                 if r.strategy == "git" {
                     println!(
-                        "[git] {}: {} @ {} -> {}",
+                        "[git] {}: {} @ {} -> {}{suffix}",
                         r.project,
                         r.remote_url
                             .as_deref()
@@ -1113,14 +1112,14 @@ pub(crate) fn restore_cmd(
                     );
                 } else if r.strategy == "git_bundle" {
                     println!(
-                        "[git-bundle] {}: {} -> {}",
+                        "[git-bundle] {}: {} -> {}{suffix}",
                         r.project,
                         r.commit.as_deref().unwrap_or("-"),
                         t.display()
                     );
                 } else {
                     println!(
-                        "[archive] {}: {} -> {}",
+                        "[archive] {}: {} -> {}{suffix}",
                         r.project,
                         a.as_ref()
                             .map(|p| p.display().to_string())
@@ -1133,19 +1132,26 @@ pub(crate) fn restore_cmd(
         }
         return Ok(());
     }
-    if dest.is_none() && !yes {
+    let has_overwrite = plans.iter().any(|(_, _, _, overwrite)| *overwrite);
+    if (dest.is_none() || has_overwrite) && !yes {
         anyhow::ensure!(
             io::stdin().is_terminal() && !json,
-            "--yes is required for original-location restore in non-interactive or JSON mode"
+            "--yes is required for original-location or overwrite restore in non-interactive or JSON mode"
         );
-        eprintln!("About to restore to original locations:");
-        for (record, target, _) in &plans {
-            eprintln!("  {}: {}", record.project, target.display());
+        if has_overwrite {
+            eprintln!("About to replace existing restore targets:");
+            for (record, target, _, overwrite) in &plans {
+                if *overwrite {
+                    eprintln!("  {}: {}", record.project, target.display());
+                }
+            }
+        } else {
+            eprintln!("About to restore to original locations:");
+            for (record, target, _, _) in &plans {
+                eprintln!("  {}: {}", record.project, target.display());
+            }
         }
-        eprint!(
-            "Restore {} project(s) to original locations? [y/N] ",
-            plans.len()
-        );
+        eprint!("Restore {} project(s)? [y/N] ", plans.len());
         io::stderr().flush()?;
         let mut a = String::new();
         io::stdin().read_line(&mut a)?;
@@ -1155,7 +1161,7 @@ pub(crate) fn restore_cmd(
         )
     }
     if !no_verify {
-        for (record, _, archive) in &plans {
+        for (record, _, archive, _) in &plans {
             if let Some(archive) = archive {
                 let expected = record.sha256.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("manifest has no sha256 for {}", record.project)
@@ -1170,7 +1176,7 @@ pub(crate) fn restore_cmd(
         }
     }
     if check_remote {
-        for (record, _, _) in &plans {
+        for (record, _, _, _) in &plans {
             if record.strategy != "git" {
                 continue;
             }
@@ -1217,7 +1223,7 @@ pub(crate) fn restore_cmd(
         }
     }
     let mut done = Vec::new();
-    for (r, target, archive) in &plans {
+    for (r, target, archive, _) in &plans {
         let result = (|| -> anyhow::Result<()> {
             fs::create_dir_all(
                 target
@@ -1237,6 +1243,7 @@ pub(crate) fn restore_cmd(
                             target,
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
+                            force,
                         )?;
                     } else {
                         restore_encrypted_or_plain_archive(
@@ -1247,6 +1254,7 @@ pub(crate) fn restore_cmd(
                             r.sha256.as_deref(),
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
+                            force,
                         )?;
                     }
                 }
@@ -1259,7 +1267,7 @@ pub(crate) fn restore_cmd(
                         .commit
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
-                    restore_git(url, commit, target, &r.project)?;
+                    restore_git(url, commit, target, &r.project, force)?;
                 }
                 "git_bundle" => {
                     let bundle = archive
@@ -1281,6 +1289,7 @@ pub(crate) fn restore_cmd(
                         no_verify,
                         target,
                         &r.project,
+                        force,
                     )?;
                 }
                 x => anyhow::bail!("unsupported backup strategy: {x}"),
@@ -1456,6 +1465,24 @@ fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn plan_overwrite(target: &Path, force: bool) -> anyhow::Result<bool> {
+    anyhow::ensure!(
+        !target.is_symlink(),
+        "restore target is a symlink: {}",
+        target.display()
+    );
+    if !target.exists() {
+        return Ok(false);
+    }
+    anyhow::ensure!(force, "restore target already exists: {}", target.display());
+    anyhow::ensure!(
+        target.is_dir(),
+        "restore target exists and is not a directory: {}",
+        target.display()
+    );
+    Ok(true)
+}
+
 fn restore_incremental(
     dir: &Path,
     record: &Record,
@@ -1463,6 +1490,7 @@ fn restore_incremental(
     target: &Path,
     no_verify: bool,
     passphrase_file: Option<&Path>,
+    force: bool,
 ) -> anyhow::Result<()> {
     let mut chain: Vec<(Record, PathBuf)> = Vec::new();
     let mut current = record.clone();
@@ -1505,6 +1533,7 @@ fn restore_incremental(
         base_record.sha256.as_deref(),
         no_verify,
         passphrase_file,
+        force,
     )?;
     for (rec, delta_archive) in &chain[1..] {
         let info = rec.incremental.as_ref().ok_or_else(|| {
@@ -1541,6 +1570,7 @@ fn restore_incremental(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn restore_encrypted_or_plain_archive(
     archive: &Path,
     target: &Path,
@@ -1549,6 +1579,7 @@ fn restore_encrypted_or_plain_archive(
     expected_hash: Option<&str>,
     no_verify: bool,
     passphrase_file: Option<&Path>,
+    force: bool,
 ) -> anyhow::Result<()> {
     if archive_is_encrypted(archive, encryption) {
         let pass = passphrase_file.ok_or_else(|| {
@@ -1565,22 +1596,34 @@ fn restore_encrypted_or_plain_archive(
             );
         }
         let plain = openssl_decrypt_to_temp(archive, pass)?;
-        let result = extract_archive(&plain, target, project);
+        let result = if force {
+            extract_archive_with_hash(&plain, target, project, None, true)
+        } else {
+            extract_archive(&plain, target, project)
+        };
         cleanup_decrypt_temp(&plain);
         result
-    } else if no_verify {
+    } else if no_verify && !force {
         extract_archive(archive, target, project)
     } else {
-        extract_archive_with_hash(archive, target, project, expected_hash)
+        extract_archive_with_hash(archive, target, project, expected_hash, force)
     }
 }
 
-fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !target.exists() && !target.is_symlink(),
-        "restore target already exists: {}",
-        target.display()
-    );
+fn restore_git(
+    url: &str,
+    commit: &str,
+    target: &Path,
+    project: &str,
+    force: bool,
+) -> anyhow::Result<()> {
+    if !force {
+        anyhow::ensure!(
+            !target.exists() && !target.is_symlink(),
+            "restore target already exists: {}",
+            target.display()
+        );
+    }
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
@@ -1722,18 +1765,14 @@ fn restore_git(url: &str, commit: &str, target: &Path, project: &str) -> anyhow:
             "restored commit does not match manifest for {project}"
         );
         restore_submodules(&repo, project)?;
-        anyhow::ensure!(
-            !target.exists() && !target.is_symlink(),
-            "restore target already exists: {}",
-            target.display()
-        );
-        fs::rename(&repo, target)?;
+        publish_restored_tree(&repo, target, force)?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&temporary);
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn restore_git_bundle(
     bundle: &Path,
     branch: &str,
@@ -1742,12 +1781,15 @@ fn restore_git_bundle(
     no_verify: bool,
     target: &Path,
     project: &str,
+    force: bool,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !target.exists() && !target.is_symlink(),
-        "restore target already exists: {}",
-        target.display()
-    );
+    if !force {
+        anyhow::ensure!(
+            !target.exists() && !target.is_symlink(),
+            "restore target already exists: {}",
+            target.display()
+        );
+    }
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
@@ -1838,12 +1880,7 @@ fn restore_git_bundle(
             head.eq_ignore_ascii_case(commit),
             "Git bundle commit does not match manifest for {project}"
         );
-        anyhow::ensure!(
-            !target.exists() && !target.is_symlink(),
-            "restore target already exists: {}",
-            target.display()
-        );
-        fs::rename(repo, target)?;
+        publish_restored_tree(&repo, target, force)?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&temporary);

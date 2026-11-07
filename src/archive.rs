@@ -414,7 +414,7 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
-    extract_archive_with_hash(archive, target, project, None)
+    extract_archive_with_hash(archive, target, project, None, false)
 }
 
 pub(crate) fn extract_archive_with_hash(
@@ -422,12 +422,15 @@ pub(crate) fn extract_archive_with_hash(
     target: &Path,
     project: &str,
     expected_hash: Option<&str>,
+    force: bool,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !target.exists() && !target.is_symlink(),
-        "restore target already exists: {}",
-        target.display()
-    );
+    if !force {
+        anyhow::ensure!(
+            !target.exists() && !target.is_symlink(),
+            "restore target already exists: {}",
+            target.display()
+        );
+    }
     let mut f = File::open(archive)?;
     if let Some(expected) = expected_hash {
         let actual = sha256_reader(&mut f)?;
@@ -527,11 +530,34 @@ pub(crate) fn extract_archive_with_hash(
         for (directory, mode) in directories.into_iter().rev() {
             set_mode(&directory, mode)?;
         }
-        fs::rename(root, target)?;
+        publish_restored_tree(&root, target, force)?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&tmp);
     result
+}
+
+pub(crate) fn publish_restored_tree(
+    staged: &Path,
+    target: &Path,
+    force: bool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !target.is_symlink(),
+        "restore target is a symlink: {}",
+        target.display()
+    );
+    if target.exists() {
+        anyhow::ensure!(force, "restore target already exists: {}", target.display());
+        anyhow::ensure!(
+            target.is_dir(),
+            "restore target exists and is not a directory: {}",
+            target.display()
+        );
+        fs::remove_dir_all(target)?;
+    }
+    fs::rename(staged, target)?;
+    Ok(())
 }
 
 fn remove_path(path: &Path) -> anyhow::Result<()> {

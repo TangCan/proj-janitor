@@ -84,6 +84,9 @@ pub(crate) struct RestoreConfig {
     /// Passphrase file used to decrypt openssl-encrypted archives.
     #[serde(default)]
     pub(crate) decrypt_passphrase_file: Option<std::path::PathBuf>,
+    /// Replace an existing restore target directory after staging succeeds.
+    #[serde(default)]
+    pub(crate) force: bool,
 }
 
 /// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
@@ -281,6 +284,14 @@ mod tests {
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.require_dest);
         assert!(!config.restore.check_remote);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_force() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nforce = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.force);
     }
 
     #[test]

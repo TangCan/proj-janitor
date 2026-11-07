@@ -371,6 +371,21 @@ class RestoreTests(unittest.TestCase):
                 "keep",
             )
 
+    def test_restore_archive_force_replaces_existing_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project, manifest, _ = archive_backup(root)
+            restored = root / "restored"
+            target = restored / project.name
+            target.mkdir(parents=True)
+            (target / "stale.txt").write_text("stale", encoding="utf-8")
+
+            plans, results = restore_from_manifest(manifest, restored, force=True)
+            self.assertTrue(plans[0].overwrite)
+            self.assertEqual(len(results), 1)
+            self.assertFalse((target / "stale.txt").exists())
+            self.assertTrue((target / "src" / "main.py").is_file())
+
     def test_restore_archive_rejects_path_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

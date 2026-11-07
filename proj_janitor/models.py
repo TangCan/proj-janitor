@@ -111,6 +111,7 @@ class RestorePlan:
     submodules: list | None = None
     lfs_objects: list | None = None
     encryption: str | None = None
+    overwrite: bool = False
 
 
 @dataclass(frozen=True)

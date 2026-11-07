@@ -320,9 +320,12 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument(
         "--yes",
         action="store_true",
-        help="skip confirmation when restoring to original locations",
+        help=(
+            "skip confirmation when restoring to original locations "
+            "or overwriting existing targets with --force"
+        ),
     )
-    restore.set_defaults(check_remote=None, require_dest=None)
+    restore.set_defaults(check_remote=None, require_dest=None, force=None)
     restore_remote = restore.add_mutually_exclusive_group()
     restore_remote.add_argument(
         "--check-remote",
@@ -354,6 +357,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="require_dest",
         help="allow original-location restore even when [restore].require_dest is true",
+    )
+    restore_force = restore.add_mutually_exclusive_group()
+    restore_force.add_argument(
+        "--force",
+        action="store_true",
+        dest="force",
+        help=(
+            "replace an existing restore target directory after staging succeeds "
+            "(overrides [restore].force); still refuses symlinks and non-directories"
+        ),
+    )
+    restore_force.add_argument(
+        "--no-force",
+        action="store_false",
+        dest="force",
+        help="refuse existing restore targets even when [restore].force is true",
     )
     restore.add_argument(
         "--decrypt-passphrase-file",
@@ -759,6 +778,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.require_dest,
         config.restore.require_dest if config else False,
     )
+    force = resolve_tri_state(
+        args.force,
+        config.restore.force if config else False,
+    )
     decrypt_passphrase_file = args.decrypt_passphrase_file or (
         config.restore.decrypt_passphrase_file if config else None
     )
@@ -775,6 +798,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             args.dest,
             projects=args.project,
             verify=not args.no_verify if args.dry_run else False,
+            force=force,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -782,6 +806,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
     in_place = args.dest is None
     mode = "original" if in_place else "dest"
+    overwrites = [plan for plan in plans if plan.overwrite]
 
     if args.dry_run:
         if args.json:
@@ -800,24 +825,34 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         print("Dry run. Re-run without --dry-run to restore.")
         return 0
 
-    if in_place and not args.yes:
+    needs_confirm = (in_place or bool(overwrites)) and not args.yes
+    if needs_confirm:
+        reason = "original-location restore"
+        if overwrites and not in_place:
+            reason = "overwrite restore"
+        elif overwrites and in_place:
+            reason = "original-location overwrite restore"
         if args.json:
             print(
-                "error: --yes is required for original-location restore "
-                "with --json",
+                f"error: --yes is required for {reason} with --json",
                 file=sys.stderr,
             )
             return 2
         if not sys.stdin.isatty():
             print(
-                "error: refusing to restore to original locations without "
-                "--yes in a non-interactive session",
+                f"error: refusing {reason} without --yes "
+                "in a non-interactive session",
                 file=sys.stderr,
             )
             return 2
-        print("About to restore to original locations:")
-        for plan in plans:
-            print(f"  {plan.target}")
+        if overwrites:
+            print("About to replace existing restore targets:")
+            for plan in overwrites:
+                print(f"  {plan.target}")
+        elif in_place:
+            print("About to restore to original locations:")
+            for plan in plans:
+                print(f"  {plan.target}")
         try:
             answer = input(
                 f"Restore {len(plans)} project(s)? [y/N] "
@@ -834,6 +869,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             verify=not args.no_verify,
             check_remote=check_remote,
             decrypt_passphrase_file=decrypt_passphrase_file,
+            force=force,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1096,12 +1132,13 @@ def _retention_plan_json(plan: RetentionPlan) -> dict:
 
 
 def _print_restore_plan(plan: RestorePlan) -> None:
+    overwrite = " (overwrite)" if plan.overwrite else ""
     if plan.strategy == "git":
         remote = redact_remote_url(plan.remote_url or "")
         commit = plan.commit[:12] if plan.commit else "-"
         print(
             f"  [git] {plan.project}: {remote} @ {commit} "
-            f"-> {plan.target}"
+            f"-> {plan.target}{overwrite}"
         )
         return
     if plan.strategy == "git_bundle":
@@ -1109,13 +1146,13 @@ def _print_restore_plan(plan: RestorePlan) -> None:
         verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
         print(
             f"  [git-bundle] {plan.project}: {commit} {plan.archive} "
-            f"({verified}) -> {plan.target}"
+            f"({verified}) -> {plan.target}{overwrite}"
         )
         return
     verified = "sha256 verified" if plan.hash_verified else "sha256 unchecked"
     print(
         f"  [archive] {plan.project}: {plan.archive} "
-        f"({verified}) -> {plan.target}"
+        f"({verified}) -> {plan.target}{overwrite}"
     )
 
 
@@ -1132,6 +1169,7 @@ def _restore_plan_json(plan: RestorePlan) -> dict:
         "sha256": plan.sha256,
         "sha256_verified": plan.hash_verified,
         "in_place": plan.in_place,
+        "overwrite": plan.overwrite,
     }
 
 

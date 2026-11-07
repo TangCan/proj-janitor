@@ -172,17 +172,19 @@ class VerifyConfig:
 
 
 class RestoreConfig:
-    __slots__ = ("check_remote", "require_dest", "decrypt_passphrase_file")
+    __slots__ = ("check_remote", "require_dest", "decrypt_passphrase_file", "force")
 
     def __init__(
         self,
         check_remote: bool = False,
         require_dest: bool = False,
         decrypt_passphrase_file: Path | None = None,
+        force: bool = False,
     ) -> None:
         self.check_remote = check_remote
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
+        self.force = force
 
 
 class Config:
@@ -397,6 +399,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "check_remote",
         "require_dest",
         "decrypt_passphrase_file",
+        "force",
     }
     if set(restore_data) - allowed_restore:
         raise ConfigError(
@@ -420,6 +423,9 @@ def load_config(path: Path | None = None) -> Config | None:
         )
         if "decrypt_passphrase_file" in restore_data
         else None,
+        force=_parse_bool(restore_data["force"], "[restore].force")
+        if "force" in restore_data
+        else False,
     )
 
     return Config(backup=backup, prune=prune, verify=verify, restore=restore)
