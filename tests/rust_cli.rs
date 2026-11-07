@@ -1074,6 +1074,8 @@ fn retention_keeps_whole_incremental_chain_together() {
 fn backup_and_restore_git_bundle_when_branch_matches_init_default() {
     // Regression: modern Git refuses fetch into the checked-out default branch
     // (often `master`). Restore must move HEAD aside before fetching refs.
+    // Also: `git bundle verify` needs a repo context; run restore with cwd outside
+    // any git work tree (e.g. $HOME) so we catch "need a repository to verify".
     let temp = TestDir::new();
     let project = temp.project();
     git(&project, &["init", "-q", "-b", "master"]);
@@ -1117,7 +1119,10 @@ fn backup_and_restore_git_bundle_when_branch_matches_init_default() {
     assert_eq!(manifest_json["records"][0]["commit"], head);
 
     let restored_dest = temp.0.join("restored");
+    let outside_git = temp.0.join("outside-git-cwd");
+    fs::create_dir_all(&outside_git).unwrap();
     let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .current_dir(&outside_git)
         .arg("restore")
         .arg(&manifest)
         .arg("--dest")

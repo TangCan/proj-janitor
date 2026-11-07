@@ -756,7 +756,11 @@ class GitRestoreTests(unittest.TestCase):
                 verify_manifest(manifests[0])
 
     def test_git_bundle_restores_when_branch_matches_init_default(self) -> None:
-        """Regression: fetch must not target the checked-out default branch name."""
+        """Regression: fetch must not target the checked-out default branch name.
+
+        Also run restore with cwd outside any git work tree so `git bundle verify`
+        cannot accidentally inherit a repository from the caller's directory.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "app"
@@ -778,7 +782,14 @@ class GitRestoreTests(unittest.TestCase):
             self.assertEqual(records[0].branch, "master")
 
             restored = root / "restored"
-            plans, results = restore_from_manifest(manifests[0], restored)
+            outside_git = root / "outside-git-cwd"
+            outside_git.mkdir()
+            previous = Path.cwd()
+            try:
+                os.chdir(outside_git)
+                plans, results = restore_from_manifest(manifests[0], restored)
+            finally:
+                os.chdir(previous)
             target = restored / "app"
             self.assertEqual(plans[0].strategy, "git_bundle")
             self.assertEqual(results[0].strategy, "git_bundle")

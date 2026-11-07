@@ -1377,12 +1377,6 @@ fn restore_git_bundle(
                 bundle.display()
             );
         }
-        let mut verify = Command::new("git");
-        verify.args(["bundle", "verify"]).arg(&git_bundle_path);
-        anyhow::ensure!(
-            run_git_with_timeout(&mut verify, project, "bundle verify")?.success(),
-            "invalid Git bundle for {project}"
-        );
         let repo = temporary.join("repo");
         let mut init = Command::new("git");
         init.current_dir(&temporary).args(["init", "repo"]);
@@ -1402,6 +1396,19 @@ fn restore_git_bundle(
         anyhow::ensure!(
             run_git_with_timeout(&mut detach_head, project, "bundle HEAD prepare")?.success(),
             "cannot prepare Git bundle restore for {project}"
+        );
+        // `git bundle verify` requires a repository context on modern Git; running it
+        // with the caller's cwd (e.g. $HOME) fails with "need a repository to verify a
+        // bundle". Always verify inside the fresh restore repo.
+        let mut verify = Command::new("git");
+        verify
+            .arg("-C")
+            .arg(&repo)
+            .args(["bundle", "verify"])
+            .arg(&git_bundle_path);
+        anyhow::ensure!(
+            run_git_with_timeout(&mut verify, project, "bundle verify")?.success(),
+            "invalid Git bundle for {project}"
         );
         let mut fetch = Command::new("git");
         fetch

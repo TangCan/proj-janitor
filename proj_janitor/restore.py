@@ -818,9 +818,6 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
             shutil.copyfileobj(source, target, length=1024 * 1024)
         if verify and sha256_file(bundle_copy).lower() != (plan.sha256 or "").lower():
             raise RestoreError(f"sha256 mismatch for {plan.archive}")
-        verified = _run_git(["bundle", "verify", str(bundle_copy)], check=False)
-        if verified.returncode:
-            raise RestoreError(f"invalid Git bundle for {plan.project}")
         initialized = _run_git(["init", str(repo)], check=False)
         if initialized.returncode:
             raise RestoreError(f"cannot initialize Git bundle restore for {plan.project}")
@@ -839,6 +836,15 @@ def _restore_git_bundle(plan: RestorePlan, *, verify: bool) -> None:
         )
         if prepared.returncode:
             raise RestoreError(f"cannot prepare Git bundle restore for {plan.project}")
+        # `git bundle verify` requires a repository context on modern Git; running it
+        # with the caller's cwd (e.g. $HOME) fails with "need a repository to verify a
+        # bundle". Always verify inside the fresh restore repo.
+        verified = _run_git(
+            ["-C", str(repo), "bundle", "verify", str(bundle_copy)],
+            check=False,
+        )
+        if verified.returncode:
+            raise RestoreError(f"invalid Git bundle for {plan.project}")
         fetched = _run_git(
             [
                 "-C",
