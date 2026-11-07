@@ -8,7 +8,7 @@
 - `backup` 优先记录可恢复信息：可从 GitHub 恢复的干净项目只写入远程 URL 和提交 SHA；干净、无子模块/LFS 的本地 Git 仓库会生成 `.bundle`，保留本地分支和提交；其他项目回退为 `tar.gz` 并记录 SHA-256。
 - 备份目录可通过 `BACKUP_DEST` 环境变量指定，也可用 `--backup-dest` 指定，或从 `.proj-janitor.toml` 的 `[backup].dest` 读取；命令行参数优先，其次环境变量，再次配置文件。空的 `BACKUP_DEST` 按未设置处理。`.proj-janitor.toml` 的 `[backup].exclude` 可为 archive 策略配置排除模式（glob）；`[backup].incremental` 或 `--incremental` 可生成差异快照（archive 策略）。恢复仍使用 `--dest`。
 - `restore` 默认恢复到 manifest 记录的原始位置，指定 `--dest` 时恢复到新目录；dry-run 规划时校验 archive/bundle SHA-256；实际恢复在确认后、写入前预检整批摘要，且不覆盖已有目录。
-- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）从 Rust `0.5.0` 起随 crates.io 发布，子模块预检扩展（CR-094）自 Rust `0.7.0` 起发布。Python 发行包尚未上传到 PyPI（tag `python-v0.1.0` 处于待配置状态）。
+- `verify` 命令校验 archive/bundle SHA-256；Git-only 记录默认只验证 manifest 中的 URL 和提交格式，不联网检查远程，加 `--check-remote` 才会确认提交是否仍被远端引用指向。`restore` 同样支持 `--check-remote`，把同一远端预检集成进恢复流程，写入前发现远端不可达即整批不开始。该命令从 Rust `0.2.5` 开始包含在 crates.io 发布版中；`--check-remote`（`verify` 与 `restore`）从 Rust `0.5.0` 起随 crates.io 发布，子模块预检扩展（CR-094）自 Rust `0.7.0` 起发布。Python 发行包已发布至 PyPI（`proj-janitor 0.1.0`，tag `python-v0.1.0`）。
 - `clean` 默认 dry-run：只匹配白名单内的构建产物目录/文件。
 - `prune` 默认 dry-run：每个项目保留指定数量的最新备份，只删除过期 manifest 明确引用的归档/bundle；孤立文件不动。
 - Unix 上新建的备份根目录和项目目录权限为 `0700`，归档和 manifest 为 `0600`；已有目录权限不变。Windows 使用备份目录继承的 ACL。
@@ -44,15 +44,19 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 
 ### Python 版
 
-Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.0`，发行包尚未发布到 PyPI；首发状态见 [Python 发布准备记录](docs/发布记录/0.1.0-Python版.md)。目前从 Git 源码安装：
+Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.0`，已发布至 PyPI；发布说明见 [Python 0.1.0 发布记录](docs/发布记录/0.1.0-Python版.md)。推荐安装：
+
+```bash
+pipx install proj-janitor
+# 或
+pip install proj-janitor==0.1.0
+```
+
+从 Git 安装最新 main，或开发时需要可编辑源码安装：
 
 ```bash
 pipx install git+https://github.com/TangCan/proj-janitor.git
-```
-
-开发时需要可编辑源码安装，可克隆仓库并创建虚拟环境：
-
-```bash
+# 或
 git clone https://github.com/TangCan/proj-janitor.git
 cd proj-janitor
 python3 -m venv .venv
@@ -115,7 +119,7 @@ projjan backup ~/richard_plus
 
 默认归档会排除构建产物与依赖缓存，避免把 `node_modules`、`target`、虚拟环境打进压缩包；`--include-artifacts` 强制完整归档，`--always-archive` 强制所有项目都归档。
 
-Rust `0.2.6` 支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。Python 源码中支持该选项；该 Python 项目尚未发布至 PyPI。需要保留 Git 历史时不要使用。
+Rust `0.2.6` 支持 `--exclude-git-metadata`：使用 archive 策略时跳过项目中的 `.git` 目录/文件，可显著缩小含大型 Git 历史的项目备份。该选项不修改源项目，也不强制 archive 策略；从这种归档恢复后只得到工作树，没有分支、tag、提交历史或 remote 配置。Python 源码与 PyPI `0.1.0` 均支持该选项。需要保留 Git 历史时不要使用。
 
 每个项目使用一个稳定的项目目录，不再创建 `backup-.../` 运行目录。纯 `git` 备份只在该目录下写清单：
 

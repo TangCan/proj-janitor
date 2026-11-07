@@ -16,7 +16,7 @@
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.1（`v0.7.1`），Python 源码元数据版本为 0.1.0，未发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
+> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.1（`v0.7.1`），Python 0.1.0 已发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -1409,7 +1409,7 @@ projjan verify MANIFEST --check-remote --json
 
 `--check-remote` 让 Git-only 记录改用第 10.4 节的 `remote-*` 状态：对每个远端执行一次 `git ls-remote`（单条最长等待 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表，不下载对象。manifest 中的 URL 含用户名、口令、query 或 fragment 时状态为 `remote-skipped`，该 URL 不会传给 Git。任一记录 `remote-unreachable` 时仍输出完整报告，并以退出码 `1` 结束。含子模块的 Git-only 记录还会对每个子模块的 URL+固定提交执行一次相同预检，JSON 增加 `submodules` 数组（每项 `{path,url,branch,reason,refs,status}`），任一子模块远端不可达时项目级 `status` 同样为 `remote-unreachable`。
 
-该选项已随 Rust `0.5.0` 发布到 crates.io（子模块预检随 Rust `0.7.0` 发布）；Python 发行包尚未上传到 PyPI（tag `python-v0.1.0` 处于待配置状态）。不带该选项时，文本与 JSON 输出结构和之前完全一致。
+该选项已随 Rust `0.5.0` 发布到 crates.io（子模块预检随 Rust `0.7.0` 发布）；Python 发行包已发布至 PyPI（`proj-janitor 0.1.0`，tag `python-v0.1.0`）。不带该选项时，文本与 JSON 输出结构和之前完全一致。
 
 ## 16.3 当前安全与文件接口
 
@@ -1464,7 +1464,7 @@ Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `c1
 
 ### 发布后 main 维护状态（2026-10-31）
 
-- 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，选项实现提交 `7bd6f317637ce1daace91e896cfd57b07f601818`，候选版本准备提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，候选行为修正与回归测试提交 `dcc116e7d7243751a3683741d9507be0803f4f50`，尚未创建 tag 或发布；Python 源码元数据版本仍为 `0.1.0`，未发布至 PyPI。
+- 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，选项实现提交 `7bd6f317637ce1daace91e896cfd57b07f601818`，候选版本准备提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，候选行为修正与回归测试提交 `dcc116e7d7243751a3683741d9507be0803f4f50`，尚未创建 tag 或发布；Python `0.1.0` 已发布至 PyPI。
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
@@ -1475,7 +1475,7 @@ Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `c1
 
 ## Rust 0.2.6 发布时状态（2026-11-02）
 
-- Rust `0.2.6` 已发布至 crates.io，tag 为 `v0.2.6`；Python 源码元数据版本为 `0.1.0`，未发布至 PyPI。
+- Rust `0.2.6` 已发布至 crates.io，tag 为 `v0.2.6`；Python `0.1.0` 已发布至 PyPI。
 - `--exclude-git-metadata` 随 Rust 0.2.6 提供，Python API/CLI 尚未提供该选项。
 - 发布验证、tag CI 和安装命令见 `docs/发布记录/0.2.6-Rust版.md`。
 

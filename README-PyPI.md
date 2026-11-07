@@ -1,6 +1,6 @@
 # proj-janitor Python CLI
 
-扫描、备份、恢复和清理本地项目的命令行工具。Python 版要求 Python `>=3.10`，没有第三方运行时依赖。
+扫描、备份、恢复和清理本地项目的命令行工具。Python 版要求 Python `>=3.10`；除 Python 3.10 自动安装 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。
 
 ## 安装
 
