@@ -359,6 +359,7 @@ class CliTests(unittest.TestCase):
                 incremental=False,
                 base_name=None,
                 previous=None,
+                exclude_secrets=False,
             ):
                 if project.name == "bad":
                     raise PermissionError("access denied")
@@ -373,6 +374,7 @@ class CliTests(unittest.TestCase):
                     incremental=incremental,
                     base_name=base_name,
                     previous=previous,
+                    exclude_secrets=exclude_secrets,
                 )
 
             with mock.patch(
