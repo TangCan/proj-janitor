@@ -8,15 +8,15 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-11-05 `backup --incremental` 增量备份（CR-093） |
-| 源码提交 | `ee3b136bf8bcd4dbb2c77faf939c917c8c03aab6`（v0.7.1 发布提交，含 CR-095 git_bundle restore 修复） |
-| 源码标签 | `v0.7.1` 为最新 Rust 发布标签；HEAD 已含配置文件、自动保留、排除规则、增量备份与子模块/LFS 远端预检功能 |
+| 源码提交 | `7fc4c02e20c60c93e637a4af2e5086cd4113858f`（v0.7.2 发布提交，含 CR-096 restore git stderr） |
+| 源码标签 | `v0.7.2` 为最新 Rust 发布标签；HEAD 已含配置文件、自动保留、排除规则、增量备份与子模块/LFS 远端预检功能 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.1（`v0.7.1`），Python 0.1.0 已发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
+> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.2（`v0.7.2`），Python 0.1.1 已发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -1464,7 +1464,7 @@ Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `c1
 
 ### 发布后 main 维护状态（2026-10-31）
 
-- 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，选项实现提交 `7bd6f317637ce1daace91e896cfd57b07f601818`，候选版本准备提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，候选行为修正与回归测试提交 `dcc116e7d7243751a3683741d9507be0803f4f50`，尚未创建 tag 或发布；Python `0.1.0` 已发布至 PyPI。
+- 已发布 crate：Rust `0.2.5`（tag `v0.2.5`）；main 当前是 `0.2.6` 候选，选项实现提交 `7bd6f317637ce1daace91e896cfd57b07f601818`，候选版本准备提交 `ad2ef13222b3bffaefa4958d150b18100ec04d96`，候选行为修正与回归测试提交 `dcc116e7d7243751a3683741d9507be0803f4f50`，尚未创建 tag 或发布；Python `0.1.1` 已发布至 PyPI。
 - Rust `0.2.5` 已包含只读 `verify`：archive 校验 manifest 中的 SHA-256；Git 策略只校验 manifest 元数据，不联网确认远程。
 - `0.2.6` 候选包含 `--exclude-git-metadata`：归档时省略 `.git`，manifest 记录实际行为；恢复后没有 Git 历史。该版本尚未发布，crates.io `0.2.5` 不含此选项。
 - Windows Rust CLI 在 8 MiB 栈线程中执行，修复备份/verify 子进程默认栈溢出；Windows CLI 回归通过。
@@ -1475,7 +1475,7 @@ Rust `0.4.0` 已发布至 crates.io 和 GitHub Release，tag `v0.4.0` 指向 `c1
 
 ## Rust 0.2.6 发布时状态（2026-11-02）
 
-- Rust `0.2.6` 已发布至 crates.io，tag 为 `v0.2.6`；Python `0.1.0` 已发布至 PyPI。
+- Rust `0.2.6` 已发布至 crates.io，tag 为 `v0.2.6`；Python `0.1.1` 已发布至 PyPI。
 - `--exclude-git-metadata` 随 Rust 0.2.6 提供，Python API/CLI 尚未提供该选项。
 - 发布验证、tag CI 和安装命令见 `docs/发布记录/0.2.6-Rust版.md`。
 
@@ -1506,3 +1506,7 @@ Rust `0.7.0` 已发布至 crates.io 和 GitHub Release，tag `v0.7.0`（注释�
 ## 21. Rust 0.7.1 发布状态（2026-11-07）
 
 Rust `0.7.1` 已发布至 crates.io 和 GitHub Release，tag `v0.7.1`（注释对象 `26072ce95c2add6255cec8bc69fe82c733cb61f8`）指向 `ee3b136bf8bcd4dbb2c77faf939c917c8c03aab6`。本版本修复 `git_bundle` 恢复在默认分支名冲突与非 git cwd 下失败（CR-095）；manifest schema v2 不变。发布验证见 `docs/发布记录/0.7.1-Rust版.md`。
+
+## 22. Rust 0.7.2 / Python 0.1.1 发布状态（2026-11-07）
+
+Rust `0.7.2`（tag `v0.7.2` → `7fc4c02e20c60c93e637a4af2e5086cd4113858f`）与 Python `0.1.1`（tag `python-v0.1.1`）已发布。本版本恢复失败时透出脱敏 git stderr（CR-096）。详见 `docs/发布记录/0.7.2-Rust版.md` 与 `docs/发布记录/0.1.1-Python版.md`。
