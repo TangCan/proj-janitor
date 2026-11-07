@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from proj_janitor import __version__
-from proj_janitor.backup import estimate_archive_stats, prepare_backup, run_backup
+from proj_janitor.backup import (
+    archive_space_insufficient,
+    available_disk_bytes,
+    estimate_archive_stats,
+    format_space_refusal,
+    prepare_backup,
+    run_backup,
+)
 from proj_janitor.config import ConfigError, load_config, resolve_check_remote, resolve_tri_state
 from proj_janitor.secrets import (
     find_possible_secret_paths,
@@ -146,7 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="record a delta snapshot (changed/new files) instead of a full archive "
         "(default: [backup].incremental)",
     )
-    backup.set_defaults(fail_on_secrets=None, exclude_secrets=None, progress=None)
+    backup.set_defaults(
+        fail_on_secrets=None,
+        exclude_secrets=None,
+        progress=None,
+        check_space=None,
+    )
     backup_secrets = backup.add_mutually_exclusive_group()
     backup_secrets.add_argument(
         "--fail-on-secrets",
@@ -194,6 +206,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="progress",
         help="disable progress output even when [backup].progress is true",
+    )
+    backup_space = backup.add_mutually_exclusive_group()
+    backup_space.add_argument(
+        "--check-space",
+        action="store_true",
+        dest="check_space",
+        help=(
+            "refuse archive backups when free space on the backup dest is below "
+            "the uncompressed size estimate (overrides [backup].check_space)"
+        ),
+    )
+    backup_space.add_argument(
+        "--no-check-space",
+        action="store_false",
+        dest="check_space",
+        help="skip free-space preflight even when [backup].check_space is true",
     )
 
     clean = subparsers.add_parser(
@@ -443,6 +471,10 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         args.progress,
         config.backup.progress if config else False,
     )
+    check_space = resolve_tri_state(
+        args.check_space,
+        config.backup.check_space if config else False,
+    )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -500,19 +532,41 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         else ""
                     )
                 )
-                if progress:
-                    files, nbytes = estimate_archive_stats(
+                stats = None
+                if progress or check_space:
+                    stats = estimate_archive_stats(
                         plan.project.path,
                         include_artifacts=args.include_artifacts,
                         exclude_git_metadata=args.exclude_git_metadata,
                         exclude_patterns=exclude_patterns,
                         exclude_secrets=exclude_secrets,
                     )
+                if progress and stats is not None:
+                    files, nbytes = stats
                     print(
                         f"progress: {plan.project.name}: would pack {files} files, "
                         f"{human_size(nbytes)} after excludes",
                         file=sys.stderr,
                     )
+                if check_space and stats is not None:
+                    _, nbytes = stats
+                    try:
+                        available = available_disk_bytes(backup_dest)
+                    except OSError as exc:
+                        print(
+                            f"error: {plan.project.name}: {exc}",
+                            file=sys.stderr,
+                        )
+                        blocked = True
+                    else:
+                        if archive_space_insufficient(nbytes, available):
+                            print(
+                                format_space_refusal(
+                                    plan.project.name, nbytes, available
+                                ),
+                                file=sys.stderr,
+                            )
+                            blocked = True
                 secrets = find_possible_secret_paths(
                     plan.project.path,
                     include_artifacts=args.include_artifacts,
@@ -550,6 +604,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             fail_on_secrets=fail_on_secrets,
             exclude_secrets=exclude_secrets,
             progress=progress,
+            check_space=check_space,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -45,6 +45,9 @@ pub(crate) struct BackupConfig {
     /// Emit archive packing / dry-run size progress on stderr.
     #[serde(default)]
     pub(crate) progress: bool,
+    /// Refuse archive backups when free space on dest is below the estimate.
+    #[serde(default)]
+    pub(crate) check_space: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -313,6 +316,14 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\nprogress = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.backup.progress);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_check_space() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\ncheck_space = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.check_space);
     }
 
     #[test]

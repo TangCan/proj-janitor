@@ -858,6 +858,31 @@ class CliTests(unittest.TestCase):
             self.assertIn("not encrypted", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
 
+    def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            dest = root / "backups"
+
+            with mock.patch(
+                "proj_janitor.cli.available_disk_bytes",
+                return_value=0,
+            ):
+                code, _out, err = run_cli(
+                    "backup",
+                    str(project),
+                    "--backup-dest",
+                    str(dest),
+                    "--always-archive",
+                    "--dry-run",
+                    "--check-space",
+                )
+
+            self.assertNotEqual(code, 0, err)
+            self.assertIn("not enough free space", err)
+            self.assertFalse(dest.exists())
+
     def test_backup_progress_dry_run_estimates_pack_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

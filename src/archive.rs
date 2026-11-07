@@ -837,6 +837,99 @@ fn report_archive_progress(label: Option<&str>, files: u64, bytes: u64) {
     }
 }
 
+/// Slack reserved for the manifest and archive headers beyond content bytes.
+pub(crate) const ARCHIVE_SPACE_SLACK: u64 = 1024 * 1024;
+
+/// Return free bytes available to the caller on the filesystem containing `path`.
+/// Walks up to an existing ancestor when `path` does not exist yet.
+pub(crate) fn available_disk_bytes(path: &Path) -> anyhow::Result<u64> {
+    let probe = existing_ancestor(path)
+        .ok_or_else(|| anyhow::anyhow!("cannot determine free space for {}", path.display()))?;
+    available_disk_bytes_existing(probe)
+        .with_context(|| format!("cannot determine free space for {}", probe.display()))
+}
+
+fn existing_ancestor(path: &Path) -> Option<&Path> {
+    let mut current = path;
+    loop {
+        if current.exists() {
+            return Some(current);
+        }
+        current = current.parent()?;
+    }
+}
+
+#[cfg(unix)]
+fn available_disk_bytes_existing(path: &Path) -> anyhow::Result<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| anyhow::anyhow!("path contains interior NUL"))?;
+    // SAFETY: c_path is a valid C string; statvfs writes into a stack struct.
+    let mut stat = unsafe { std::mem::zeroed::<libc::statvfs>() };
+    let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+}
+
+#[cfg(windows)]
+fn available_disk_bytes_existing(path: &Path) -> anyhow::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory: *const u16,
+            free_bytes_available: *mut u64,
+            total_bytes: *mut u64,
+            total_free_bytes: *mut u64,
+        ) -> i32;
+    }
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut free = 0u64;
+    // SAFETY: wide is NUL-terminated; free is a valid out-pointer.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(free)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn available_disk_bytes_existing(_path: &Path) -> anyhow::Result<u64> {
+    anyhow::bail!("free-space checks are unsupported on this platform")
+}
+
+/// True when `available` cannot cover `needed` plus [`ARCHIVE_SPACE_SLACK`].
+pub(crate) fn archive_space_insufficient(needed: u64, available: u64) -> bool {
+    available < needed.saturating_add(ARCHIVE_SPACE_SLACK)
+}
+
+pub(crate) fn format_space_refusal(project: &str, needed: u64, available: u64) -> String {
+    format!(
+        "error: {project}: not enough free space on backup dest \
+         (need ~{} uncompressed estimate + {}, {} available)",
+        crate::human(needed),
+        crate::human(ARCHIVE_SPACE_SLACK),
+        crate::human(available)
+    )
+}
+
 pub(crate) fn archive_excluded(
     path: &Path,
     project: &Path,

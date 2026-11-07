@@ -166,6 +166,14 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.backup.progress)
 
+    def test_loads_backup_check_space_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\ncheck_space = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.backup.check_space)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

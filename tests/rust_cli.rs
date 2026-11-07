@@ -2210,6 +2210,32 @@ fn archive_backup_warns_about_possible_secrets() {
 }
 
 #[test]
+fn backup_check_space_dry_run_succeeds_when_space_available() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "hello\n").unwrap();
+    let dest = temp.0.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--dry-run",
+            "--check-space",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!dest.exists());
+}
+
+#[test]
 fn backup_progress_dry_run_estimates_pack_size() {
     let temp = TestDir::new();
     let project = temp.project();

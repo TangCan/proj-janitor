@@ -121,6 +121,10 @@ enum Action {
         progress: bool,
         #[arg(long = "no-progress", conflicts_with = "progress")]
         no_progress: bool,
+        #[arg(long, conflicts_with = "no_check_space")]
+        check_space: bool,
+        #[arg(long = "no-check-space", conflicts_with = "check_space")]
+        no_check_space: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -333,6 +337,8 @@ fn run() -> anyhow::Result<()> {
             no_exclude_secrets,
             progress,
             no_progress,
+            check_space,
+            no_check_space,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -372,6 +378,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.backup.progress)
                     .unwrap_or(false),
             );
+            let check_space = resolve_tri_state(
+                check_space,
+                no_check_space,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.backup.check_space)
+                    .unwrap_or(false),
+            );
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -386,6 +400,7 @@ fn run() -> anyhow::Result<()> {
                 fail_on_secrets,
                 exclude_secrets,
                 progress,
+                check_space,
             )
         }
         Action::Clean {

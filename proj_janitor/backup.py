@@ -160,6 +160,7 @@ def run_backup(
     fail_on_secrets: bool = False,
     exclude_secrets: bool = False,
     progress: bool = False,
+    check_space: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -200,6 +201,29 @@ def run_backup(
             if secrets:
                 failures.append(
                     (plan.project.name, format_secret_refusal_detail(secrets))
+                )
+                continue
+        if plan.strategy == "archive" and check_space:
+            _, nbytes = estimate_archive_stats(
+                plan.project.path,
+                include_artifacts=include_artifacts,
+                exclude_git_metadata=exclude_git_metadata,
+                exclude_patterns=tuple(exclude_patterns),
+                exclude_secrets=exclude_secrets,
+            )
+            try:
+                available = available_disk_bytes(backup_dest)
+            except OSError as exc:
+                failures.append((plan.project.name, str(exc)))
+                continue
+            if archive_space_insufficient(nbytes, available):
+                failures.append(
+                    (
+                        plan.project.name,
+                        format_space_refusal(
+                            plan.project.name, nbytes, available
+                        ).removeprefix(f"error: {plan.project.name}: "),
+                    )
                 )
                 continue
         manifest_identity: tuple[int, int] | None = None
@@ -756,6 +780,34 @@ def _create_incremental_archive(
         raise
 
     return digest, archive_bytes, archive_identity, inventory, deleted
+
+
+ARCHIVE_SPACE_SLACK = 1024 * 1024
+
+
+def available_disk_bytes(path: Path) -> int:
+    """Return free bytes on the filesystem containing path (or an ancestor)."""
+    probe = path.expanduser()
+    while True:
+        try:
+            return shutil.disk_usage(probe).free
+        except FileNotFoundError:
+            parent = probe.parent
+            if parent == probe:
+                raise
+            probe = parent
+
+
+def archive_space_insufficient(needed: int, available: int) -> bool:
+    return available < needed + ARCHIVE_SPACE_SLACK
+
+
+def format_space_refusal(project: str, needed: int, available: int) -> str:
+    return (
+        f"error: {project}: not enough free space on backup dest "
+        f"(need ~{human_size(needed)} uncompressed estimate + "
+        f"{human_size(ARCHIVE_SPACE_SLACK)}, {human_size(available)} available)"
+    )
 
 
 def estimate_archive_stats(

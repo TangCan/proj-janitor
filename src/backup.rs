@@ -10,8 +10,9 @@ use std::{
 use crate::{
     Manifest, Record,
     archive::{
-        archive_path_matches, copy_new_file, create_incremental_archive, create_private_dir,
-        create_private_temp_dir, estimate_archive_stats, portable_path_key, remove_file_if_same,
+        archive_path_matches, archive_space_insufficient, available_disk_bytes, copy_new_file,
+        create_incremental_archive, create_private_dir, create_private_temp_dir,
+        estimate_archive_stats, format_space_refusal, portable_path_key, remove_file_if_same,
         safe_windows_component, write_new_file,
     },
     expand, human,
@@ -140,6 +141,7 @@ pub(crate) fn backup_cmd(
     fail_on_secrets: bool,
     exclude_secrets: bool,
     progress: bool,
+    check_space: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -302,20 +304,37 @@ pub(crate) fn backup_cmd(
                         ""
                     }
                 );
-                if progress
-                    && let Ok((files, bytes)) = estimate_archive_stats(
+                let stats = if progress || check_space {
+                    estimate_archive_stats(
                         &p.path,
                         include_artifacts,
                         exclude_git_metadata,
                         exclude,
                         exclude_secrets,
                     )
-                {
+                    .ok()
+                } else {
+                    None
+                };
+                if progress && let Some((files, bytes)) = stats {
                     eprintln!(
                         "progress: {}: would pack {files} files, {} after excludes",
                         p.name,
                         human(bytes)
                     );
+                }
+                if check_space && let Some((_, bytes)) = stats {
+                    match available_disk_bytes(&dest) {
+                        Ok(available) if archive_space_insufficient(bytes, available) => {
+                            eprintln!("{}", format_space_refusal(&p.name, bytes, available));
+                            failed = true;
+                        }
+                        Err(error) => {
+                            eprintln!("error: {}: {error:#}", p.name);
+                            failed = true;
+                        }
+                        _ => {}
+                    }
                 }
                 if let Ok(secrets) = find_possible_secret_paths(
                     &p.path,
@@ -351,6 +370,28 @@ pub(crate) fn backup_cmd(
                 eprintln!("{}", format_secret_refusal(&p.name, &secrets));
                 failed = true;
                 continue;
+            }
+        }
+        if recovery.is_none() && bundle_recovery.is_none() && check_space {
+            let (_, bytes) = estimate_archive_stats(
+                &p.path,
+                include_artifacts,
+                exclude_git_metadata,
+                exclude,
+                exclude_secrets,
+            )?;
+            match available_disk_bytes(&dest) {
+                Ok(available) if archive_space_insufficient(bytes, available) => {
+                    eprintln!("{}", format_space_refusal(&p.name, bytes, available));
+                    failed = true;
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!("error: {}: {error:#}", p.name);
+                    failed = true;
+                    continue;
+                }
+                _ => {}
             }
         }
         let mut archive_identity = None;
