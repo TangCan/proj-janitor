@@ -2210,6 +2210,49 @@ fn archive_backup_warns_about_possible_secrets() {
 }
 
 #[test]
+fn archive_backup_exclude_secrets_omits_secret_paths() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let dest = temp.0.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--exclude-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("excluding secret paths"), "{stderr}");
+    assert!(stderr.contains(".env"), "{stderr}");
+    let archive = fs::read_dir(dest.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("gz"))
+        .expect("archive");
+    let file = fs::File::open(&archive).unwrap();
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    let names: Vec<String> = archive
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.iter().any(|n| n.ends_with("ok.txt")), "{names:?}");
+    assert!(names.iter().all(|n| !n.ends_with(".env")), "{names:?}");
+}
+
+#[test]
 fn archive_backup_fail_on_secrets_refuses_and_writes_nothing() {
     let temp = TestDir::new();
     let project = temp.project();

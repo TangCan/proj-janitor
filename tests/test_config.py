@@ -150,6 +150,14 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertFalse(config.backup.fail_on_secrets)
 
+    def test_loads_backup_exclude_secrets_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\nexclude_secrets = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.backup.exclude_secrets)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

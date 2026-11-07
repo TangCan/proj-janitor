@@ -1,8 +1,9 @@
 //! Heuristic detection of common secret filenames that may land in archives.
 //!
 //! These checks are intentionally conservative path/name matchers. They do not
-//! inspect file contents and never fail a backup; they only surface warnings so
-//! operators can exclude, redact, or encrypt before long-term storage (R-05).
+//! inspect file contents. By default they surface warnings; `--fail-on-secrets`
+//! refuses the archive backup, and `--exclude-secrets` skips matching paths
+//! when packing (R-05).
 
 use crate::archive::{archive_excluded, build_exclude_globset};
 use anyhow::Context;
@@ -17,6 +18,7 @@ pub(crate) fn find_possible_secret_paths(
     include_artifacts: bool,
     exclude_git_metadata: bool,
     exclude: &[String],
+    exclude_secrets: bool,
 ) -> anyhow::Result<Vec<String>> {
     let exclude_set = build_exclude_globset(exclude)?;
     let mut hits = Vec::new();
@@ -30,6 +32,7 @@ pub(crate) fn find_possible_secret_paths(
                 include_artifacts,
                 exclude_git_metadata,
                 &exclude_set,
+                exclude_secrets,
             )
         })
     {
@@ -84,6 +87,13 @@ pub(crate) fn format_secret_refusal(project: &str, secrets: &[String]) -> String
     format!(
         "error: {project}: {}",
         format_secret_refusal_detail(secrets)
+    )
+}
+
+pub(crate) fn format_secret_exclusion(project: &str, secrets: &[String]) -> String {
+    format!(
+        "note: {project}: excluding secret paths from archive ({})",
+        format_secret_list(secrets)
     )
 }
 
@@ -180,7 +190,8 @@ mod tests {
         fs::create_dir_all(temp.0.join("skip")).unwrap();
         fs::write(temp.0.join("skip/.env"), "x\n").unwrap();
 
-        let hits = find_possible_secret_paths(&temp.0, false, false, &["skip".into()]).unwrap();
+        let hits =
+            find_possible_secret_paths(&temp.0, false, false, &["skip".into()], false).unwrap();
         assert_eq!(hits, vec![".env".to_owned(), "nested/id_rsa".to_owned()]);
     }
 }

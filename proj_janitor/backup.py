@@ -27,8 +27,10 @@ from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
 from proj_janitor.secrets import (
     SecretPathsError,
     find_possible_secret_paths,
+    format_secret_exclusion,
     format_secret_refusal_detail,
     format_secret_warning,
+    path_looks_like_secret,
 )
 from proj_janitor.scanner import (
     collect_lfs_objects,
@@ -156,6 +158,7 @@ def run_backup(
     exclude_patterns: Iterable[str] = (),
     incremental: bool = False,
     fail_on_secrets: bool = False,
+    exclude_secrets: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -186,7 +189,7 @@ def run_backup(
                 (plan.project.name, plan.reason or "unsafe to archive")
             )
             continue
-        if plan.strategy == "archive" and fail_on_secrets:
+        if plan.strategy == "archive" and fail_on_secrets and not exclude_secrets:
             secrets = find_possible_secret_paths(
                 plan.project.path,
                 include_artifacts=include_artifacts,
@@ -227,6 +230,7 @@ def run_backup(
                 exclude_patterns,
                 incremental,
                 fail_on_secrets=False,
+                exclude_secrets=exclude_secrets,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -252,6 +256,7 @@ def _backup_one(
     exclude_patterns: Iterable[str] = (),
     incremental: bool = False,
     fail_on_secrets: bool = False,
+    exclude_secrets: bool = False,
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -294,12 +299,18 @@ def _backup_one(
             exclude_patterns=tuple(exclude_patterns),
         )
         if secrets:
-            if fail_on_secrets:
+            if fail_on_secrets and not exclude_secrets:
                 raise SecretPathsError(format_secret_refusal_detail(secrets))
-            print(
-                format_secret_warning(plan.project.name, secrets),
-                file=sys.stderr,
-            )
+            if exclude_secrets:
+                print(
+                    format_secret_exclusion(plan.project.name, secrets),
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    format_secret_warning(plan.project.name, secrets),
+                    file=sys.stderr,
+                )
         archive_dir = manifest_path.parent
         archive_dir.mkdir(parents=True, exist_ok=True)
         archive_path = archive_dir / plan.archive_name
@@ -318,6 +329,7 @@ def _backup_one(
             incremental=incremental,
             base_name=base_name,
             previous=previous,
+            exclude_secrets=exclude_secrets,
         )
 
     manifest = {
@@ -511,6 +523,7 @@ def _backup_project_with_identity(
     incremental: bool = False,
     base_name: str | None = None,
     previous: dict[str, str] | None = None,
+    exclude_secrets: bool = False,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
@@ -526,6 +539,7 @@ def _backup_project_with_identity(
             exclude_patterns,
             previous,
             delta=incremental,
+            exclude_secrets=exclude_secrets,
         )
     )
     incremental_info = (
@@ -594,6 +608,7 @@ def _create_incremental_archive(
     exclude_patterns: tuple[str, ...],
     previous: dict[str, str] | None,
     delta: bool,
+    exclude_secrets: bool = False,
 ) -> tuple[str, int, tuple[int, int], list[dict], list[str]]:
     """Create an archive recording the full file inventory and, when `delta`
     is true, only changed/new files (plus symlinks) plus the sorted deleted
@@ -601,7 +616,12 @@ def _create_incremental_archive(
     name = project.name
     root = project.path
     exclude_filter = _make_filter(
-        name, patterns, root, exclude_git_metadata, exclude_patterns
+        name,
+        patterns,
+        root,
+        exclude_git_metadata,
+        exclude_patterns,
+        exclude_secrets,
     )
     inventory: list[dict] = []
     archive_file = _open_new_file(archive, binary=True)
@@ -731,6 +751,7 @@ def _make_filter(
     project_path: Path,
     exclude_git_metadata: bool = False,
     exclude_patterns: tuple[str, ...] = (),
+    exclude_secrets: bool = False,
 ):
     coverage_artifact = is_coverage_artifact(project_path / COVERAGE_DIR)
     seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
@@ -745,6 +766,8 @@ def _make_filter(
             for part in relative
             for pattern in exclude_patterns
         ):
+            return None
+        if exclude_secrets and path_looks_like_secret("/".join(relative)):
             return None
         for index, part in enumerate(relative if patterns else ()):
             if part == COVERAGE_DIR:

@@ -20,7 +20,10 @@ use crate::{
         inspect_bundle_recovery, inspect_recovery,
     },
     resolve_for_creation, retention,
-    secrets::{find_possible_secret_paths, format_secret_refusal, format_secret_warning},
+    secrets::{
+        find_possible_secret_paths, format_secret_exclusion, format_secret_refusal,
+        format_secret_warning,
+    },
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -135,6 +138,7 @@ pub(crate) fn backup_cmd(
     exclude: &[String],
     incremental: bool,
     fail_on_secrets: bool,
+    exclude_secrets: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -302,9 +306,12 @@ pub(crate) fn backup_cmd(
                     include_artifacts,
                     exclude_git_metadata,
                     exclude,
+                    false,
                 ) && !secrets.is_empty()
                 {
-                    if fail_on_secrets {
+                    if exclude_secrets {
+                        eprintln!("{}", format_secret_exclusion(&p.name, &secrets));
+                    } else if fail_on_secrets {
                         eprintln!("{}", format_secret_refusal(&p.name, &secrets));
                         failed = true;
                     } else {
@@ -315,12 +322,14 @@ pub(crate) fn backup_cmd(
             continue;
         }
         // Refuse archive backups before creating the project backup directory.
-        if recovery.is_none() && bundle_recovery.is_none() && fail_on_secrets {
+        // When --exclude-secrets is set, secrets are omitted from the archive instead.
+        if recovery.is_none() && bundle_recovery.is_none() && fail_on_secrets && !exclude_secrets {
             let secrets = find_possible_secret_paths(
                 &p.path,
                 include_artifacts,
                 exclude_git_metadata,
                 exclude,
+                false,
             )?;
             if !secrets.is_empty() {
                 eprintln!("{}", format_secret_refusal(&p.name, &secrets));
@@ -386,9 +395,14 @@ pub(crate) fn backup_cmd(
                     include_artifacts,
                     exclude_git_metadata,
                     exclude,
+                    false,
                 )?;
                 if !secrets.is_empty() {
-                    eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                    if exclude_secrets {
+                        eprintln!("{}", format_secret_exclusion(&p.name, &secrets));
+                    } else {
+                        eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                    }
                 }
                 let (hash, bytes, identity, inventory, incremental) = {
                     let (prev_name, prev_inventory) = if incremental {
@@ -404,6 +418,7 @@ pub(crate) fn backup_cmd(
                         exclude,
                         prev_inventory.as_ref(),
                         incremental,
+                        exclude_secrets,
                     )?;
                     let info = if incremental {
                         prev_name.map(|base| crate::IncrementalInfo { base, deleted })

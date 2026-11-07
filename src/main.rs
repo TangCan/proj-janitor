@@ -113,6 +113,10 @@ enum Action {
         fail_on_secrets: bool,
         #[arg(long = "no-fail-on-secrets", conflicts_with = "fail_on_secrets")]
         no_fail_on_secrets: bool,
+        #[arg(long, conflicts_with = "no_exclude_secrets")]
+        exclude_secrets: bool,
+        #[arg(long = "no-exclude-secrets", conflicts_with = "exclude_secrets")]
+        no_exclude_secrets: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -317,6 +321,8 @@ fn run() -> anyhow::Result<()> {
             incremental,
             fail_on_secrets,
             no_fail_on_secrets,
+            exclude_secrets,
+            no_exclude_secrets,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -340,6 +346,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.backup.fail_on_secrets)
                     .unwrap_or(false),
             );
+            let exclude_secrets = resolve_tri_state(
+                exclude_secrets,
+                no_exclude_secrets,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.backup.exclude_secrets)
+                    .unwrap_or(false),
+            );
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -352,6 +366,7 @@ fn run() -> anyhow::Result<()> {
                 &exclude,
                 incremental,
                 fail_on_secrets,
+                exclude_secrets,
             )
         }
         Action::Clean {

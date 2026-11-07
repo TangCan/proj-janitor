@@ -119,7 +119,14 @@ class ConfigError(ValueError):
 
 
 class BackupConfig:
-    __slots__ = ("dest", "keep", "exclude", "incremental", "fail_on_secrets")
+    __slots__ = (
+        "dest",
+        "keep",
+        "exclude",
+        "incremental",
+        "fail_on_secrets",
+        "exclude_secrets",
+    )
 
     def __init__(
         self,
@@ -128,12 +135,14 @@ class BackupConfig:
         exclude: tuple[str, ...] = (),
         incremental: bool = False,
         fail_on_secrets: bool = False,
+        exclude_secrets: bool = False,
     ) -> None:
         self.dest = dest
         self.keep = keep
         self.exclude = exclude
         self.incremental = incremental
         self.fail_on_secrets = fail_on_secrets
+        self.exclude_secrets = exclude_secrets
 
 
 class PruneConfig:
@@ -275,7 +284,14 @@ def load_config(path: Path | None = None) -> Config | None:
     backup_data = data.get("backup", {})
     if not isinstance(backup_data, dict):
         raise ConfigError(f"invalid config {path}: [backup] must be a table")
-    allowed_backup = {"dest", "keep", "exclude", "incremental", "fail_on_secrets"}
+    allowed_backup = {
+        "dest",
+        "keep",
+        "exclude",
+        "incremental",
+        "fail_on_secrets",
+        "exclude_secrets",
+    }
     if set(backup_data) - allowed_backup:
         raise ConfigError(
             f"invalid config {path}: unknown [backup] key(s) "
@@ -298,6 +314,11 @@ def load_config(path: Path | None = None) -> Config | None:
             backup_data["fail_on_secrets"], "[backup].fail_on_secrets"
         )
         if "fail_on_secrets" in backup_data
+        else False,
+        exclude_secrets=_parse_bool(
+            backup_data["exclude_secrets"], "[backup].exclude_secrets"
+        )
+        if "exclude_secrets" in backup_data
         else False,
     )
 

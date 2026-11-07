@@ -808,6 +808,35 @@ class CliTests(unittest.TestCase):
             self.assertIn("not encrypted", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
 
+    def test_archive_backup_exclude_secrets_omits_secret_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+            (project / "ok.txt").write_text("ok\n", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--exclude-secrets",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertIn("excluding secret paths", err)
+            self.assertIn(".env", err)
+            manifests = list((dest / "app").glob("manifest-*.json"))
+            self.assertTrue(manifests)
+
+            archive = next((dest / "app").glob("*.tar.gz"))
+            with tarfile.open(archive, "r:gz") as tf:
+                names = tf.getnames()
+            self.assertTrue(any(n.endswith("ok.txt") for n in names), names)
+            self.assertFalse(any(n.endswith(".env") for n in names), names)
+
     def test_archive_backup_fail_on_secrets_refuses_and_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

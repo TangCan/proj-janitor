@@ -39,6 +39,9 @@ pub(crate) struct BackupConfig {
     /// Refuse archive backups when common secret paths are detected.
     #[serde(default)]
     pub(crate) fail_on_secrets: bool,
+    /// Omit common secret paths from archive backups.
+    #[serde(default)]
+    pub(crate) exclude_secrets: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -278,6 +281,14 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\ndest = \"/tmp/x\"\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(!config.backup.fail_on_secrets);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_exclude_secrets() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nexclude_secrets = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.exclude_secrets);
     }
 
     #[test]

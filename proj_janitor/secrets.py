@@ -3,7 +3,9 @@
 These checks are path/name matchers only. They do not inspect file contents.
 By default they surface warnings so operators can exclude, redact, or encrypt
 before long-term storage (R-05). With ``--fail-on-secrets`` /
-``[backup].fail_on_secrets`` they refuse the archive backup instead.
+``[backup].fail_on_secrets`` they refuse the archive backup; with
+``--exclude-secrets`` / ``[backup].exclude_secrets`` matching paths are
+omitted from the archive.
 """
 
 from __future__ import annotations
@@ -68,8 +70,13 @@ def find_possible_secret_paths(
     include_artifacts: bool = False,
     exclude_git_metadata: bool = False,
     exclude_patterns: tuple[str, ...] = (),
+    exclude_secrets: bool = False,
 ) -> list[str]:
-    """Return sorted project-relative paths that look like common secrets."""
+    """Return sorted project-relative paths that look like common secrets.
+
+    When ``exclude_secrets`` is true, matching paths are treated as already
+    omitted and are not returned (same filter used when packing archives).
+    """
     root = project.expanduser()
     if root.exists():
         root = root.resolve()
@@ -85,13 +92,17 @@ def find_possible_secret_paths(
         kept: list[str] = []
         for dirname in dirnames:
             child = parts + (dirname,)
-            if _component_excluded(child, patterns, exclude_git_metadata, exclude_patterns):
+            if _component_excluded(
+                child, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+            ):
                 continue
             kept.append(dirname)
         dirnames[:] = kept
         for filename in filenames:
             child = parts + (filename,)
-            if _component_excluded(child, patterns, exclude_git_metadata, exclude_patterns):
+            if _component_excluded(
+                child, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+            ):
                 continue
             rel = "/".join(child)
             if path_looks_like_secret(rel):
@@ -126,6 +137,13 @@ def format_secret_refusal(project: str, secrets: list[str]) -> str:
     return f"error: {project}: {format_secret_refusal_detail(secrets)}"
 
 
+def format_secret_exclusion(project: str, secrets: list[str]) -> str:
+    return (
+        f"note: {project}: excluding secret paths from archive "
+        f"({_format_secret_list(secrets)})"
+    )
+
+
 class SecretPathsError(RuntimeError):
     """Raised when archive backup is refused because secret paths were found."""
 
@@ -135,8 +153,11 @@ def _component_excluded(
     patterns: tuple[str, ...],
     exclude_git_metadata: bool,
     exclude_patterns: tuple[str, ...],
+    exclude_secrets: bool = False,
 ) -> bool:
     if exclude_git_metadata and ".git" in parts:
+        return True
+    if exclude_secrets and path_looks_like_secret("/".join(parts)):
         return True
     for part in parts:
         for pattern in exclude_patterns:

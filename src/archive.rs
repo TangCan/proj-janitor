@@ -11,6 +11,7 @@ use tar::{Archive, Builder, EntryType, Header};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
+use crate::secrets::path_looks_like_secret;
 use crate::{FileEntry, is_artifact};
 use anyhow::Context;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
@@ -119,6 +120,7 @@ pub(crate) fn create_archive(
     include: bool,
     exclude_git_metadata: bool,
     exclude: &[String],
+    exclude_secrets: bool,
 ) -> anyhow::Result<(String, u64, same_file::Handle)> {
     let f = create_private_file(archive)?;
     let identity = same_file::Handle::from_file(f.try_clone()?)?;
@@ -140,6 +142,7 @@ pub(crate) fn create_archive(
                     include,
                     exclude_git_metadata,
                     &exclude_set,
+                    exclude_secrets,
                 )
             })
         {
@@ -197,6 +200,7 @@ pub(crate) fn create_archive(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_incremental_archive(
     project: &Path,
     archive: &Path,
@@ -205,6 +209,7 @@ pub(crate) fn create_incremental_archive(
     exclude: &[String],
     previous: Option<&HashMap<String, String>>,
     delta: bool,
+    exclude_secrets: bool,
 ) -> anyhow::Result<IncrementalArchiveResult> {
     let f = create_private_file(archive)?;
     let identity = same_file::Handle::from_file(f.try_clone()?)?;
@@ -227,6 +232,7 @@ pub(crate) fn create_incremental_archive(
                     include,
                     exclude_git_metadata,
                     &exclude_set,
+                    exclude_secrets,
                 )
             })
         {
@@ -771,6 +777,7 @@ pub(crate) fn archive_excluded(
     include: bool,
     exclude_git_metadata: bool,
     exclude: &GlobSet,
+    exclude_secrets: bool,
 ) -> bool {
     if path == project {
         return false;
@@ -790,6 +797,16 @@ pub(crate) fn archive_excluded(
         exclude.is_match(name.as_ref())
     }) {
         return true;
+    }
+    if exclude_secrets {
+        let rel = relative
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if path_looks_like_secret(&rel) {
+            return true;
+        }
     }
     if include {
         return false;

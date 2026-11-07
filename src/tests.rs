@@ -220,6 +220,7 @@ fn backup_rejects_windows_reserved_project_names_before_writing() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(error.to_string().contains("unsafe project name: CON"));
@@ -246,6 +247,7 @@ fn backup_rejects_non_utf8_project_paths_before_writing() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
@@ -560,7 +562,7 @@ fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
     }
 
     let archive = temp.0.join("demo.tar.gz");
-    create_archive(&project, &archive, false, false, &[]).unwrap();
+    create_archive(&project, &archive, false, false, &[], false).unwrap();
     let restored = temp.0.join("restored/demo");
     extract_archive(&archive, &restored, "demo").unwrap();
 
@@ -630,7 +632,7 @@ fn backup_rejects_symlink_targets_outside_project() {
     symlink(&outside, project.join("src/outside-link")).unwrap();
 
     let archive = temp.0.join("demo.tar.gz");
-    let error = create_archive(&project, &archive, false, false, &[]).unwrap_err();
+    let error = create_archive(&project, &archive, false, false, &[], false).unwrap_err();
 
     assert!(
         error
@@ -649,7 +651,7 @@ fn backup_rejects_windows_traversal_member_names() {
     fs::write(project.join(r"src\..\..\escape.txt"), "bad\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
 
-    let error = create_archive(&project, &archive, false, false, &[]).unwrap_err();
+    let error = create_archive(&project, &archive, false, false, &[], false).unwrap_err();
 
     assert!(error.to_string().contains("unsafe archive path"));
     assert!(!archive.exists());
@@ -663,7 +665,7 @@ fn backup_output_creation_never_overwrites_existing_files() {
     fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
     fs::write(&archive, "keep existing archive").unwrap();
-    assert!(create_archive(&project, &archive, false, false, &[]).is_err());
+    assert!(create_archive(&project, &archive, false, false, &[], false).is_err());
     assert_eq!(
         fs::read_to_string(&archive).unwrap(),
         "keep existing archive"
@@ -719,6 +721,7 @@ fn backup_outputs_are_private_to_the_current_user() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -759,6 +762,7 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
@@ -803,6 +807,7 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
@@ -919,6 +924,7 @@ fn backup_rejects_sensitive_unsupported_remote_without_archiving() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(!error.to_string().contains("remote-secret"));
@@ -963,6 +969,7 @@ fn backup_rejects_archiving_with_a_sensitive_secondary_remote_url() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
@@ -1015,6 +1022,7 @@ fn backup_rejects_archiving_with_a_credentialed_push_url() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
@@ -1214,6 +1222,7 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             &[],
             false,
             false,
+            false,
         )
         .unwrap_err();
         assert!(!error.to_string().contains(secret));
@@ -1273,6 +1282,7 @@ fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(
@@ -1308,6 +1318,7 @@ fn backup_rejects_non_git_projects_with_submodule_credentials() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(
@@ -1339,6 +1350,7 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap_err();
 
@@ -1359,7 +1371,8 @@ fn create_archive_returns_digest_and_size_for_its_open_file() {
     fs::write(project.join("file.txt"), "archive data\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
 
-    let (digest, size, identity) = create_archive(&project, &archive, true, false, &[]).unwrap();
+    let (digest, size, identity) =
+        create_archive(&project, &archive, true, false, &[], false).unwrap();
 
     assert_eq!(size, fs::metadata(&archive).unwrap().len());
     assert_eq!(digest, sha256(&archive).unwrap());
@@ -1428,6 +1441,7 @@ fn backup_disambiguates_project_names_that_differ_only_by_case() {
         &[],
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -1470,6 +1484,7 @@ fn backup_continues_after_one_project_directory_creation_fails() {
             &[],
             false,
             false,
+            false,
         )
         .is_err()
     );
@@ -1493,7 +1508,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     let backup_dir = temp.0.join("backups/demo");
     fs::create_dir_all(&backup_dir).unwrap();
     let archive = backup_dir.join("demo.tar.gz");
-    create_archive(&source, &archive, true, false, &[]).unwrap();
+    create_archive(&source, &archive, true, false, &[], false).unwrap();
     let record = Record {
         project: "demo".into(),
         source: source.to_string_lossy().into_owned(),
@@ -1518,7 +1533,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
     fs::create_dir_all(&second_source).unwrap();
     fs::write(second_source.join("data.txt"), "second project\n").unwrap();
     let second_archive = backup_dir.join("second.tar.gz");
-    create_archive(&second_source, &second_archive, true, false, &[]).unwrap();
+    create_archive(&second_source, &second_archive, true, false, &[], false).unwrap();
     let mut second_record = record.clone();
     second_record.project = "second".into();
     second_record.source = second_source.to_string_lossy().into_owned();
@@ -1608,7 +1623,7 @@ fn restore_rechecks_archive_after_plan_before_extraction() {
     fs::write(source.join("pyproject.toml"), "[project]\n").unwrap();
     fs::write(source.join("data.txt"), "verified content\n").unwrap();
     let archive = temp.0.join("demo.tar.gz");
-    create_archive(&source, &archive, true, false, &[]).unwrap();
+    create_archive(&source, &archive, true, false, &[], false).unwrap();
     let expected = sha256(&archive).unwrap();
     fs::write(&archive, b"replaced after restore planning").unwrap();
     let target = temp.0.join("restored/demo");
@@ -1628,7 +1643,7 @@ fn restore_accepts_archive_containing_only_project_directory() {
     fs::create_dir_all(source.join(".git")).unwrap();
     fs::create_dir_all(source.join("target/cache")).unwrap();
     let archive = temp.0.join("demo.tar.gz");
-    create_archive(&source, &archive, false, false, &[]).unwrap();
+    create_archive(&source, &archive, false, false, &[], false).unwrap();
 
     let target = temp.0.join("restored/demo");
     extract_archive(&archive, &target, "demo").unwrap();
@@ -1931,6 +1946,7 @@ fn backup_allows_safe_credential_helper_arguments_for_archive_fallback() {
         false,
         false,
         &[],
+        false,
         false,
         false,
     )
