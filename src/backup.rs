@@ -11,8 +11,8 @@ use crate::{
     Manifest, Record,
     archive::{
         archive_path_matches, copy_new_file, create_incremental_archive, create_private_dir,
-        create_private_temp_dir, portable_path_key, remove_file_if_same, safe_windows_component,
-        write_new_file,
+        create_private_temp_dir, estimate_archive_stats, portable_path_key, remove_file_if_same,
+        safe_windows_component, write_new_file,
     },
     expand, human,
     project::{
@@ -139,6 +139,7 @@ pub(crate) fn backup_cmd(
     incremental: bool,
     fail_on_secrets: bool,
     exclude_secrets: bool,
+    progress: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -301,6 +302,21 @@ pub(crate) fn backup_cmd(
                         ""
                     }
                 );
+                if progress
+                    && let Ok((files, bytes)) = estimate_archive_stats(
+                        &p.path,
+                        include_artifacts,
+                        exclude_git_metadata,
+                        exclude,
+                        exclude_secrets,
+                    )
+                {
+                    eprintln!(
+                        "progress: {}: would pack {files} files, {} after excludes",
+                        p.name,
+                        human(bytes)
+                    );
+                }
                 if let Ok(secrets) = find_possible_secret_paths(
                     &p.path,
                     include_artifacts,
@@ -419,6 +435,7 @@ pub(crate) fn backup_cmd(
                         prev_inventory.as_ref(),
                         incremental,
                         exclude_secrets,
+                        progress.then_some(p.name.as_str()),
                     )?;
                     let info = if incremental {
                         prev_name.map(|base| crate::IncrementalInfo { base, deleted })

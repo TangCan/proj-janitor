@@ -221,6 +221,7 @@ fn backup_rejects_windows_reserved_project_names_before_writing() {
         false,
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(error.to_string().contains("unsafe project name: CON"));
@@ -247,6 +248,7 @@ fn backup_rejects_non_utf8_project_paths_before_writing() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -722,6 +724,7 @@ fn backup_outputs_are_private_to_the_current_user() {
         false,
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -762,6 +765,7 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -807,6 +811,7 @@ fn backup_uses_url_only_when_safe_and_archives_dirty_git_projects() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -925,6 +930,7 @@ fn backup_rejects_sensitive_unsupported_remote_without_archiving() {
         false,
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(!error.to_string().contains("remote-secret"));
@@ -969,6 +975,7 @@ fn backup_rejects_archiving_with_a_sensitive_secondary_remote_url() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -1022,6 +1029,7 @@ fn backup_rejects_archiving_with_a_credentialed_push_url() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -1223,6 +1231,7 @@ fn backup_rejects_archiving_with_sensitive_git_auth_config() {
             false,
             false,
             false,
+            false,
         )
         .unwrap_err();
         assert!(!error.to_string().contains(secret));
@@ -1283,6 +1292,7 @@ fn backup_rejects_archiving_a_dirty_project_with_submodule_credentials() {
         false,
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(
@@ -1319,6 +1329,7 @@ fn backup_rejects_non_git_projects_with_submodule_credentials() {
         false,
         false,
         false,
+        false,
     )
     .unwrap_err();
     assert!(
@@ -1348,6 +1359,7 @@ fn backup_rejects_destination_inside_source_project_before_writing() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,
@@ -1442,6 +1454,7 @@ fn backup_disambiguates_project_names_that_differ_only_by_case() {
         false,
         false,
         false,
+        false,
     )
     .unwrap();
 
@@ -1482,6 +1495,7 @@ fn backup_continues_after_one_project_directory_creation_fails() {
             false,
             false,
             &[],
+            false,
             false,
             false,
             false,
@@ -1952,6 +1966,7 @@ fn backup_allows_safe_credential_helper_arguments_for_archive_fallback() {
         false,
         false,
         &[],
+        false,
         false,
         false,
         false,

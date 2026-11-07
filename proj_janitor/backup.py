@@ -23,7 +23,7 @@ from proj_janitor.config import (
     artifact_patterns,
     is_coverage_artifact,
 )
-from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
+from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project, human_size
 from proj_janitor.secrets import (
     SecretPathsError,
     find_possible_secret_paths,
@@ -159,6 +159,7 @@ def run_backup(
     incremental: bool = False,
     fail_on_secrets: bool = False,
     exclude_secrets: bool = False,
+    progress: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -231,6 +232,7 @@ def run_backup(
                 incremental,
                 fail_on_secrets=False,
                 exclude_secrets=exclude_secrets,
+                progress=progress,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -257,6 +259,7 @@ def _backup_one(
     incremental: bool = False,
     fail_on_secrets: bool = False,
     exclude_secrets: bool = False,
+    progress: bool = False,
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -330,6 +333,7 @@ def _backup_one(
             base_name=base_name,
             previous=previous,
             exclude_secrets=exclude_secrets,
+            progress=progress,
         )
 
     manifest = {
@@ -524,6 +528,7 @@ def _backup_project_with_identity(
     base_name: str | None = None,
     previous: dict[str, str] | None = None,
     exclude_secrets: bool = False,
+    progress: bool = False,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     name = archive_name or f"{project.name}.tar.gz"
     archive = archive_dir / name
@@ -540,6 +545,7 @@ def _backup_project_with_identity(
             previous,
             delta=incremental,
             exclude_secrets=exclude_secrets,
+            progress_label=project.name if progress else None,
         )
     )
     incremental_info = (
@@ -609,6 +615,7 @@ def _create_incremental_archive(
     previous: dict[str, str] | None,
     delta: bool,
     exclude_secrets: bool = False,
+    progress_label: str | None = None,
 ) -> tuple[str, int, tuple[int, int], list[dict], list[str]]:
     """Create an archive recording the full file inventory and, when `delta`
     is true, only changed/new files (plus symlinks) plus the sorted deleted
@@ -624,6 +631,8 @@ def _create_incremental_archive(
         exclude_secrets,
     )
     inventory: list[dict] = []
+    seen_files = 0
+    seen_bytes = 0
     archive_file = _open_new_file(archive, binary=True)
     archive_identity: tuple[int, int] | None = None
     try:
@@ -646,6 +655,7 @@ def _create_incremental_archive(
                     )
 
                 def add_entry(abs_path: str) -> None:
+                    nonlocal seen_files, seen_bytes
                     parts = rel_parts(abs_path)
                     rel_str = "/".join(parts)
                     info = tar.gettarinfo(
@@ -668,6 +678,10 @@ def _create_incremental_archive(
                         inventory.append(
                             {"path": rel_str, "sha256": digest, "size": 0}
                         )
+                        seen_files += 1
+                        _report_archive_progress(
+                            progress_label, seen_files, seen_bytes
+                        )
                         return
                     if info.isdir():
                         tar.addfile(filtered)
@@ -687,6 +701,11 @@ def _create_incremental_archive(
                             "sha256": digest,
                             "size": info.size,
                         }
+                    )
+                    seen_files += 1
+                    seen_bytes += int(info.size or 0)
+                    _report_archive_progress(
+                        progress_label, seen_files, seen_bytes
                     )
 
                 for dirpath, dirnames, filenames in os.walk(
@@ -718,6 +737,12 @@ def _create_incremental_archive(
                     if delta and previous is not None
                     else []
                 )
+            if progress_label is not None:
+                print(
+                    f"progress: {progress_label}: done, {seen_files} files, "
+                    f"{human_size(seen_bytes)} scanned",
+                    file=sys.stderr,
+                )
             archive_file.flush()
             archive_bytes = os.fstat(archive_file.fileno()).st_size
             archive_file.seek(0)
@@ -731,6 +756,85 @@ def _create_incremental_archive(
         raise
 
     return digest, archive_bytes, archive_identity, inventory, deleted
+
+
+def estimate_archive_stats(
+    project: Path,
+    *,
+    include_artifacts: bool = False,
+    exclude_git_metadata: bool = False,
+    exclude_patterns: tuple[str, ...] = (),
+    exclude_secrets: bool = False,
+) -> tuple[int, int]:
+    """Return (file_count, byte_count) after applying archive exclusion rules."""
+    root = project.expanduser()
+    if root.exists():
+        root = root.resolve()
+    patterns = artifact_patterns(include_artifacts)
+    files = 0
+    bytes_total = 0
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        rel_dir = os.path.relpath(dirpath, root)
+        parts = (
+            ()
+            if rel_dir == "."
+            else tuple(PurePosixPath(rel_dir.replace(os.sep, "/")).parts)
+        )
+        kept: list[str] = []
+        for dirname in dirnames:
+            child = parts + (dirname,)
+            full = Path(dirpath) / dirname
+            if full.is_symlink():
+                # Symlinked dirs are treated as entries, not descended into.
+                if not _archive_entry_excluded(
+                    child, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+                ):
+                    files += 1
+                continue
+            if _archive_entry_excluded(
+                child, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+            ):
+                continue
+            kept.append(dirname)
+        dirnames[:] = kept
+        for filename in filenames:
+            child = parts + (filename,)
+            if _archive_entry_excluded(
+                child, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+            ):
+                continue
+            files += 1
+            try:
+                bytes_total += (Path(dirpath) / filename).stat().st_size
+            except OSError:
+                pass
+    return files, bytes_total
+
+
+def _archive_entry_excluded(
+    parts: tuple[str, ...],
+    patterns: tuple[str, ...],
+    exclude_git_metadata: bool,
+    exclude_patterns: tuple[str, ...],
+    exclude_secrets: bool,
+) -> bool:
+    from proj_janitor.secrets import _component_excluded
+
+    return _component_excluded(
+        parts, patterns, exclude_git_metadata, exclude_patterns, exclude_secrets
+    )
+
+
+def _report_archive_progress(
+    label: str | None, files: int, bytes_total: int
+) -> None:
+    if label is None:
+        return
+    if files == 1 or files % 100 == 0:
+        print(
+            f"progress: {label}: {files} files, {human_size(bytes_total)} scanned",
+            file=sys.stderr,
+        )
 
 
 def sha256_file(path: Path) -> str:

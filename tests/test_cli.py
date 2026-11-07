@@ -360,6 +360,7 @@ class CliTests(unittest.TestCase):
                 base_name=None,
                 previous=None,
                 exclude_secrets=False,
+                progress=False,
             ):
                 if project.name == "bad":
                     raise PermissionError("access denied")
@@ -375,6 +376,7 @@ class CliTests(unittest.TestCase):
                     base_name=base_name,
                     previous=previous,
                     exclude_secrets=exclude_secrets,
+                    progress=progress,
                 )
 
             with mock.patch(
@@ -855,6 +857,29 @@ class CliTests(unittest.TestCase):
             self.assertIn(".env", err)
             self.assertIn("not encrypted", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
+
+    def test_backup_progress_dry_run_estimates_pack_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+                "--progress",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertIn("would pack", err)
+            self.assertIn("files", err)
+            self.assertIn("after excludes", err)
+            self.assertFalse(dest.exists())
 
     def test_archive_backup_exclude_secrets_omits_secret_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

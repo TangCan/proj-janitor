@@ -126,6 +126,7 @@ class BackupConfig:
         "incremental",
         "fail_on_secrets",
         "exclude_secrets",
+        "progress",
     )
 
     def __init__(
@@ -136,6 +137,7 @@ class BackupConfig:
         incremental: bool = False,
         fail_on_secrets: bool = False,
         exclude_secrets: bool = False,
+        progress: bool = False,
     ) -> None:
         self.dest = dest
         self.keep = keep
@@ -143,6 +145,7 @@ class BackupConfig:
         self.incremental = incremental
         self.fail_on_secrets = fail_on_secrets
         self.exclude_secrets = exclude_secrets
+        self.progress = progress
 
 
 class PruneConfig:
@@ -294,6 +297,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "incremental",
         "fail_on_secrets",
         "exclude_secrets",
+        "progress",
     }
     if set(backup_data) - allowed_backup:
         raise ConfigError(
@@ -322,6 +326,9 @@ def load_config(path: Path | None = None) -> Config | None:
             backup_data["exclude_secrets"], "[backup].exclude_secrets"
         )
         if "exclude_secrets" in backup_data
+        else False,
+        progress=_parse_bool(backup_data["progress"], "[backup].progress")
+        if "progress" in backup_data
         else False,
     )
 

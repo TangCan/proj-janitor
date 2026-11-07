@@ -200,6 +200,46 @@ pub(crate) fn create_archive(
     }
 }
 
+/// Count files/symlinks and total byte size that archive packing would see
+/// after applying the same exclusion rules as backup.
+pub(crate) fn estimate_archive_stats(
+    project: &Path,
+    include: bool,
+    exclude_git_metadata: bool,
+    exclude: &[String],
+    exclude_secrets: bool,
+) -> anyhow::Result<(u64, u64)> {
+    let exclude_set = build_exclude_globset(exclude)?;
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    for e in WalkDir::new(project)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            !archive_excluded(
+                entry.path(),
+                project,
+                include,
+                exclude_git_metadata,
+                &exclude_set,
+                exclude_secrets,
+            )
+        })
+    {
+        let e = e.with_context(|| format!("cannot walk {}", project.display()))?;
+        if e.path() == project {
+            continue;
+        }
+        if e.file_type().is_symlink() {
+            files += 1;
+        } else if e.file_type().is_file() {
+            files += 1;
+            bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+        }
+    }
+    Ok((files, bytes))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_incremental_archive(
     project: &Path,
@@ -210,6 +250,7 @@ pub(crate) fn create_incremental_archive(
     previous: Option<&HashMap<String, String>>,
     delta: bool,
     exclude_secrets: bool,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<IncrementalArchiveResult> {
     let f = create_private_file(archive)?;
     let identity = same_file::Handle::from_file(f.try_clone()?)?;
@@ -222,6 +263,8 @@ pub(crate) fn create_incremental_archive(
         let exclude_set = build_exclude_globset(exclude)?;
         tar.append_dir(root, project)?;
         let mut inventory: Vec<FileEntry> = Vec::new();
+        let mut seen_files = 0u64;
+        let mut seen_bytes = 0u64;
         for e in WalkDir::new(project)
             .follow_links(false)
             .into_iter()
@@ -276,6 +319,8 @@ pub(crate) fn create_incremental_archive(
                     sha256: digest,
                     size: 0,
                 });
+                seen_files += 1;
+                report_archive_progress(progress_label, seen_files, seen_bytes);
             } else if e.file_type().is_dir() {
                 tar.append_dir(name, e.path())?;
             } else if e.file_type().is_file() {
@@ -292,7 +337,16 @@ pub(crate) fn create_incremental_archive(
                     sha256: digest,
                     size: meta.len(),
                 });
+                seen_files += 1;
+                seen_bytes += meta.len();
+                report_archive_progress(progress_label, seen_files, seen_bytes);
             }
+        }
+        if let Some(label) = progress_label {
+            eprintln!(
+                "progress: {label}: done, {seen_files} files, {} scanned",
+                crate::human(seen_bytes)
+            );
         }
         let mut deleted: Vec<String> = Vec::new();
         if delta && let Some(prev) = previous {
@@ -771,6 +825,18 @@ pub(crate) fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSe
     }
     builder.build().context("invalid exclude patterns")
 }
+fn report_archive_progress(label: Option<&str>, files: u64, bytes: u64) {
+    let Some(name) = label else {
+        return;
+    };
+    if files == 1 || files.is_multiple_of(100) {
+        eprintln!(
+            "progress: {name}: {files} files, {} scanned",
+            crate::human(bytes)
+        );
+    }
+}
+
 pub(crate) fn archive_excluded(
     path: &Path,
     project: &Path,

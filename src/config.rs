@@ -42,6 +42,9 @@ pub(crate) struct BackupConfig {
     /// Omit common secret paths from archive backups.
     #[serde(default)]
     pub(crate) exclude_secrets: bool,
+    /// Emit archive packing / dry-run size progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -302,6 +305,14 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\nexclude_secrets = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.backup.exclude_secrets);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_progress() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nprogress = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.progress);
     }
 
     #[test]

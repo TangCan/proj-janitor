@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from proj_janitor import __version__
-from proj_janitor.backup import prepare_backup, run_backup
+from proj_janitor.backup import estimate_archive_stats, prepare_backup, run_backup
 from proj_janitor.config import ConfigError, load_config, resolve_check_remote, resolve_tri_state
 from proj_janitor.secrets import (
     find_possible_secret_paths,
@@ -146,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="record a delta snapshot (changed/new files) instead of a full archive "
         "(default: [backup].incremental)",
     )
-    backup.set_defaults(fail_on_secrets=None, exclude_secrets=None)
+    backup.set_defaults(fail_on_secrets=None, exclude_secrets=None, progress=None)
     backup_secrets = backup.add_mutually_exclusive_group()
     backup_secrets.add_argument(
         "--fail-on-secrets",
@@ -178,6 +178,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="exclude_secrets",
         help="include secret paths in archives and only warn (overrides config)",
+    )
+    backup_progress = backup.add_mutually_exclusive_group()
+    backup_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print archive packing progress on stderr; with --dry-run, estimate "
+            "file count and bytes after excludes (overrides [backup].progress)"
+        ),
+    )
+    backup_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable progress output even when [backup].progress is true",
     )
 
     clean = subparsers.add_parser(
@@ -423,6 +439,10 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         args.exclude_secrets,
         config.backup.exclude_secrets if config else False,
     )
+    progress = resolve_tri_state(
+        args.progress,
+        config.backup.progress if config else False,
+    )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -480,6 +500,19 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         else ""
                     )
                 )
+                if progress:
+                    files, nbytes = estimate_archive_stats(
+                        plan.project.path,
+                        include_artifacts=args.include_artifacts,
+                        exclude_git_metadata=args.exclude_git_metadata,
+                        exclude_patterns=exclude_patterns,
+                        exclude_secrets=exclude_secrets,
+                    )
+                    print(
+                        f"progress: {plan.project.name}: would pack {files} files, "
+                        f"{human_size(nbytes)} after excludes",
+                        file=sys.stderr,
+                    )
                 secrets = find_possible_secret_paths(
                     plan.project.path,
                     include_artifacts=args.include_artifacts,
@@ -516,6 +549,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             incremental=incremental,
             fail_on_secrets=fail_on_secrets,
             exclude_secrets=exclude_secrets,
+            progress=progress,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
