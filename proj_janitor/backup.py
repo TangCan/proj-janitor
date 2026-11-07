@@ -24,7 +24,12 @@ from proj_janitor.config import (
     is_coverage_artifact,
 )
 from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project
-from proj_janitor.secrets import find_possible_secret_paths, format_secret_warning
+from proj_janitor.secrets import (
+    SecretPathsError,
+    find_possible_secret_paths,
+    format_secret_refusal_detail,
+    format_secret_warning,
+)
 from proj_janitor.scanner import (
     collect_lfs_objects,
     collect_submodules,
@@ -150,6 +155,7 @@ def run_backup(
     exclude_git_metadata: bool = False,
     exclude_patterns: Iterable[str] = (),
     incremental: bool = False,
+    fail_on_secrets: bool = False,
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     manifest_paths, plans = prepare_backup(
@@ -180,6 +186,18 @@ def run_backup(
                 (plan.project.name, plan.reason or "unsafe to archive")
             )
             continue
+        if plan.strategy == "archive" and fail_on_secrets:
+            secrets = find_possible_secret_paths(
+                plan.project.path,
+                include_artifacts=include_artifacts,
+                exclude_git_metadata=exclude_git_metadata,
+                exclude_patterns=tuple(exclude_patterns),
+            )
+            if secrets:
+                failures.append(
+                    (plan.project.name, format_secret_refusal_detail(secrets))
+                )
+                continue
         manifest_identity: tuple[int, int] | None = None
         try:
             manifest_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -208,6 +226,7 @@ def run_backup(
                 exclude_git_metadata,
                 exclude_patterns,
                 incremental,
+                fail_on_secrets=False,
             )
         except (OSError, tarfile.TarError) as exc:
             _discard_partial_file_if_same(manifest_path, manifest_identity)
@@ -232,6 +251,7 @@ def _backup_one(
     exclude_git_metadata: bool,
     exclude_patterns: Iterable[str] = (),
     incremental: bool = False,
+    fail_on_secrets: bool = False,
 ) -> BackupRecord:
     archive_path: Path | None = None
     archive_identity: tuple[int, int] | None = None
@@ -274,6 +294,8 @@ def _backup_one(
             exclude_patterns=tuple(exclude_patterns),
         )
         if secrets:
+            if fail_on_secrets:
+                raise SecretPathsError(format_secret_refusal_detail(secrets))
             print(
                 format_secret_warning(plan.project.name, secrets),
                 file=sys.stderr,

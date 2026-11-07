@@ -17,7 +17,7 @@ mod retention;
 mod secrets;
 use backup::backup_cmd;
 use clean::clean_cmd;
-use config::{discover_config, resolve_check_remote};
+use config::{discover_config, resolve_check_remote, resolve_tri_state};
 use project::discover;
 use restore::restore_cmd;
 
@@ -109,6 +109,10 @@ enum Action {
         exclude_git_metadata: bool,
         #[arg(long)]
         incremental: bool,
+        #[arg(long, conflicts_with = "no_fail_on_secrets")]
+        fail_on_secrets: bool,
+        #[arg(long = "no-fail-on-secrets", conflicts_with = "fail_on_secrets")]
+        no_fail_on_secrets: bool,
     },
     Clean {
         roots: Vec<PathBuf>,
@@ -311,6 +315,8 @@ fn run() -> anyhow::Result<()> {
             always_archive,
             exclude_git_metadata,
             incremental,
+            fail_on_secrets,
+            no_fail_on_secrets,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -326,6 +332,14 @@ fn run() -> anyhow::Result<()> {
                     .as_ref()
                     .map(|cfg| cfg.backup.incremental)
                     .unwrap_or(false);
+            let fail_on_secrets = resolve_tri_state(
+                fail_on_secrets,
+                no_fail_on_secrets,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.backup.fail_on_secrets)
+                    .unwrap_or(false),
+            );
             backup_cmd(
                 &roots,
                 backup_dest,
@@ -337,6 +351,7 @@ fn run() -> anyhow::Result<()> {
                 exclude_git_metadata,
                 &exclude,
                 incremental,
+                fail_on_secrets,
             )
         }
         Action::Clean {

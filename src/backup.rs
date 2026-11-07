@@ -20,7 +20,7 @@ use crate::{
         inspect_bundle_recovery, inspect_recovery,
     },
     resolve_for_creation, retention,
-    secrets::{find_possible_secret_paths, format_secret_warning},
+    secrets::{find_possible_secret_paths, format_secret_refusal, format_secret_warning},
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -134,6 +134,7 @@ pub(crate) fn backup_cmd(
     exclude_git_metadata: bool,
     exclude: &[String],
     incremental: bool,
+    fail_on_secrets: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
@@ -303,10 +304,29 @@ pub(crate) fn backup_cmd(
                     exclude,
                 ) && !secrets.is_empty()
                 {
-                    eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                    if fail_on_secrets {
+                        eprintln!("{}", format_secret_refusal(&p.name, &secrets));
+                        failed = true;
+                    } else {
+                        eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                    }
                 }
             }
             continue;
+        }
+        // Refuse archive backups before creating the project backup directory.
+        if recovery.is_none() && bundle_recovery.is_none() && fail_on_secrets {
+            let secrets = find_possible_secret_paths(
+                &p.path,
+                include_artifacts,
+                exclude_git_metadata,
+                exclude,
+            )?;
+            if !secrets.is_empty() {
+                eprintln!("{}", format_secret_refusal(&p.name, &secrets));
+                failed = true;
+                continue;
+            }
         }
         let mut archive_identity = None;
         let mut manifest_identity = None;

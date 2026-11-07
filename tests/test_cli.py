@@ -808,6 +808,65 @@ class CliTests(unittest.TestCase):
             self.assertIn("not encrypted", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
 
+    def test_archive_backup_fail_on_secrets_refuses_and_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--fail-on-secrets",
+            )
+
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("refusing backup", err)
+            self.assertIn(".env", err)
+            self.assertFalse((dest / "app").exists())
+
+    def test_archive_backup_fail_on_secrets_defaults_from_config_and_cli_overrides(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+            dest = root / "backups"
+            config = root / "cfg.toml"
+            config.write_text("[backup]\nfail_on_secrets = true\n", encoding="utf-8")
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--config",
+                str(config),
+            )
+            self.assertEqual(code, 1, out + err)
+            self.assertIn("refusing backup", err)
+            self.assertFalse((dest / "app").exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--config",
+                str(config),
+                "--no-fail-on-secrets",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("archive may include secrets", err)
+            self.assertTrue(list((dest / "app").glob("manifest-*.json")))
+
     def test_backup_dest_option_overrides_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

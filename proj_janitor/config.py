@@ -119,7 +119,7 @@ class ConfigError(ValueError):
 
 
 class BackupConfig:
-    __slots__ = ("dest", "keep", "exclude", "incremental")
+    __slots__ = ("dest", "keep", "exclude", "incremental", "fail_on_secrets")
 
     def __init__(
         self,
@@ -127,11 +127,13 @@ class BackupConfig:
         keep: int | None = None,
         exclude: tuple[str, ...] = (),
         incremental: bool = False,
+        fail_on_secrets: bool = False,
     ) -> None:
         self.dest = dest
         self.keep = keep
         self.exclude = exclude
         self.incremental = incremental
+        self.fail_on_secrets = fail_on_secrets
 
 
 class PruneConfig:
@@ -171,6 +173,16 @@ class Config:
         self.restore = restore if restore is not None else RestoreConfig()
 
 
+def resolve_tri_state(flag: bool | None, config_default: bool) -> bool:
+    """Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
+
+    ``None`` means neither flag was passed; otherwise the explicit flag wins.
+    """
+    if flag is None:
+        return config_default
+    return bool(flag)
+
+
 def resolve_check_remote(
     check_remote: bool | None, config_default: bool
 ) -> bool:
@@ -178,9 +190,7 @@ def resolve_check_remote(
 
     ``None`` means neither flag was passed; otherwise the explicit flag wins.
     """
-    if check_remote is None:
-        return config_default
-    return bool(check_remote)
+    return resolve_tri_state(check_remote, config_default)
 
 
 def _parse_path(value: object, where: str) -> Path:
@@ -265,10 +275,11 @@ def load_config(path: Path | None = None) -> Config | None:
     backup_data = data.get("backup", {})
     if not isinstance(backup_data, dict):
         raise ConfigError(f"invalid config {path}: [backup] must be a table")
-    if set(backup_data) - {"dest", "keep", "exclude", "incremental"}:
+    allowed_backup = {"dest", "keep", "exclude", "incremental", "fail_on_secrets"}
+    if set(backup_data) - allowed_backup:
         raise ConfigError(
             f"invalid config {path}: unknown [backup] key(s) "
-            f"{sorted(set(backup_data) - {'dest', 'keep', 'exclude', 'incremental'})}"
+            f"{sorted(set(backup_data) - allowed_backup)}"
         )
     backup = BackupConfig(
         dest=_parse_path(backup_data["dest"], "[backup].dest")
@@ -282,6 +293,11 @@ def load_config(path: Path | None = None) -> Config | None:
         else (),
         incremental=_parse_bool(backup_data["incremental"], "[backup].incremental")
         if "incremental" in backup_data
+        else False,
+        fail_on_secrets=_parse_bool(
+            backup_data["fail_on_secrets"], "[backup].fail_on_secrets"
+        )
+        if "fail_on_secrets" in backup_data
         else False,
     )
 

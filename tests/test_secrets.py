@@ -6,6 +6,7 @@ from pathlib import Path
 
 from proj_janitor.secrets import (
     find_possible_secret_paths,
+    format_secret_refusal,
     format_secret_warning,
     path_looks_like_secret,
 )
@@ -40,6 +41,13 @@ class SecretPathTests(unittest.TestCase):
         self.assertIn("demo", message)
         self.assertIn(".env", message)
         self.assertIn("not encrypted", message)
+
+    def test_refusal_message_mentions_fail_on_secrets(self) -> None:
+        message = format_secret_refusal("demo", [".env", "id_rsa"])
+        self.assertIn("demo", message)
+        self.assertIn(".env", message)
+        self.assertIn("refusing backup", message)
+        self.assertIn("--fail-on-secrets", message)
 
 
 if __name__ == "__main__":

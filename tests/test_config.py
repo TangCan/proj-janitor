@@ -134,6 +134,22 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertFalse(config.backup.incremental)
 
+    def test_loads_backup_fail_on_secrets_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\nfail_on_secrets = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.backup.fail_on_secrets)
+
+    def test_backup_fail_on_secrets_defaults_to_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[backup]\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertFalse(config.backup.fail_on_secrets)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

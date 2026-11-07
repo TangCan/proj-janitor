@@ -1,8 +1,9 @@
 """Heuristic detection of common secret filenames that may land in archives.
 
-These checks are path/name matchers only. They do not inspect file contents and
-never fail a backup; they surface warnings so operators can exclude, redact, or
-encrypt before long-term storage (R-05).
+These checks are path/name matchers only. They do not inspect file contents.
+By default they surface warnings so operators can exclude, redact, or encrypt
+before long-term storage (R-05). With ``--fail-on-secrets`` /
+``[backup].fail_on_secrets`` they refuse the archive backup instead.
 """
 
 from __future__ import annotations
@@ -98,15 +99,35 @@ def find_possible_secret_paths(
     return sorted(set(hits))
 
 
-def format_secret_warning(project: str, secrets: list[str]) -> str:
+def _format_secret_list(secrets: list[str]) -> str:
     shown = secrets[:_MAX_REPORTED]
     listing = ", ".join(shown)
     if len(secrets) > _MAX_REPORTED:
         listing += f" (+{len(secrets) - _MAX_REPORTED} more)"
+    return listing
+
+
+def format_secret_warning(project: str, secrets: list[str]) -> str:
     return (
-        f"warning: {project}: archive may include secrets ({listing}); "
-        "archives are not encrypted"
+        f"warning: {project}: archive may include secrets "
+        f"({_format_secret_list(secrets)}); archives are not encrypted"
     )
+
+
+def format_secret_refusal_detail(secrets: list[str]) -> str:
+    """Body for error paths that already prefix ``error: {project}:``."""
+    return (
+        f"archive would include secrets ({_format_secret_list(secrets)}); "
+        "refusing backup (--fail-on-secrets)"
+    )
+
+
+def format_secret_refusal(project: str, secrets: list[str]) -> str:
+    return f"error: {project}: {format_secret_refusal_detail(secrets)}"
+
+
+class SecretPathsError(RuntimeError):
+    """Raised when archive backup is refused because secret paths were found."""
 
 
 def _component_excluded(

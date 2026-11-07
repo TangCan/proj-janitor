@@ -9,8 +9,12 @@ from typing import Iterable, Sequence
 
 from proj_janitor import __version__
 from proj_janitor.backup import prepare_backup, run_backup
-from proj_janitor.config import ConfigError, load_config, resolve_check_remote
-from proj_janitor.secrets import find_possible_secret_paths, format_secret_warning
+from proj_janitor.config import ConfigError, load_config, resolve_check_remote, resolve_tri_state
+from proj_janitor.secrets import (
+    find_possible_secret_paths,
+    format_secret_refusal,
+    format_secret_warning,
+)
 from proj_janitor.cleaner import (
     apply_cleanup,
     build_cleanup_plan,
@@ -140,6 +144,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="record a delta snapshot (changed/new files) instead of a full archive "
         "(default: [backup].incremental)",
+    )
+    backup.set_defaults(fail_on_secrets=None)
+    backup_secrets = backup.add_mutually_exclusive_group()
+    backup_secrets.add_argument(
+        "--fail-on-secrets",
+        action="store_true",
+        dest="fail_on_secrets",
+        help=(
+            "refuse archive backups when common secret paths are detected "
+            "(overrides [backup].fail_on_secrets)"
+        ),
+    )
+    backup_secrets.add_argument(
+        "--no-fail-on-secrets",
+        action="store_false",
+        dest="fail_on_secrets",
+        help="warn about secret paths but still archive (overrides config)",
     )
 
     clean = subparsers.add_parser(
@@ -361,6 +382,10 @@ def _cmd_backup(args: argparse.Namespace) -> int:
     )
     exclude_patterns = config.backup.exclude if config else ()
     incremental = args.incremental or (config.backup.incremental if config else False)
+    fail_on_secrets = resolve_tri_state(
+        args.fail_on_secrets,
+        config.backup.fail_on_secrets if config else False,
+    )
 
     backup_dest = Path(backup_dest).expanduser()
     if backup_dest.exists() and not backup_dest.is_dir():
@@ -425,10 +450,17 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                     exclude_patterns=exclude_patterns,
                 )
                 if secrets:
-                    print(
-                        format_secret_warning(plan.project.name, secrets),
-                        file=sys.stderr,
-                    )
+                    if fail_on_secrets:
+                        print(
+                            format_secret_refusal(plan.project.name, secrets),
+                            file=sys.stderr,
+                        )
+                        blocked = True
+                    else:
+                        print(
+                            format_secret_warning(plan.project.name, secrets),
+                            file=sys.stderr,
+                        )
         return 1 if failures or blocked else 0
 
     try:
@@ -440,6 +472,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             exclude_git_metadata=args.exclude_git_metadata,
             exclude_patterns=exclude_patterns,
             incremental=incremental,
+            fail_on_secrets=fail_on_secrets,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

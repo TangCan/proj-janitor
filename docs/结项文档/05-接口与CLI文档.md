@@ -85,6 +85,7 @@ dest = "/data/backups"   # 未传 --backup-dest 且未设 BACKUP_DEST 时使用
 keep = 3                 # 成功备份后每个项目保留的最近 manifest 数；未传 --keep 时使用
 exclude = ["node_modules", "*.log"]   # archive 策略归档时跳过匹配的文件/目录
 incremental = true          # archive 策略生成差异快照；未传 --incremental 时使用
+fail_on_secrets = false     # 为 true 时 archive 遇敏感路径则拒绝备份；可用 --fail-on-secrets / --no-fail-on-secrets 覆盖
 
 [prune]
 keep = 3                 # 未传 --keep 时使用
@@ -101,6 +102,7 @@ check_remote = false     # 为 true 时 restore 默认联网预检；可用 --no
 - **格式**：TOML。Rust 版内置 `toml` 解析；Python 版用标准库 `tomllib`（Python 3.11+；Python 3.10 由依赖自动安装 `tomli` 回退），除此之外无第三方运行时依赖。
 - **排除规则 `[backup].exclude`**：字符串数组，为 archive（tar.gz）策略在归档时跳过匹配的文件/目录。模式为 glob（`*`、`?`、`[seq]`、`[!seq]`、`**`），按项目根相对路径逐段匹配；匹配到目录则跳过其整个子树。不支持花括号展开（`{a,b}`），空模式被拒绝。`git` 与 `git_bundle` 策略不受影响（`git` 只记录远程信息、`git_bundle` 打包整个仓库历史）。仅通过配置文件设置，无命令行参数。
 - **增量备份 `[backup].incremental`**：布尔值（默认 `false`）。为 `true` 时 `backup` 默认对 archive 策略生成差异快照；命令行 `--incremental` 可单独开启（优先级高于配置）。仅 archive 策略生效，`git`/`git_bundle` 策略不受影响。
+- **敏感路径硬失败 `[backup].fail_on_secrets`**：布尔值（默认 `false`）。为 `true` 时 archive 策略若启发式检测到常见敏感路径（与 CR-099 告警同一套规则），则拒绝该项目备份、不写归档/manifest，并以非零退出；默认仍仅告警。命令行 `--fail-on-secrets` / `--no-fail-on-secrets` 可覆盖配置。
 
 ## 3. 程序入口
 
@@ -349,9 +351,10 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
                  [--yes] [--dry-run]
                  [--include-artifacts] [--always-archive]
                  [--exclude-git-metadata] [--incremental]
+                 [--fail-on-secrets | --no-fail-on-secrets]
 ```
 
-备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。`[backup].exclude` 中的模式会在 archive 策略归档时跳过匹配的文件/目录（glob，按项目根相对路径逐段匹配，目录匹配则跳过整个子树）；`git` 与 `git_bundle` 策略不受影响。`--incremental` 让 archive 策略生成差异快照（值按 命令行 > 配置文件 `[backup].incremental` 解析，命令行只能开启、配置也可开启）：仅归档相对上一次快照变更/新增的文件与符号链接，记录本快照的完整文件清单 `inventory` 与删除列表 `deleted`（`incremental.base` 指向上一个快照的清单文件名，串成链）；完整快照不写 `incremental`。恢复时先解出链上最近的完整快照，再逐级应用差异（先删除 `deleted` 路径，再叠加差异归档）。
+备份目标按 **命令行 > 环境变量 `BACKUP_DEST` > 配置文件 `[backup].dest`** 的优先级解析；三者均未提供时报错 `set BACKUP_DEST, pass --backup-dest, or configure [backup].dest`。空的 `BACKUP_DEST` 按未设置处理。备份只接受 `--backup-dest`，恢复仍使用 `--dest`。`--keep N` 的值按 **命令行 > 配置文件 `[backup].keep`** 解析；成功备份后（无失败）会按项目仅保留最近 N 份 manifest 及其引用归档。`[backup].exclude` 中的模式会在 archive 策略归档时跳过匹配的文件/目录（glob，按项目根相对路径逐段匹配，目录匹配则跳过整个子树）；`git` 与 `git_bundle` 策略不受影响。`--incremental` 让 archive 策略生成差异快照（值按 命令行 > 配置文件 `[backup].incremental` 解析，命令行只能开启、配置也可开启）：仅归档相对上一次快照变更/新增的文件与符号链接，记录本快照的完整文件清单 `inventory` 与删除列表 `deleted`（`incremental.base` 指向上一个快照的清单文件名，串成链）；完整快照不写 `incremental`。恢复时先解出链上最近的完整快照，再逐级应用差异（先删除 `deleted` 路径，再叠加差异归档）。`--fail-on-secrets` / `--no-fail-on-secrets` 按显式 flag > `[backup].fail_on_secrets` 解析：开启时 archive 遇敏感路径则拒绝该项目备份（stderr `error: … refusing backup`，非零退出，不写归档）。
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
@@ -365,6 +368,8 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
 | `--exclude-git-metadata` | 否 | 关闭 | Rust 0.2.6 起支持；仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。Python 0.1.0 尚不支持。 |
 | `--incremental` | 否 | `[backup].incremental` | archive 策略生成差异快照；默认关闭。完整快照归档全部文件并记录 `inventory`；差异快照仅归档相对上一次快照变更/新增的文件与符号链接，并记录 `incremental.base` 与 `deleted`。`git`/`git_bundle` 策略不受影响。 |
+| `--fail-on-secrets` | 否 | `[backup].fail_on_secrets` | 检测到常见敏感路径时拒绝 archive 备份（不写归档/manifest，非零退出）。默认关闭时仅 stderr 告警（CR-099）。与 `--no-fail-on-secrets` 互斥。 |
+| `--no-fail-on-secrets` | 否 | 无 | 即使配置开启 `fail_on_secrets`，仍仅告警并继续归档。 |
 
 ### 6.2 策略选择
 
@@ -1054,7 +1059,7 @@ Git-only 记录的 `projects[].status` 在含 `submodules` 且任一子模块远
 | 函数 | 签名 | 返回/异常 | 说明 |
 | --- | --- | --- | --- |
 | `prepare_backup` | `(projects, backup_dest: Path, include_artifacts=False, always_archive=False, exclude_git_metadata=False) -> tuple[list[Path], list[BackupPlan]]` | 每项目 manifest 路径、计划列表 | 备份根目录参数为 `backup_dest`；只计算，不创建目录。 |
-| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False, exclude_patterns=(), incremental=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；`exclude_patterns` 为 `[backup].exclude` 的 glob 模式，archive 归档时跳过匹配文件/目录；`incremental=True` 时对 archive 策略生成差异快照（仅归档相对上次快照变更/新增文件并记录 `inventory`/`incremental`），Git 策略本身不产生归档。 |
+| `run_backup` | `(projects, backup_dest: Path, include_artifacts=False, dry_run=False, always_archive=False, exclude_git_metadata=False, exclude_patterns=(), incremental=False, fail_on_secrets=False) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]` | 每项目 manifest 路径、记录列表、失败列表 | `exclude_git_metadata=True` 时 archive 不打包 `.git`；`exclude_patterns` 为 `[backup].exclude` 的 glob 模式，archive 归档时跳过匹配文件/目录；`incremental=True` 时对 archive 策略生成差异快照（仅归档相对上次快照变更/新增文件并记录 `inventory`/`incremental`），Git 策略本身不产生归档；`fail_on_secrets=True` 时 archive 遇敏感路径则记入失败列表且不写归档。 |
 | `backup_project` | `(project, archive_dir: Path, patterns=(), archive_name=None, fallback_reason=None, exclude_git_metadata=False) -> BackupRecord` | 归档记录 | `exclude_git_metadata=True` 时输出工作树快照，不含 Git 历史。 |
 | `sha256_file` | `(path: Path) -> str` | 十六进制 SHA-256 | 以 1 MiB 块读取。 |
 | `_make_filter` | 私有 | tarfile 过滤器 | 校验符号链接目标，并按路径段匹配排除模式。 |
@@ -1119,7 +1124,7 @@ Git-only 记录的 `projects[].status` 在含 `submodules` 且任一子模块远
 | `PROJECT_MARKERS` | `tuple[str, ...]` | 16 个项目标记。 |
 | `CONFIG_NAME` | `str` | 配置文件默认名 `.proj-janitor.toml`。 |
 | `ConfigError` | `ValueError` 子类 | 配置缺失、解析失败或未知键时抛出。 |
-| `BackupConfig` | 数据类 | `dest: Path \| None`。 |
+| `BackupConfig` | 数据类 | `dest: Path \| None`，`keep`，`exclude`，`incremental`，`fail_on_secrets`。 |
 | `PruneConfig` | 数据类 | `keep: int \| None`。 |
 | `Config` | 数据类 | `backup: BackupConfig`，`prune: PruneConfig`。 |
 | `load_config` | `(path: Path \| None = None) -> Config \| None` | 显式路径或从当前目录向上发现；找不到返回 `None`；配置非法抛 `ConfigError`。 |
@@ -1384,7 +1389,7 @@ tar -xzf <archive>
 | 子命令 | 用法 | 主要参数/语义 |
 | --- | --- | --- |
 | `scan` | `projjan scan ROOT...` | `--all` 包含未标记目录；`--json` 输出 JSON |
-| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata`、`--incremental`（archive 策略差异快照）；`[backup].exclude` 通过配置文件设置 archive 排除模式（无命令行参数） |
+| `backup` | `projjan backup ROOT...` | `--backup-dest DIR` 或 `BACKUP_DEST`；命令行优先；另有 `--config PATH`、`--keep N`（成功备份后每项目保留最近 N 份清单）、`--yes`、`--dry-run`、`--include-artifacts`、`--always-archive`、Rust 0.2.6 起支持的 `--exclude-git-metadata`、`--incremental`（archive 策略差异快照）、`--fail-on-secrets` / `--no-fail-on-secrets`（或 `[backup].fail_on_secrets`）；`[backup].exclude` 通过配置文件设置 archive 排除模式（无命令行参数） |
 | `restore` | `projjan restore MANIFEST` | `--dest DIR` 恢复到副本目录；省略时以清单 `source` 为原始目标并要求确认；`--project NAME` 可重复；支持 `--dry-run`、`--no-verify`、`--yes`、`--check-remote`（自 Rust 0.5.0 起发布；写入前预检 Git-only 远端及记录的子模块远端，子模块预检自 0.7.0 起）、`--json` |
 | `verify` | `projjan verify MANIFEST`（Rust 0.2.5 及更新版本） | 只校验归档 SHA-256；Git 项目默认只检查 manifest 元数据；支持 `--project NAME`、`--json`；已包含于已发布 `0.2.5`。`--check-remote`（仓库源码，未发布）对 Git-only 记录联网确认提交是否仍被远端引用指向（含记录的子模块远端） |
 | `clean` | `projjan clean ROOT...` | `--rules NAME[,NAME]`、`--list-rules`、`--apply`、`--yes`、`--json`；默认只预览 |

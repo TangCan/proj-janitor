@@ -36,6 +36,9 @@ pub(crate) struct BackupConfig {
     /// Whether to create incremental (delta) backups for the archive strategy.
     #[serde(default)]
     pub(crate) incremental: bool,
+    /// Refuse archive backups when common secret paths are detected.
+    #[serde(default)]
+    pub(crate) fail_on_secrets: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -62,6 +65,18 @@ pub(crate) struct RestoreConfig {
     pub(crate) check_remote: bool,
 }
 
+/// Resolve an optional CLI `--flag` / `--no-flag` pair against a config default.
+/// Explicit flags always win; otherwise use `config_default`.
+pub(crate) fn resolve_tri_state(enable: bool, disable: bool, config_default: bool) -> bool {
+    if enable {
+        true
+    } else if disable {
+        false
+    } else {
+        config_default
+    }
+}
+
 /// Resolve an optional CLI `--check-remote` / `--no-check-remote` pair against
 /// a config default. Explicit flags always win; otherwise use `config_default`.
 pub(crate) fn resolve_check_remote(
@@ -69,13 +84,7 @@ pub(crate) fn resolve_check_remote(
     no_check_remote: bool,
     config_default: bool,
 ) -> bool {
-    if check_remote {
-        true
-    } else if no_check_remote {
-        false
-    } else {
-        config_default
-    }
+    resolve_tri_state(check_remote, no_check_remote, config_default)
 }
 
 /// Load configuration from an explicit path, or discover `.proj-janitor.toml`
@@ -249,6 +258,26 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\ndest = \"/tmp/x\"\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(!config.backup.incremental);
+    }
+
+    #[test]
+    fn explicit_path_loads_backup_fail_on_secrets() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\nfail_on_secrets = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.backup.fail_on_secrets);
+        assert!(!resolve_tri_state(false, true, true));
+        assert!(resolve_tri_state(true, false, false));
+        assert!(resolve_tri_state(false, false, true));
+        assert!(!resolve_tri_state(false, false, false));
+    }
+
+    #[test]
+    fn fail_on_secrets_defaults_to_false() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[backup]\ndest = \"/tmp/x\"\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(!config.backup.fail_on_secrets);
     }
 
     #[test]

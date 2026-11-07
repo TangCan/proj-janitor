@@ -63,6 +63,30 @@ pub(crate) fn format_secret_warning(project: &str, secrets: &[String]) -> String
     format!("warning: {project}: archive may include secrets ({list}); archives are not encrypted")
 }
 
+fn format_secret_list(secrets: &[String]) -> String {
+    let shown = &secrets[..secrets.len().min(MAX_REPORTED)];
+    let mut list = shown.join(", ");
+    if secrets.len() > MAX_REPORTED {
+        list.push_str(&format!(" (+{} more)", secrets.len() - MAX_REPORTED));
+    }
+    list
+}
+
+/// Body for `anyhow` / CLI error paths that already prefix `error: {project}:`.
+pub(crate) fn format_secret_refusal_detail(secrets: &[String]) -> String {
+    format!(
+        "archive would include secrets ({}); refusing backup (--fail-on-secrets)",
+        format_secret_list(secrets)
+    )
+}
+
+pub(crate) fn format_secret_refusal(project: &str, secrets: &[String]) -> String {
+    format!(
+        "error: {project}: {}",
+        format_secret_refusal_detail(secrets)
+    )
+}
+
 pub(crate) fn path_looks_like_secret(rel: &str) -> bool {
     let rel = rel.replace('\\', "/");
     if rel == ".aws/credentials" || rel.ends_with("/.aws/credentials") {

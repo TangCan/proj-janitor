@@ -2210,6 +2210,83 @@ fn archive_backup_warns_about_possible_secrets() {
 }
 
 #[test]
+fn archive_backup_fail_on_secrets_refuses_and_writes_nothing() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    let dest = temp.0.join("backups");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--fail-on-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("refusing backup"), "{stderr}");
+    assert!(stderr.contains(".env"), "{stderr}");
+    assert!(!dest.join("demo").exists());
+}
+
+#[test]
+fn archive_backup_fail_on_secrets_defaults_from_config_and_cli_overrides() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    let dest = temp.0.join("backups");
+    let config = temp.0.join("cfg.toml");
+    fs::write(&config, "[backup]\nfail_on_secrets = true\n").unwrap();
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--config"])
+        .arg(&config)
+        .args(["--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        !refused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("refusing backup"), "{stderr}");
+    assert!(!dest.join("demo").exists());
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--no-fail-on-secrets",
+            "--config",
+        ])
+        .arg(&config)
+        .args(["--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(stderr.contains("archive may include secrets"), "{stderr}");
+    assert!(dest.join("demo").exists());
+}
+
+#[test]
 fn verify_check_remote_defaults_from_config_and_cli_overrides() {
     let temp = TestDir::new();
     let project = temp.project();
