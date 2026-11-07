@@ -8,15 +8,15 @@
 | 项目描述 | 本地项目盘点、备份、恢复与安全清理命令行工具 |
 | 文档名称 | 接口与 CLI 文档 |
 | 文档版本 | 2026-11-05 `backup --incremental` 增量备份（CR-093） |
-| 源码提交 | `afc881b430bbde3ad2caac224e3238795e07a019`（v0.7.7 / python-v0.1.7 发布提交，含 CR-101） |
-| 源码标签 | `v0.7.7` / `python-v0.1.7` 为最新发布标签；含 CR-097 LFS 可用性探测 |
+| 源码提交 | `RELEASE_COMMIT_PLACEHOLDER`（v0.7.8 / python-v0.1.8 发布提交，含 CR-102） |
+| 源码标签 | `v0.7.8` / `python-v0.1.8` 为最新发布标签；含 CR-097 LFS 可用性探测 |
 | 文档日期 | 2026-11-05 |
 | 项目类型 | 自研开源、本地 CLI、小型单仓库项目 |
 | 结项状态 | 功能开发与自测完成，待内部验收 |
 | 文档状态 | 已编制，接口评审与签字信息待补充 |
 | 编制依据 | 代码基线源码、`README.md`、`tests/`、Git 提交记录与结项文档清单 |
 
-> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.7（`v0.7.7`），Python 0.1.7 已发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
+> 本文前 1–17 章描述稳定 CLI/schema 接口；部分旧的版本快照保留其编写时状态。当前 Rust 已发布版本为 0.7.8（`v0.7.8`），Python 0.1.8 已发布至 PyPI。正式验收、评审或签字只有在实际记录存在时才可认定，本次不补造此类记录。
 
 > 说明：本文为结项阶段回溯编制的接口与 CLI 文档，依据 `v0.1.0` 基线及 post-v0.1.0 变更整理，不代表存在经批准的外部接口契约。命令行为以代码基线源码为准；文中示例路径、项目名、时间和输出均为示意，实际结果随环境变化。正式接口评审、审批人和签字信息待补充。
 
@@ -638,7 +638,9 @@ projjan clean . --list-rules
 ```text
 projjan restore MANIFEST [--dest DIR] [--project NAME]
                    [--dry-run] [--no-verify] [--yes]
-                   [--check-remote] [--json]
+                   [--check-remote | --no-check-remote]
+                   [--require-dest | --no-require-dest]
+                   [--json]
 ```
 
 | 参数 | 必填 | 默认 | 说明 |
@@ -649,7 +651,8 @@ projjan restore MANIFEST [--dest DIR] [--project NAME]
 | `--dry-run` | 否 | 关闭 | 只校验并展示计划，不创建恢复目录。 |
 | `--no-verify` | 否 | 关闭 | 跳过归档 SHA-256 校验；不推荐用于不可信归档。 |
 | `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
-| `--check-remote` | 否 | 关闭 | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
+| `--check-remote` | 否 | `[restore].check_remote` | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
+| `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14）。与 `--no-require-dest` 互斥。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
@@ -1547,3 +1550,7 @@ Rust `0.7.6`（tag `v0.7.6`）与 Python `0.1.6`（tag `python-v0.1.6`）已发�
 ## 27. Rust 0.7.7 / Python 0.1.7 发布状态（2026-11-07）
 
 Rust `0.7.7`（tag `v0.7.7`）与 Python `0.1.7`（tag `python-v0.1.7`）已发布。本版本加入 CR-101：`--exclude-secrets` / `[backup].exclude_secrets`。详见 `docs/发布记录/0.7.7-Rust版.md` 与 `docs/发布记录/0.1.7-Python版.md`。
+
+## 28. Rust 0.7.8 / Python 0.1.8 发布状态（2026-11-07）
+
+Rust `0.7.8`（tag `v0.7.8`）与 Python `0.1.8`（tag `python-v0.1.8`）已发布。本版本加入 CR-102：`--require-dest` / `[restore].require_dest`。详见 `docs/发布记录/0.7.8-Rust版.md` 与 `docs/发布记录/0.1.8-Python版.md`。
