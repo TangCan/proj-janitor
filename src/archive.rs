@@ -166,12 +166,13 @@ pub(crate) fn create_archive(
                     name.display(),
                     target.display()
                 );
+                // Prefer append_link over Header::set_link_name: ustar link
+                // names are capped at 100 bytes; append_link emits GNU long-link
+                // extensions when needed (e.g. deep relative toolchain paths).
                 let mut h = Header::new_gnu();
                 h.set_entry_type(EntryType::Symlink);
                 h.set_size(0);
                 h.set_mode(0o777);
-                h.set_link_name(&target)?;
-                h.set_cksum();
                 tar.append_link(&mut h, name, target)?;
             } else if e.file_type().is_dir() {
                 tar.append_dir(name, e.path())?;
@@ -383,12 +384,13 @@ pub(crate) fn create_incremental_archive(
                 );
                 let digest = format!("{:x}", Sha256::digest(target.to_string_lossy().as_bytes()));
                 if !delta || !previous.is_some_and(|prev| prev.get(&rel_str) == Some(&digest)) {
+                    // Prefer append_link over Header::set_link_name: ustar link
+                    // names are capped at 100 bytes; append_link emits GNU
+                    // long-link extensions when needed.
                     let mut h = Header::new_gnu();
                     h.set_entry_type(EntryType::Symlink);
                     h.set_size(0);
                     h.set_mode(0o777);
-                    h.set_link_name(&target)?;
-                    h.set_cksum();
                     tar.append_link(&mut h, name, target)?;
                 }
                 inventory.push(FileEntry {

@@ -139,6 +139,49 @@ class BackupTests(unittest.TestCase):
             self.assertIn("archive symlink escapes project", failures[0][1])
             self.assertFalse(list(backup_dest.rglob("*.tar.gz")))
 
+    def test_backup_keeps_symlink_targets_longer_than_ustar_limit(self) -> None:
+        # ustar linkname is 100 bytes; TxPlane-style relative toolchain paths exceed it.
+        target = (
+            "../../../sdk-and-tools/crates/txplane-build/config/targets/"
+            "rv32im-ilp32/riscv32im-unknown-linux-musl.json"
+        )
+        self.assertGreater(len(target), 100)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            link_dir = project / "contract-examples" / "example" / ".platform"
+            real = (
+                project
+                / "sdk-and-tools"
+                / "crates"
+                / "txplane-build"
+                / "config"
+                / "targets"
+                / "rv32im-ilp32"
+                / "riscv32im-unknown-linux-musl.json"
+            )
+            link_dir.mkdir(parents=True)
+            real.parent.mkdir(parents=True)
+            real.write_text("{}\n", encoding="utf-8")
+            link = link_dir / "riscv32im-unknown-linux-musl.json"
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+
+            _, records, failures = run_backup(
+                [scan_project(project)], root / "backups", always_archive=True
+            )
+            self.assertFalse(failures)
+            self.assertEqual(len(records), 1)
+            with tarfile.open(records[0].archive, "r:gz") as archive:
+                member = archive.getmember(
+                    f"{project.name}/contract-examples/example/.platform/"
+                    "riscv32im-unknown-linux-musl.json"
+                )
+                self.assertTrue(member.issym())
+                self.assertEqual(member.linkname, target)
+
     def test_backup_excludes_artifact_symlink_before_validating_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

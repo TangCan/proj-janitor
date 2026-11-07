@@ -628,6 +628,46 @@ fn archive_round_trip_keeps_files_executable_and_internal_symlinks() {
 
 #[cfg(unix)]
 #[test]
+fn archive_round_trip_keeps_symlink_targets_longer_than_ustar_limit() {
+    use std::os::unix::fs::symlink;
+
+    // ustar linkname is 100 bytes; TxPlane-style relative toolchain paths exceed it.
+    // Keep the resolved target inside the project so safe_archive_link accepts it.
+    let target = PathBuf::from(
+        "../../../sdk-and-tools/crates/txplane-build/config/targets/rv32im-ilp32/riscv32im-unknown-linux-musl.json",
+    );
+    assert!(
+        target.to_string_lossy().len() > 100,
+        "fixture must exceed ustar linkname limit"
+    );
+
+    let temp = TestDir::new();
+    let project = temp.0.join("demo");
+    let link_dir = project.join("contract-examples/example/.platform");
+    let real = project.join(
+        "sdk-and-tools/crates/txplane-build/config/targets/rv32im-ilp32/riscv32im-unknown-linux-musl.json",
+    );
+    fs::create_dir_all(&link_dir).unwrap();
+    fs::create_dir_all(real.parent().unwrap()).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(&real, "{}\n").unwrap();
+    symlink(&target, link_dir.join("riscv32im-unknown-linux-musl.json")).unwrap();
+
+    let archive = temp.0.join("demo.tar.gz");
+    create_archive(&project, &archive, true, false, &[], false).unwrap();
+    let restored = temp.0.join("restored/demo");
+    extract_archive(&archive, &restored, "demo").unwrap();
+    assert_eq!(
+        fs::read_link(
+            restored.join("contract-examples/example/.platform/riscv32im-unknown-linux-musl.json")
+        )
+        .unwrap(),
+        target
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn backup_rejects_symlink_targets_outside_project() {
     use std::os::unix::fs::symlink;
 
