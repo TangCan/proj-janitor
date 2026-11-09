@@ -28,7 +28,10 @@ use crate::{
         extract_incremental_delta, portable_path_key, publish_restored_tree, remove_deleted_paths,
         safe_windows_component, sha256, sha256_with_progress,
     },
-    crypto::{archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp},
+    crypto::{
+        archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp,
+        validate_passphrase_file,
+    },
     expand,
     project::{git_compatible_path, git_output, submodule_config, submodule_url_supported},
     resolve_for_creation,
@@ -1001,6 +1004,12 @@ pub(crate) fn restore_cmd(
         anyhow::bail!(
             "--dest is required when --require-dest or [restore].require_dest is enabled"
         );
+    }
+    let decrypt_passphrase_file = decrypt_passphrase_file
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|path| expand(&path));
+    if let Some(pass_file) = &decrypt_passphrase_file {
+        validate_passphrase_file(pass_file)?;
     }
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
     let dest = if let Some(dest) = dest {

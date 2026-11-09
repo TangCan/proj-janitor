@@ -21,6 +21,7 @@ from proj_janitor.backup import (
     prepare_backup,
     run_backup,
 )
+from proj_janitor.crypto import validate_passphrase_file
 from proj_janitor.config import (
     ConfigError,
     init_config,
@@ -879,6 +880,12 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
+    if encrypt_passphrase_file is not None:
+        try:
+            validate_passphrase_file(encrypt_passphrase_file)
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
     if args.dry_run:
         try:
@@ -1134,6 +1141,12 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     decrypt_passphrase_file = args.decrypt_passphrase_file or (
         config.restore.decrypt_passphrase_file if config else None
     )
+    if decrypt_passphrase_file is not None:
+        try:
+            validate_passphrase_file(decrypt_passphrase_file)
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     if force and skip_existing:
         print(
             "error: --force and --skip-existing cannot be combined",

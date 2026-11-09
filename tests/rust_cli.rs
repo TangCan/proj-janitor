@@ -3111,6 +3111,38 @@ fn encrypt_refuses_insecure_passphrase_permissions() {
     assert!(stderr.contains("chmod 600"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn encrypt_dry_run_refuses_insecure_passphrase_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("secret.txt"), "payload\n").unwrap();
+    let dest = temp.0.join("backups");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&passphrase, perms).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--encrypt-passphrase-file",
+        ])
+        .arg(&passphrase)
+        .arg("--backup-dest")
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("insecure permissions"), "{stderr}");
+    assert!(stderr.contains("chmod 600"), "{stderr}");
+}
+
 #[test]
 fn encrypt_decrypt_progress_reports_openssl() {
     if !Command::new("openssl")

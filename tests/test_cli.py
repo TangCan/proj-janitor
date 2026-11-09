@@ -1394,6 +1394,30 @@ class CliTests(unittest.TestCase):
             self.assertIn("insecure permissions", err)
             self.assertIn("chmod 600", err)
 
+    @unittest.skipUnless(os.name == "posix", "passphrase mode checks are Unix-only")
+    def test_encrypt_dry_run_refuses_insecure_passphrase_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            dest = root / "backups"
+            passphrase = root / "pass.txt"
+            passphrase.write_text("test-passphrase\n", encoding="utf-8")
+            passphrase.chmod(0o644)
+
+            code, _stdout, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+                "--encrypt-passphrase-file",
+                str(passphrase),
+            )
+            self.assertNotEqual(code, 0, err)
+            self.assertIn("insecure permissions", err)
+            self.assertIn("chmod 600", err)
+
     @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
     def test_encrypt_decrypt_progress_reports_openssl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
