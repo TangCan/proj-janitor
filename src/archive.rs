@@ -524,6 +524,7 @@ pub(crate) fn extract_archive_with_hash(
     }
     let mut f = File::open(archive)?;
     if let Some(expected) = expected_hash {
+        // Hashing progress is reported by verify / restore pre-check; keep extract quiet.
         let actual = sha256_reader(&mut f)?;
         anyhow::ensure!(
             actual.eq_ignore_ascii_case(expected),
@@ -1209,19 +1210,61 @@ pub(crate) fn archive_excluded(
     false
 }
 pub(crate) fn sha256(path: &Path) -> anyhow::Result<String> {
+    sha256_with_progress(path, None)
+}
+
+pub(crate) fn sha256_with_progress(
+    path: &Path,
+    progress_label: Option<&str>,
+) -> anyhow::Result<String> {
     let mut f = File::open(path)?;
-    sha256_reader(&mut f)
+    sha256_reader_with_progress(&mut f, progress_label)
 }
 
 fn sha256_reader(reader: &mut impl Read) -> anyhow::Result<String> {
+    sha256_reader_with_progress(reader, None)
+}
+
+fn sha256_reader_with_progress(
+    reader: &mut impl Read,
+    progress_label: Option<&str>,
+) -> anyhow::Result<String> {
+    let started = progress_label.map(|_| std::time::Instant::now());
+    if let Some(name) = progress_label {
+        eprintln!("progress: {name}: hashing sha256");
+    }
     let mut h = Sha256::new();
     let mut b = [0; 1024 * 1024];
+    let mut hashed = 0u64;
+    let mut last_reported = 0u64;
     loop {
         let n = reader.read(&mut b)?;
         if n == 0 {
             break;
         }
         h.update(&b[..n]);
+        hashed += n as u64;
+        if let Some(name) = progress_label
+            && hashed - last_reported >= 16 * 1024 * 1024
+        {
+            let elapsed = started
+                .map(|t| crate::format_elapsed(t.elapsed()))
+                .unwrap_or_else(|| "0s".into());
+            eprintln!(
+                "progress: {name}: hashed {} ({elapsed})",
+                crate::human(hashed)
+            );
+            last_reported = hashed;
+        }
+    }
+    if let Some(name) = progress_label {
+        let elapsed = started
+            .map(|t| crate::format_elapsed(t.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!(
+            "progress: {name}: sha256 done ({}, {elapsed})",
+            crate::human(hashed)
+        );
     }
     Ok(format!("{:x}", h.finalize()))
 }

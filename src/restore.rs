@@ -26,7 +26,7 @@ use crate::{
     archive::{
         create_private_temp_dir, extract_archive, extract_archive_with_hash,
         extract_incremental_delta, portable_path_key, publish_restored_tree, remove_deleted_paths,
-        safe_windows_component, sha256,
+        safe_windows_component, sha256, sha256_with_progress,
     },
     crypto::{archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp},
     expand,
@@ -193,7 +193,8 @@ pub(crate) fn verify_cmd(
                     .ok_or_else(|| {
                         anyhow::anyhow!("manifest has no sha256 for {}", record.project)
                     })?;
-                let actual = sha256(&archive)?;
+                let actual =
+                    sha256_with_progress(&archive, progress.then_some(record.project.as_str()))?;
                 anyhow::ensure!(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
@@ -308,7 +309,8 @@ pub(crate) fn verify_cmd(
                     "invalid Git bundle commit for {}",
                     record.project
                 );
-                let actual = sha256(&bundle)?;
+                let actual =
+                    sha256_with_progress(&bundle, progress.then_some(record.project.as_str()))?;
                 anyhow::ensure!(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
@@ -1089,7 +1091,8 @@ pub(crate) fn restore_cmd(
                         .ok_or_else(|| {
                             anyhow::anyhow!("manifest has no sha256 for {}", r.project)
                         })?;
-                    let actual = sha256(&bundle)?;
+                    let actual =
+                        sha256_with_progress(&bundle, progress.then_some(r.project.as_str()))?;
                     anyhow::ensure!(
                         actual.eq_ignore_ascii_case(expected),
                         "sha256 mismatch for {}",
@@ -1109,7 +1112,7 @@ pub(crate) fn restore_cmd(
                 .sha256
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("manifest has no sha256 for {}", r.project))?;
-            let actual = sha256(a)?;
+            let actual = sha256_with_progress(a, progress.then_some(r.project.as_str()))?;
             anyhow::ensure!(
                 actual.eq_ignore_ascii_case(expect),
                 "sha256 mismatch for {}",
@@ -1234,7 +1237,8 @@ pub(crate) fn restore_cmd(
                 let expected = record.sha256.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("manifest has no sha256 for {}", record.project)
                 })?;
-                let actual = sha256(archive)?;
+                let actual =
+                    sha256_with_progress(archive, progress.then_some(record.project.as_str()))?;
                 anyhow::ensure!(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
@@ -1734,7 +1738,7 @@ fn restore_incremental(
                 )
             })?;
             if let Some(expected) = expected {
-                let actual = sha256(delta_archive)?;
+                let actual = sha256_with_progress(delta_archive, progress_label)?;
                 anyhow::ensure!(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
@@ -1771,6 +1775,7 @@ fn restore_encrypted_or_plain_archive(
             )
         })?;
         if !no_verify && let Some(expected) = expected_hash {
+            // Ciphertext was already hashed in the restore pre-check when --progress ran.
             let actual = sha256(archive)?;
             anyhow::ensure!(
                 actual.eq_ignore_ascii_case(expected),

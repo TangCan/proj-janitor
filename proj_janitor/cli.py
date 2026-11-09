@@ -507,8 +507,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="progress",
         help=(
             "print per-project restore progress with elapsed time on stderr, "
-            "including remote probes, archive extract, git fetch, LFS pull, "
-            "and submodule update status (overrides [restore].progress)"
+            "including SHA-256 hashing, remote probes, archive extract, git "
+            "fetch, LFS pull, and submodule update status "
+            "(overrides [restore].progress)"
         ),
     )
     restore_progress.add_argument(
@@ -574,8 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="progress",
         help=(
             "print per-project verify progress with elapsed time on stderr, "
-            "including remote/submodule/LFS probes when --check-remote is set "
-            "(overrides [verify].progress)"
+            "including SHA-256 hashing and remote/submodule/LFS probes when "
+            "--check-remote is set (overrides [verify].progress)"
         ),
     )
     verify_progress.add_argument(

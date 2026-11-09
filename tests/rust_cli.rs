@@ -3411,7 +3411,16 @@ fn verify_progress_reports_per_project() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let name = project.file_name().unwrap().to_string_lossy();
     assert!(stderr.contains("progress: verifying 1/1:"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("progress: {name}: hashing sha256")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("progress: {name}: sha256 done (")),
+        "{stderr}"
+    );
     assert!(stderr.contains("progress: done, verified 1 ("), "{stderr}");
 }
 
@@ -3458,6 +3467,14 @@ fn restore_progress_reports_per_project() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let project_name = project.file_name().unwrap().to_string_lossy();
     assert!(stderr.contains("progress: restoring 1/1:"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: hashing sha256")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: sha256 done (")),
+        "{stderr}"
+    );
     assert!(
         stderr.contains(&format!("progress: {project_name}: extracted 1 members (")),
         "{stderr}"

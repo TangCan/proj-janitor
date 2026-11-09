@@ -1138,15 +1138,45 @@ def _report_archive_progress(
         )
 
 
-def sha256_file(path: Path) -> str:
+def sha256_file(path: Path, progress_label: str | None = None) -> str:
     with path.open("rb") as handle:
-        return sha256_stream(handle)
+        return sha256_stream(handle, progress_label=progress_label)
 
 
-def sha256_stream(handle: BinaryIO) -> str:
+def sha256_stream(handle: BinaryIO, progress_label: str | None = None) -> str:
     digest = hashlib.sha256()
+    progress_started = time.monotonic() if progress_label is not None else None
+    if progress_label is not None:
+        print(f"progress: {progress_label}: hashing sha256", file=sys.stderr)
+    hashed = 0
+    last_reported = 0
     for chunk in iter(lambda: handle.read(1024 * 1024), b""):
         digest.update(chunk)
+        hashed += len(chunk)
+        if (
+            progress_label is not None
+            and hashed - last_reported >= 16 * 1024 * 1024
+        ):
+            elapsed = (
+                "0s"
+                if progress_started is None
+                else format_elapsed(time.monotonic() - progress_started)
+            )
+            print(
+                f"progress: {progress_label}: hashed {human_size(hashed)} ({elapsed})",
+                file=sys.stderr,
+            )
+            last_reported = hashed
+    if progress_label is not None:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: {progress_label}: sha256 done ({human_size(hashed)}, {elapsed})",
+            file=sys.stderr,
+        )
     return digest.hexdigest()
 
 

@@ -278,7 +278,7 @@ enum Action {
         /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
-        /// Print per-project restore progress with elapsed time (probes, archive, git, LFS, submodules)
+        /// Print per-project restore progress with elapsed time (hashing, probes, archive, git, LFS, submodules)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable restore progress even when [restore].progress is true
@@ -307,7 +307,7 @@ enum Action {
         /// Disable remote probing even when [verify].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
-        /// Print per-project verify progress with elapsed time (remote probes too)
+        /// Print per-project verify progress with elapsed time (SHA-256 hashing and remote probes)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable verify progress even when [verify].progress is true

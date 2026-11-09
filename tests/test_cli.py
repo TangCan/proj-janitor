@@ -560,6 +560,11 @@ class CliTests(unittest.TestCase):
             code, out, err = run_cli("verify", str(manifest), "--progress")
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: verifying 1/1:", err)
+            self.assertIn(f"progress: {project.name}: hashing sha256", err)
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: sha256 done \([^,]+, \d+s\)",
+            )
             self.assertRegex(err, r"progress: done, verified 1 \(\d+s\)")
 
     def test_restore_progress_reports_per_project(self) -> None:
@@ -587,6 +592,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: restoring 1/1:", err)
+            self.assertIn(f"progress: {project.name}: hashing sha256", err)
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: sha256 done \([^,]+, \d+s\)",
+            )
             self.assertRegex(
                 err,
                 rf"progress: {re.escape(project.name)}: extracted 1 members \(\d+s\)",

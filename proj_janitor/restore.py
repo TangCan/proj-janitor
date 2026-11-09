@@ -119,7 +119,12 @@ def execute_restore(
                     raise RestoreError(
                         f"incomplete archive restore plan for {plan.project}"
                     )
-                _verify_archive_hash(plan.archive, plan.project, plan.sha256)
+                _verify_archive_hash(
+                    plan.archive,
+                    plan.project,
+                    plan.sha256,
+                    progress_label=plan.project if progress else None,
+                )
     if check_remote:
         git_plans = [
             plan for plan in plan_list if not plan.skip and plan.strategy == "git"
@@ -445,11 +450,17 @@ def _publish_restored_tree(staged: Path, target: Path, *, force: bool) -> None:
         raise RestoreError(f"cannot publish restore target {target}: {exc}") from exc
 
 
-def _verify_archive_hash(archive: Path, project: str, expected: str | None) -> str:
+def _verify_archive_hash(
+    archive: Path,
+    project: str,
+    expected: str | None,
+    *,
+    progress_label: str | None = None,
+) -> str:
     if not expected:
         raise RestoreError(f"manifest has no sha256 for {project}")
     try:
-        actual = sha256_file(archive)
+        actual = sha256_file(archive, progress_label=progress_label)
     except OSError as exc:
         raise RestoreError(f"cannot read archive {archive}: {exc}") from exc
     if actual.lower() != expected.lower():
@@ -747,7 +758,10 @@ def verify_manifest(
             if not isinstance(expected, str) or not expected:
                 raise RestoreError(f"manifest has no sha256 for {project}")
             try:
-                actual = sha256_file(archive)
+                actual = sha256_file(
+                    archive,
+                    progress_label=project if progress else None,
+                )
             except OSError as exc:
                 raise RestoreError(f"cannot read archive {archive}: {exc}") from exc
             if actual.lower() != expected.lower():
@@ -854,7 +868,12 @@ def verify_manifest(
             expected = record.get("sha256")
             if not isinstance(expected, str) or not expected:
                 raise RestoreError(f"manifest has no sha256 for {project}")
-            actual = _verify_archive_hash(bundle, project, expected)
+            actual = _verify_archive_hash(
+                bundle,
+                project,
+                expected,
+                progress_label=project if progress else None,
+            )
             results.append(
                 {
                     "project": project,
@@ -1494,6 +1513,7 @@ def _restore_archive(
                     "[restore].decrypt_passphrase_file"
                 )
             if verify:
+                # Ciphertext was already hashed in execute_restore pre-check.
                 _verify_archive_hash(archive_path, plan.project, plan.sha256)
             decrypted = openssl_decrypt_to_temp(
                 archive_path,
@@ -1507,6 +1527,7 @@ def _restore_archive(
             if verify:
                 if not plan.sha256:
                     raise RestoreError(f"manifest has no sha256 for {plan.project}")
+                # Re-hash without progress; pre-check already reported hashing.
                 actual = sha256_stream(archive_source)
                 if actual.lower() != plan.sha256.lower():
                     raise RestoreError(
