@@ -272,6 +272,12 @@ enum Action {
         /// Delete replaced targets even when [restore].keep_replaced is true
         #[arg(long = "no-keep-replaced", conflicts_with = "keep_replaced")]
         no_keep_replaced: bool,
+        /// On failure, remove already-restored targets from this run (restores keep-replaced asides)
+        #[arg(long, conflicts_with = "no_rollback_on_error")]
+        rollback_on_error: bool,
+        /// Leave partial restores in place even when [restore].rollback_on_error is true
+        #[arg(long = "no-rollback-on-error", conflicts_with = "rollback_on_error")]
+        no_rollback_on_error: bool,
         /// Keep restoring remaining projects after a per-project failure
         #[arg(long, conflicts_with = "no_continue_on_error")]
         continue_on_error: bool,
@@ -658,6 +664,8 @@ fn run() -> anyhow::Result<()> {
             no_force,
             keep_replaced,
             no_keep_replaced,
+            rollback_on_error,
+            no_rollback_on_error,
             continue_on_error,
             no_continue_on_error,
             skip_existing,
@@ -699,6 +707,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.keep_replaced)
+                    .unwrap_or(false),
+            );
+            let rollback_on_error = resolve_tri_state(
+                rollback_on_error,
+                no_rollback_on_error,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.rollback_on_error)
                     .unwrap_or(false),
             );
             let continue_on_error = resolve_tri_state(
@@ -745,6 +761,7 @@ fn run() -> anyhow::Result<()> {
                 require_dest,
                 force,
                 keep_replaced,
+                rollback_on_error,
                 continue_on_error,
                 skip_existing,
                 progress,

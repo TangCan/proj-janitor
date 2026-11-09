@@ -305,6 +305,16 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.restore.keep_replaced)
             self.assertFalse(config.restore.force)
+            self.assertFalse(config.restore.rollback_on_error)
+
+    def test_loads_restore_rollback_on_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[restore]\nrollback_on_error = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.restore.rollback_on_error)
+            self.assertFalse(config.restore.continue_on_error)
 
     def test_unknown_verify_key_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

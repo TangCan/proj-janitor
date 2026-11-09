@@ -51,9 +51,11 @@ class PartialRestoreError(RestoreError):
         self,
         results: list[RestoreResult],
         failures: list[tuple[str, str]],
+        rolled_back: list[tuple[str, Path]] | None = None,
     ) -> None:
         self.results = results
         self.failures = failures
+        self.rolled_back = list(rolled_back or [])
         detail = "; ".join(f"{project}: {error}" for project, error in failures)
         super().__init__(f"one or more restore operations failed ({detail})")
 
@@ -67,6 +69,7 @@ def restore_from_manifest(
     check_remote: bool = False,
     force: bool = False,
     keep_replaced: bool = False,
+    rollback_on_error: bool = False,
     continue_on_error: bool = False,
     skip_existing: bool = False,
     progress: bool = False,
@@ -88,6 +91,7 @@ def restore_from_manifest(
         check_remote=check_remote,
         force=force,
         keep_replaced=keep_replaced,
+        rollback_on_error=rollback_on_error,
         continue_on_error=continue_on_error,
         progress=progress,
     )
@@ -109,6 +113,7 @@ def execute_restore(
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
     keep_replaced: bool = False,
+    rollback_on_error: bool = False,
     continue_on_error: bool = False,
     progress: bool = False,
 ) -> list[RestoreResult]:
@@ -243,10 +248,22 @@ def execute_restore(
                     )
                 failures.append((plan.project, str(exc)))
                 continue
+            completed_results = [result for result in results if not result.skipped]
             completed = ", ".join(
-                f"{result.project} -> {result.target}" for result in results
+                f"{result.project} -> {result.target}" for result in completed_results
             )
-            suffix = f"; already restored: {completed}" if completed else ""
+            if rollback_on_error and completed_results:
+                rolled = _rollback_restored(completed_results)
+                rolled_summary = ", ".join(
+                    f"{project} -> {target}" for project, target in rolled
+                )
+                suffix = (
+                    f"; rolled back: {rolled_summary}; was restored: {completed}"
+                    if rolled
+                    else f"; already restored: {completed}"
+                )
+            else:
+                suffix = f"; already restored: {completed}" if completed else ""
             raise RestoreError(f"{message}{suffix}") from exc
     if progress:
         restored = sum(1 for result in results if not result.skipped)
@@ -262,8 +279,54 @@ def execute_restore(
             file=sys.stderr,
         )
     if failures:
-        raise PartialRestoreError(results, failures)
+        rolled: list[tuple[str, Path]] = []
+        if rollback_on_error:
+            successful = [result for result in results if not result.skipped]
+            rolled = _rollback_restored(successful)
+            if rolled:
+                print(
+                    f"rolled back {len(rolled)} restored project(s) after failures",
+                    file=sys.stderr,
+                )
+                for project, target in rolled:
+                    print(f"rolled back: {project} -> {target}", file=sys.stderr)
+            results = [result for result in results if result.skipped]
+        raise PartialRestoreError(results, failures, rolled_back=rolled)
     return results
+
+
+def _rollback_restored(results: list[RestoreResult]) -> list[tuple[str, Path]]:
+    """Undo successful restores from this run (CR-134)."""
+    rolled: list[tuple[str, Path]] = []
+    for result in reversed(results):
+        if result.skipped:
+            continue
+        try:
+            _rollback_one_target(result.target, result.replaced_aside)
+        except OSError as exc:
+            print(
+                f"error: cannot roll back {result.project}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        rolled.append((result.project, result.target))
+    return rolled
+
+
+def _rollback_one_target(target: Path, aside: Path | None) -> None:
+    if target.exists() or target.is_symlink():
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    if aside is not None:
+        if aside.is_symlink() or not aside.is_dir():
+            raise RestoreError(
+                f"replaced aside is missing or not a directory: {aside}"
+            )
+        aside.rename(target)
 
 
 def plan_restore(

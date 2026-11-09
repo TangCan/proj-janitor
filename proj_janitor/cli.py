@@ -411,6 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
         require_dest=None,
         force=None,
         keep_replaced=None,
+        rollback_on_error=None,
         continue_on_error=None,
         skip_existing=None,
         progress=None,
@@ -479,6 +480,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="keep_replaced",
         help="delete replaced targets even when [restore].keep_replaced is true",
+    )
+    restore_rollback = restore.add_mutually_exclusive_group()
+    restore_rollback.add_argument(
+        "--rollback-on-error",
+        action="store_true",
+        dest="rollback_on_error",
+        default=None,
+        help=(
+            "on restore failure, remove already-restored targets from this run "
+            "(restores --keep-replaced asides; overrides [restore].rollback_on_error)"
+        ),
+    )
+    restore_rollback.add_argument(
+        "--no-rollback-on-error",
+        action="store_false",
+        dest="rollback_on_error",
+        help=(
+            "leave partial restores in place even when "
+            "[restore].rollback_on_error is true"
+        ),
     )
     restore_continue = restore.add_mutually_exclusive_group()
     restore_continue.add_argument(
@@ -1094,6 +1115,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.keep_replaced,
         config.restore.keep_replaced if config else False,
     )
+    rollback_on_error = resolve_tri_state(
+        args.rollback_on_error,
+        config.restore.rollback_on_error if config else False,
+    )
     continue_on_error = resolve_tri_state(
         args.continue_on_error,
         config.restore.continue_on_error if config else False,
@@ -1206,6 +1231,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
     results: list[RestoreResult] = []
     failures: list[tuple[str, str]] = []
+    rolled_back: list[tuple[str, Path]] = []
     try:
         results = execute_restore(
             plans,
@@ -1214,6 +1240,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
             keep_replaced=keep_replaced,
+            rollback_on_error=rollback_on_error,
             continue_on_error=continue_on_error,
             progress=progress,
         )
@@ -1221,6 +1248,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         # Per-project errors were already printed during execute_restore (CR-132).
         results = exc.results
         failures = list(exc.failures)
+        rolled_back = list(exc.rolled_back)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -1234,6 +1262,11 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         if failures:
             payload["failures"] = [
                 {"project": project, "error": error} for project, error in failures
+            ]
+        if rolled_back:
+            payload["rolled_back"] = [
+                {"project": project, "target": str(target)}
+                for project, target in rolled_back
             ]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1 if failures else 0

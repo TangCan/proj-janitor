@@ -150,6 +150,7 @@ INIT_CONFIG_TEMPLATE = """\
 # require_dest = false
 # force = false
 # keep_replaced = false
+# rollback_on_error = false
 # continue_on_error = false
 # skip_existing = false
 # progress = true
@@ -255,6 +256,7 @@ class RestoreConfig:
         "decrypt_passphrase_file",
         "force",
         "keep_replaced",
+        "rollback_on_error",
         "continue_on_error",
         "skip_existing",
         "progress",
@@ -267,6 +269,7 @@ class RestoreConfig:
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
         keep_replaced: bool = False,
+        rollback_on_error: bool = False,
         continue_on_error: bool = False,
         skip_existing: bool = False,
         progress: bool = False,
@@ -276,6 +279,7 @@ class RestoreConfig:
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
         self.keep_replaced = keep_replaced
+        self.rollback_on_error = rollback_on_error
         self.continue_on_error = continue_on_error
         self.skip_existing = skip_existing
         self.progress = progress
@@ -512,6 +516,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "decrypt_passphrase_file",
         "force",
         "keep_replaced",
+        "rollback_on_error",
         "continue_on_error",
         "skip_existing",
         "progress",
@@ -545,6 +550,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["keep_replaced"], "[restore].keep_replaced"
         )
         if "keep_replaced" in restore_data
+        else False,
+        rollback_on_error=_parse_bool(
+            restore_data["rollback_on_error"], "[restore].rollback_on_error"
+        )
+        if "rollback_on_error" in restore_data
         else False,
         continue_on_error=_parse_bool(
             restore_data["continue_on_error"], "[restore].continue_on_error"

@@ -116,6 +116,9 @@ pub(crate) struct RestoreConfig {
     /// When force-replacing, rename the previous target aside instead of deleting it.
     #[serde(default)]
     pub(crate) keep_replaced: bool,
+    /// On restore failure, remove already-restored targets from this run (L-03).
+    #[serde(default)]
+    pub(crate) rollback_on_error: bool,
     /// Keep restoring remaining projects after a per-project failure.
     #[serde(default)]
     pub(crate) continue_on_error: bool,
@@ -341,6 +344,16 @@ mod tests {
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.keep_replaced);
         assert!(!config.restore.force);
+        assert!(!config.restore.rollback_on_error);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_rollback_on_error() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nrollback_on_error = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.rollback_on_error);
+        assert!(!config.restore.continue_on_error);
     }
 
     #[test]

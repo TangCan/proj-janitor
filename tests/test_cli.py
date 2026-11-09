@@ -765,6 +765,49 @@ class CliTests(unittest.TestCase):
             self.assertFalse((restored / "second").exists())
             self.assertTrue((restored / "third").exists())
 
+    def test_restore_rollback_on_error_removes_partial_successes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, first_record = archive_backup(root / "a", "first")
+            _, _, second_record = archive_backup(root / "b", "second")
+            _, _, third_record = archive_backup(root / "c", "third")
+            Path(second_record["archive"]).write_bytes(b"not a gzip archive")
+            second_record["sha256"] = backup_module.sha256_file(
+                Path(second_record["archive"])
+            )
+            manifest = write_manifest(
+                root / "manifest.json",
+                [first_record, second_record, third_record],
+            )
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--continue-on-error",
+                "--rollback-on-error",
+                "--json",
+            )
+            self.assertEqual(code, 1, out + err)
+            payload = json.loads(out)
+            self.assertEqual(payload["projects"], [])
+            self.assertEqual(
+                [f["project"] for f in payload["failures"]],
+                ["second"],
+            )
+            self.assertEqual(
+                [item["project"] for item in payload["rolled_back"]],
+                ["third", "first"],
+            )
+            self.assertIn("rolled back:", err)
+            self.assertFalse((restored / "first").exists())
+            self.assertFalse((restored / "second").exists())
+            self.assertFalse((restored / "third").exists())
+
     def test_restore_force_overwrites_existing_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

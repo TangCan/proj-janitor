@@ -990,6 +990,7 @@ pub(crate) fn restore_cmd(
     require_dest: bool,
     force: bool,
     keep_replaced: bool,
+    rollback_on_error: bool,
     continue_on_error: bool,
     skip_existing: bool,
     progress: bool,
@@ -1453,6 +1454,17 @@ pub(crate) fn restore_cmd(
                     .map(|(project, _, path, _, _)| format!("{project} -> {}", path.display()))
                     .collect::<Vec<_>>()
                     .join(", ");
+                if rollback_on_error {
+                    let rolled = rollback_restored(&done);
+                    let rolled_summary = rolled
+                        .iter()
+                        .map(|(project, path)| format!("{project} -> {}", path.display()))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(anyhow::anyhow!(
+                        "{error}; rolled back: {rolled_summary}; was restored: {completed}"
+                    ));
+                }
                 return Err(anyhow::anyhow!("{error}; already restored: {completed}"));
             }
         };
@@ -1463,6 +1475,21 @@ pub(crate) fn restore_cmd(
             false,
             aside,
         ));
+    }
+    let mut rolled_back: Vec<(String, PathBuf)> = Vec::new();
+    if !failures.is_empty() && rollback_on_error {
+        rolled_back = rollback_restored(&done);
+        if !rolled_back.is_empty() {
+            eprintln!(
+                "rolled back {} restored project(s) after failures",
+                rolled_back.len()
+            );
+            for (project, path) in &rolled_back {
+                eprintln!("rolled back: {project} -> {}", path.display());
+            }
+        }
+        // Successful restores were undone; keep only skipped entries for reporting.
+        done.retain(|(_, _, _, skipped, _)| *skipped);
     }
     if json {
         let mut payload = serde_json::json!({
@@ -1488,6 +1515,17 @@ pub(crate) fn restore_cmd(
                     .map(|(project, error)| serde_json::json!({
                         "project": project,
                         "error": error,
+                    }))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if !rolled_back.is_empty() {
+            payload["rolled_back"] = serde_json::json!(
+                rolled_back
+                    .iter()
+                    .map(|(project, path)| serde_json::json!({
+                        "project": project,
+                        "target": path,
                     }))
                     .collect::<Vec<_>>()
             );
@@ -1524,6 +1562,48 @@ pub(crate) fn restore_cmd(
     }
     if !failures.is_empty() {
         anyhow::bail!("one or more restore operations failed ({})", failures.len());
+    }
+    Ok(())
+}
+
+/// Undo successful restores from this run (CR-134).
+///
+/// Removes published targets. When `--keep-replaced` left an aside directory,
+/// renames that aside back onto the target path.
+fn rollback_restored(
+    done: &[(String, String, PathBuf, bool, Option<PathBuf>)],
+) -> Vec<(String, PathBuf)> {
+    let mut rolled = Vec::new();
+    for (project, _, target, skipped, aside) in done.iter().rev() {
+        if *skipped {
+            continue;
+        }
+        if let Err(error) = rollback_one_target(target, aside.as_deref()) {
+            eprintln!("error: cannot roll back {project}: {error:#}");
+            continue;
+        }
+        rolled.push((project.clone(), target.clone()));
+    }
+    rolled
+}
+
+fn rollback_one_target(target: &Path, aside: Option<&Path>) -> anyhow::Result<()> {
+    if target.exists() || target.is_symlink() {
+        if target.is_symlink() {
+            fs::remove_file(target)?;
+        } else if target.is_dir() {
+            fs::remove_dir_all(target)?;
+        } else {
+            fs::remove_file(target)?;
+        }
+    }
+    if let Some(aside) = aside {
+        anyhow::ensure!(
+            aside.is_dir() && !aside.is_symlink(),
+            "replaced aside is missing or not a directory: {}",
+            aside.display()
+        );
+        fs::rename(aside, target)?;
     }
     Ok(())
 }

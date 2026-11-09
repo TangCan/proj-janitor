@@ -3903,6 +3903,104 @@ fn restore_continue_on_error_restores_remaining_projects() {
 }
 
 #[test]
+fn restore_rollback_on_error_removes_partial_successes() {
+    let temp = TestDir::new();
+    let mut records = Vec::new();
+    for name in ["first", "second", "third"] {
+        let project = temp.0.join(name);
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(project.join("ok.txt"), format!("{name}\n")).unwrap();
+        let dest = temp.0.join(format!("{name}-backups"));
+        let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+            .args(["backup", "--always-archive", "--backup-dest"])
+            .arg(&dest)
+            .arg(&project)
+            .output()
+            .unwrap();
+        assert!(
+            backup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&backup.stderr)
+        );
+        let project_dir = dest.join(name);
+        let manifest = fs::read_dir(&project_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+            })
+            .expect("manifest");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        records.push(value["records"][0].clone());
+    }
+    let archive = PathBuf::from(records[1]["archive"].as_str().unwrap());
+    fs::write(&archive, b"not a gzip archive").unwrap();
+    let digest = {
+        let mut hasher = Sha256::new();
+        hasher.update(fs::read(&archive).unwrap());
+        format!("{:x}", hasher.finalize())
+    };
+    records[1]["sha256"] = serde_json::Value::String(digest);
+    let combined = temp.0.join("manifest.json");
+    fs::write(
+        &combined,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-07T00:00:00+00:00",
+            "tool": "proj-janitor",
+            "version": "0.1.0",
+            "include_artifacts": false,
+            "always_archive": false,
+            "exclude_git_metadata": false,
+            "records": records,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let out = temp.0.join("restored");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--continue-on-error", "--rollback-on-error", "--json"])
+        .arg(&combined)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("json parse {e}; stdout={stdout}; stderr={stderr}");
+    });
+    assert!(payload["projects"].as_array().unwrap().is_empty());
+    assert_eq!(
+        payload["failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["project"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["second"]
+    );
+    assert_eq!(
+        payload["rolled_back"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["project"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["third", "first"]
+    );
+    assert!(stderr.contains("rolled back:"), "{stderr}");
+    assert!(!out.join("first").exists());
+    assert!(!out.join("second").exists());
+    assert!(!out.join("third").exists());
+}
+
+#[test]
 fn restore_force_replaces_existing_target_with_yes() {
     let temp = TestDir::new();
     let project = temp.project();
