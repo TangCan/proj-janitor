@@ -3505,6 +3505,44 @@ fn restore_progress_reports_per_project() {
 }
 
 #[test]
+fn git_lock_contention_fails_fast_on_checkout() {
+    // V-06: a stale index.lock must make checkout fail quickly with a clear error.
+    let temp = TestDir::new();
+    let repo = temp.0.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.email", "test@example.com"]);
+    git(&repo, &["config", "user.name", "Test User"]);
+    fs::write(repo.join("file.txt"), "data\n").unwrap();
+    git(&repo, &["add", "file.txt"]);
+    git(&repo, &["commit", "-q", "-m", "c1"]);
+    fs::write(repo.join(".git").join("index.lock"), "").unwrap();
+
+    let started = std::time::Instant::now();
+    let output = Command::new("git")
+        .args(["-C"])
+        .arg(&repo)
+        .args(["checkout", "-f", "HEAD"])
+        .output()
+        .unwrap();
+    let elapsed = started.elapsed();
+    assert!(
+        !output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        elapsed.as_secs_f64() < 10.0,
+        "lock contention hung for {elapsed:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+    assert!(
+        stderr.contains("index.lock") || stderr.contains("another git process"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn restore_progress_reports_git_fetch() {
     let temp = TestDir::new();
     let project = temp.project();

@@ -114,6 +114,35 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual(results[0]["status"], "metadata-only")
             self.assertEqual(results[0]["commit"], "a" * 40)
 
+    @unittest.skipUnless(GIT_AVAILABLE, "git is required")
+    def test_git_lock_contention_fails_fast_on_checkout(self) -> None:
+        """V-06: stale index.lock must fail checkout quickly with a clear error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            init_repo(repo)
+            (repo / "file.txt").write_text("data\n", encoding="utf-8")
+            git(repo, "add", "file.txt")
+            git(repo, "commit", "-q", "-m", "c1")
+            lock = repo / ".git" / "index.lock"
+            lock.write_text("", encoding="utf-8")
+
+            started = time.monotonic()
+            completed = restore_module._run_git(
+                ["-C", str(repo), "checkout", "-f", "HEAD"],
+                check=False,
+                timeout=15,
+            )
+            elapsed = time.monotonic() - started
+
+            self.assertNotEqual(completed.returncode, 0, completed.stderr)
+            self.assertLess(elapsed, 10.0, f"lock contention hung for {elapsed:.1f}s")
+            combined = f"{completed.stdout}\n{completed.stderr}".lower()
+            self.assertTrue(
+                "index.lock" in combined or "another git process" in combined,
+                completed.stderr,
+            )
+
     def test_git_timeout_stops_process_and_windows_tree_kill_falls_back(self) -> None:
         process = mock.Mock(pid=123, stdout=None, stderr=None)
         process.communicate.return_value = (None, None)
