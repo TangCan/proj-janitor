@@ -548,6 +548,7 @@ pub(crate) fn backup_cmd(
                     hash,
                     bytes,
                     encrypt_passphrase_file.as_deref(),
+                    progress.then_some(p.name.as_str()),
                 )?;
                 Ok(Record {
                     project: p.name.clone(),
@@ -616,6 +617,7 @@ pub(crate) fn backup_cmd(
                     hash,
                     bytes,
                     encrypt_passphrase_file.as_deref(),
+                    progress.then_some(p.name.as_str()),
                 )?;
                 Ok(Record {
                     project: p.name.clone(),
@@ -762,6 +764,7 @@ fn maybe_encrypt_payload(
     hash: String,
     bytes: u64,
     passphrase_file: Option<&Path>,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<(String, u64, Option<String>)> {
     let Some(pass_file) = passphrase_file else {
         return Ok((hash, bytes, None));
@@ -771,13 +774,14 @@ fn maybe_encrypt_payload(
         .take()
         .ok_or_else(|| anyhow::anyhow!("missing archive identity before encryption"))?;
     let enc_path = encrypted_sibling(&plain_path);
-    let (enc_hash, enc_bytes) = match openssl_encrypt_file(&plain_path, &enc_path, pass_file) {
-        Ok(result) => result,
-        Err(error) => {
-            *archive_identity = Some(plain_identity);
-            return Err(error);
-        }
-    };
+    let (enc_hash, enc_bytes) =
+        match openssl_encrypt_file(&plain_path, &enc_path, pass_file, progress_label) {
+            Ok(result) => result,
+            Err(error) => {
+                *archive_identity = Some(plain_identity);
+                return Err(error);
+            }
+        };
     remove_file_if_same(&plain_path, plain_identity);
     let enc_identity = same_file::Handle::from_path(&enc_path)?;
     *archive_path = enc_path;

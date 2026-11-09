@@ -3,6 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Instant,
 };
 
 use crate::archive::{create_private_temp_dir, sha256};
@@ -55,6 +56,7 @@ pub(crate) fn openssl_encrypt_file(
     input: &Path,
     output: &Path,
     passphrase_file: &Path,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<(String, u64)> {
     anyhow::ensure!(
         openssl_available(),
@@ -63,6 +65,10 @@ pub(crate) fn openssl_encrypt_file(
     validate_passphrase_file(passphrase_file)?;
     if output.exists() {
         anyhow::bail!("encrypted archive already exists: {}", output.display());
+    }
+    let progress_started = progress_label.map(|_| Instant::now());
+    if let Some(name) = progress_label {
+        eprintln!("progress: {name}: encrypting with openssl");
     }
     let pass_arg = format!("file:{}", passphrase_file.display());
     let status = Command::new("openssl")
@@ -84,6 +90,12 @@ pub(crate) fn openssl_encrypt_file(
         let _ = fs::remove_file(output);
         anyhow::bail!("openssl encryption failed for {}", input.display());
     }
+    if let Some(name) = progress_label {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: {name}: openssl encrypt done ({elapsed})");
+    }
     let meta = fs::metadata(output)?;
     let digest = sha256(output)?;
     Ok((digest, meta.len()))
@@ -93,6 +105,7 @@ pub(crate) fn openssl_encrypt_file(
 pub(crate) fn openssl_decrypt_to_temp(
     input: &Path,
     passphrase_file: &Path,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<PathBuf> {
     anyhow::ensure!(
         openssl_available(),
@@ -105,6 +118,10 @@ pub(crate) fn openssl_decrypt_to_temp(
         .unwrap_or_else(|| Path::new("."));
     let temp_dir = create_private_temp_dir(parent)?;
     let output = temp_dir.join("archive.tar.gz");
+    let progress_started = progress_label.map(|_| Instant::now());
+    if let Some(name) = progress_label {
+        eprintln!("progress: {name}: decrypting with openssl");
+    }
     let pass_arg = format!("file:{}", passphrase_file.display());
     let status = Command::new("openssl")
         .args([
@@ -125,6 +142,12 @@ pub(crate) fn openssl_decrypt_to_temp(
         let _ = fs::remove_file(&output);
         let _ = fs::remove_dir(&temp_dir);
         anyhow::bail!("openssl decryption failed for {}", input.display());
+    }
+    if let Some(name) = progress_label {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: {name}: openssl decrypt done ({elapsed})");
     }
     Ok(output)
 }

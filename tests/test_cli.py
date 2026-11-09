@@ -1249,6 +1249,57 @@ class CliTests(unittest.TestCase):
             self.assertTrue(restored.is_file())
             self.assertEqual(restored.read_text(encoding="utf-8"), "payload\n")
 
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
+    def test_encrypt_decrypt_progress_reports_openssl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "secret.txt").write_text("payload\n", encoding="utf-8")
+            dest = root / "backups"
+            out = root / "restored"
+            passphrase = root / "pass.txt"
+            passphrase.write_text("test-passphrase\n", encoding="utf-8")
+
+            code, _stdout, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--encrypt-passphrase-file",
+                str(passphrase),
+                "--progress",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                f"progress: {project.name}: encrypting with openssl", err
+            )
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: openssl encrypt done \(\d+s\)",
+            )
+            manifests = list(dest.rglob("manifest-*.json"))
+            self.assertEqual(len(manifests), 1)
+
+            code, _stdout, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(out),
+                "--yes",
+                "--decrypt-passphrase-file",
+                str(passphrase),
+                "--progress",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                f"progress: {project.name}: decrypting with openssl", err
+            )
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: openssl decrypt done \(\d+s\)",
+            )
+
     def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

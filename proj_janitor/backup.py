@@ -384,7 +384,11 @@ def _backup_one(
             )
             if encrypt_passphrase_file is not None:
                 record, archive_identity = _encrypt_backup_payload(
-                    record, Path(record.archive), archive_identity, encrypt_passphrase_file
+                    record,
+                    Path(record.archive),
+                    archive_identity,
+                    encrypt_passphrase_file,
+                    progress=progress,
                 )
                 archive_path = Path(record.archive) if record.archive else archive_path
     else:
@@ -737,7 +741,11 @@ def _backup_project_with_identity(
     )
     if encrypt_passphrase_file is not None:
         record, archive_identity = _encrypt_backup_payload(
-            record, archive, archive_identity, encrypt_passphrase_file
+            record,
+            archive,
+            archive_identity,
+            encrypt_passphrase_file,
+            progress=progress,
         )
     return record, archive_identity
 
@@ -747,9 +755,16 @@ def _encrypt_backup_payload(
     archive: Path,
     archive_identity: tuple[int, int],
     passphrase_file: Path,
+    *,
+    progress: bool = False,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     enc_path = encrypted_sibling(archive)
-    digest, size = openssl_encrypt_file(archive, enc_path, passphrase_file)
+    digest, size = openssl_encrypt_file(
+        archive,
+        enc_path,
+        passphrase_file,
+        progress_label=record.project if progress else None,
+    )
     try:
         current = archive.stat(follow_symlinks=False)
         if (current.st_dev, current.st_ino) == archive_identity:

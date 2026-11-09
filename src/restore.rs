@@ -1741,7 +1741,7 @@ fn restore_incremental(
                     delta_archive.display()
                 );
             }
-            let plain = openssl_decrypt_to_temp(delta_archive, pass)?;
+            let plain = openssl_decrypt_to_temp(delta_archive, pass, progress_label)?;
             let result = extract_incremental_delta(&plain, target, &rec.project, None);
             cleanup_decrypt_temp(&plain);
             result?;
@@ -1778,7 +1778,7 @@ fn restore_encrypted_or_plain_archive(
                 archive.display()
             );
         }
-        let plain = openssl_decrypt_to_temp(archive, pass)?;
+        let plain = openssl_decrypt_to_temp(archive, pass, progress_label)?;
         let result =
             extract_archive_with_hash(&plain, target, project, None, force, progress_label);
         cleanup_decrypt_temp(&plain);

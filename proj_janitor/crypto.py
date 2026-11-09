@@ -5,8 +5,12 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
+
+from proj_janitor.models import format_elapsed
 
 OPENSSL_AES_256_CBC_PBKDF2 = "openssl-aes-256-cbc-pbkdf2"
 
@@ -35,7 +39,10 @@ def validate_passphrase_file(path: Path) -> None:
 
 
 def openssl_encrypt_file(
-    input_path: Path, output_path: Path, passphrase_file: Path
+    input_path: Path,
+    output_path: Path,
+    passphrase_file: Path,
+    progress_label: str | None = None,
 ) -> tuple[str, int]:
     from proj_janitor.backup import sha256_file
 
@@ -46,6 +53,12 @@ def openssl_encrypt_file(
     validate_passphrase_file(passphrase_file)
     if output_path.exists():
         raise OSError(f"encrypted archive already exists: {output_path}")
+    progress_started = time.monotonic() if progress_label is not None else None
+    if progress_label is not None:
+        print(
+            f"progress: {progress_label}: encrypting with openssl",
+            file=sys.stderr,
+        )
     pass_arg = f"file:{passphrase_file.expanduser()}"
     completed = subprocess.run(
         [
@@ -68,10 +81,24 @@ def openssl_encrypt_file(
         if output_path.exists():
             output_path.unlink(missing_ok=True)
         raise OSError(f"openssl encryption failed for {input_path}")
+    if progress_label is not None:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: {progress_label}: openssl encrypt done ({elapsed})",
+            file=sys.stderr,
+        )
     return sha256_file(output_path), output_path.stat().st_size
 
 
-def openssl_decrypt_to_temp(input_path: Path, passphrase_file: Path) -> Path:
+def openssl_decrypt_to_temp(
+    input_path: Path,
+    passphrase_file: Path,
+    progress_label: str | None = None,
+) -> Path:
     if not openssl_available():
         raise OSError(
             "openssl is required to decrypt encrypted archives (not found in PATH)"
@@ -87,6 +114,12 @@ def openssl_decrypt_to_temp(input_path: Path, passphrase_file: Path) -> Path:
     except OSError:
         pass
     output = temp_dir / "archive.tar.gz"
+    progress_started = time.monotonic() if progress_label is not None else None
+    if progress_label is not None:
+        print(
+            f"progress: {progress_label}: decrypting with openssl",
+            file=sys.stderr,
+        )
     pass_arg = f"file:{passphrase_file.expanduser()}"
     completed = subprocess.run(
         [
@@ -108,6 +141,16 @@ def openssl_decrypt_to_temp(input_path: Path, passphrase_file: Path) -> Path:
     if completed.returncode != 0:
         cleanup_decrypt_temp(output)
         raise OSError(f"openssl decryption failed for {input_path}")
+    if progress_label is not None:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: {progress_label}: openssl decrypt done ({elapsed})",
+            file=sys.stderr,
+        )
     return output
 
 

@@ -1380,7 +1380,9 @@ def _restore_git_bundle(
             if verify:
                 _verify_archive_hash(plan.archive, plan.project, plan.sha256)
                 verify = False
-            decrypted = openssl_decrypt_to_temp(plan.archive, decrypt_passphrase_file)
+            decrypted = openssl_decrypt_to_temp(
+                plan.archive, decrypt_passphrase_file
+            )
             bundle_source = decrypted
         bundle_copy = temporary / "source.bundle"
         with bundle_source.open("rb") as source, bundle_copy.open("xb") as target:
@@ -1493,7 +1495,11 @@ def _restore_archive(
                 )
             if verify:
                 _verify_archive_hash(archive_path, plan.project, plan.sha256)
-            decrypted = openssl_decrypt_to_temp(archive_path, decrypt_passphrase_file)
+            decrypted = openssl_decrypt_to_temp(
+                archive_path,
+                decrypt_passphrase_file,
+                progress_label=progress_label,
+            )
             archive_path = decrypted
             verify = False
 

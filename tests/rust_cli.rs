@@ -2980,6 +2980,89 @@ fn backup_encrypt_and_restore_round_trip() {
     assert_eq!(restored, "payload\n");
 }
 
+#[test]
+fn encrypt_decrypt_progress_reports_openssl() {
+    if !Command::new("openssl")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("skipping openssl progress test: openssl unavailable");
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("secret.txt"), "payload\n").unwrap();
+    let dest = temp.0.join("backups");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    let name = project.file_name().unwrap().to_string_lossy();
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--progress",
+            "--encrypt-passphrase-file",
+        ])
+        .arg(&passphrase)
+        .arg("--backup-dest")
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let backup_err = String::from_utf8_lossy(&backup.stderr);
+    assert!(
+        backup_err.contains(&format!("progress: {name}: encrypting with openssl")),
+        "{backup_err}"
+    );
+    assert!(
+        backup_err.contains(&format!("progress: {name}: openssl encrypt done (")),
+        "{backup_err}"
+    );
+    let mut manifest = None;
+    for entry in fs::read_dir(dest.join(project.file_name().unwrap())).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        {
+            manifest = Some(path);
+        }
+    }
+    let manifest = manifest.expect("manifest");
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--progress", "--dest"])
+        .arg(&out)
+        .arg("--yes")
+        .arg("--decrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    let restore_err = String::from_utf8_lossy(&restore.stderr);
+    assert!(
+        restore_err.contains(&format!("progress: {name}: decrypting with openssl")),
+        "{restore_err}"
+    );
+    assert!(
+        restore_err.contains(&format!("progress: {name}: openssl decrypt done (")),
+        "{restore_err}"
+    );
+}
+
 fn stress_scale() -> usize {
     std::env::var("PROJ_JANITOR_STRESS_SCALE")
         .ok()
