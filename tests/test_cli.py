@@ -952,7 +952,30 @@ class CliTests(unittest.TestCase):
                 "--no-require-dest",
             )
             self.assertEqual(code, 0, err)
+            self.assertIn("original manifest source", err)
+            self.assertIn("--dest", err)
             self.assertTrue((original / "main.py").exists())
+
+    def test_restore_warns_on_original_location_without_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            run_cli("backup", tmp, "--backup-dest", str(backups))
+            manifest = next(backups.glob("*/manifest-*.json"))
+            shutil.rmtree(project)
+
+            code, out, err = run_cli("restore", str(manifest), "--dry-run")
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("original manifest source", err)
+            self.assertIn("--require-dest", err)
+
+            dest = root / "copy"
+            code, out, err = run_cli(
+                "restore", str(manifest), "--dest", str(dest), "--dry-run"
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("original manifest source", err)
 
     def test_restore_original_dry_run_shows_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -964,11 +987,12 @@ class CliTests(unittest.TestCase):
             original = project.resolve()
             shutil.rmtree(project)
 
-            code, out, _ = run_cli("restore", str(manifest), "--dry-run")
+            code, out, err = run_cli("restore", str(manifest), "--dry-run")
 
             self.assertEqual(code, 0)
             self.assertIn("original backup locations", out)
             self.assertIn(str(original), out)
+            self.assertIn("original manifest source", err)
             self.assertFalse(original.exists())
 
     def test_restore_original_json_requires_yes(self) -> None:

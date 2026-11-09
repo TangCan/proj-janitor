@@ -59,6 +59,7 @@ from proj_janitor.restore import (
     refuse_outside_allowed_roots,
     verify_manifest,
     warn_git_without_remote_check,
+    warn_original_location_restore,
 )
 from proj_janitor.retention import (
     RetentionError,
@@ -1320,6 +1321,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         )
 
     in_place = args.dest is None
+    if in_place:
+        warn_original_location_restore(sum(1 for plan in plans if not plan.skip))
     mode = "original" if in_place else "dest"
     overwrites = [plan for plan in plans if plan.overwrite]
 

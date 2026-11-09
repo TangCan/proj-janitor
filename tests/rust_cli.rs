@@ -3265,7 +3265,7 @@ fn verify_and_restore_warn_when_git_records_skip_remote_check() {
             "schema_version": 2,
             "created_at": "2026-11-09T00:00:00Z",
             "tool": "proj-janitor",
-            "version": "0.7.44",
+            "version": "0.7.45",
             "include_artifacts": false,
             "always_archive": false,
             "records": [{
@@ -3449,7 +3449,68 @@ fn restore_require_dest_blocks_original_location() {
         "{}",
         String::from_utf8_lossy(&override_flag.stderr)
     );
+    let override_stderr = String::from_utf8_lossy(&override_flag.stderr);
+    assert!(
+        override_stderr.contains("original manifest source"),
+        "{override_stderr}"
+    );
     assert!(project.join("pyproject.toml").exists());
+}
+
+#[test]
+fn restore_warns_on_original_location_without_dest() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let backup_dest = temp.0.join("backups");
+    backup_run(&project, &backup_dest, &["--always-archive"]);
+    let manifest = fs::read_dir(backup_dest.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    fs::remove_dir_all(&project).unwrap();
+
+    let in_place = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        in_place.status.success(),
+        "{}",
+        String::from_utf8_lossy(&in_place.stderr)
+    );
+    let in_place_stderr = String::from_utf8_lossy(&in_place.stderr);
+    assert!(
+        in_place_stderr.contains("original manifest source"),
+        "{in_place_stderr}"
+    );
+    assert!(
+        in_place_stderr.contains("--require-dest"),
+        "{in_place_stderr}"
+    );
+
+    let dest = temp.0.join("copy");
+    let with_dest = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&dest)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        with_dest.status.success(),
+        "{}",
+        String::from_utf8_lossy(&with_dest.stderr)
+    );
+    let with_dest_stderr = String::from_utf8_lossy(&with_dest.stderr);
+    assert!(
+        !with_dest_stderr.contains("original manifest source"),
+        "{with_dest_stderr}"
+    );
 }
 
 #[test]

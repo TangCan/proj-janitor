@@ -90,6 +90,17 @@ fn warn_git_without_remote_check(count: usize) {
     );
 }
 
+fn warn_original_location_restore(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "project" } else { "projects" };
+    eprintln!(
+        "warning: restoring {count} {noun} to original manifest source \
+         path(s); pass --dest or enable --require-dest"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1261,6 +1272,9 @@ pub(crate) fn restore_cmd(
                 .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")
                 .count(),
         );
+    }
+    if dest.is_none() {
+        warn_original_location_restore(plans.iter().filter(|(_, _, _, _, skip)| !*skip).count());
     }
     if dry {
         if json {

@@ -97,6 +97,21 @@ def warn_git_without_remote_check(count: int) -> None:
     print(format_git_without_remote_check_warning(count), file=sys.stderr)
 
 
+def format_original_location_restore_warning(count: int) -> str:
+    noun = "project" if count == 1 else "projects"
+    return (
+        f"warning: restoring {count} {noun} to original manifest source "
+        "path(s); pass --dest or enable --require-dest"
+    )
+
+
+def warn_original_location_restore(count: int) -> None:
+    """Emit a stderr hint when restore targets come from manifest source (R-14)."""
+    if count <= 0:
+        return
+    print(format_original_location_restore_warning(count), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],
