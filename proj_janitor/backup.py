@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import unicodedata
 from collections import Counter
@@ -375,7 +376,11 @@ def _backup_one(
                 raise RuntimeError("git bundle plan is incomplete")
             archive_path = manifest_path.parent / plan.archive_name
             record, archive_identity = _create_git_bundle(
-                plan.project, archive_path, recovery, plan.reason
+                plan.project,
+                archive_path,
+                recovery,
+                plan.reason,
+                progress=progress,
             )
             if encrypt_passphrase_file is not None:
                 record, archive_identity = _encrypt_backup_payload(
@@ -541,32 +546,49 @@ def _create_git_bundle(
     bundle_path: Path,
     recovery: GitRecovery,
     fallback_reason: str | None,
+    progress: bool = False,
 ) -> tuple[BackupRecord, tuple[int, int]]:
     temporary = Path(
         tempfile.mkdtemp(prefix=".projjan-bundle-", dir=bundle_path.parent)
     )
     temporary_bundle = temporary / "bundle"
     identity: tuple[int, int] | None = None
+    progress_started = time.monotonic() if progress else None
+    if progress:
+        print(
+            f"progress: {project.name}: creating git bundle",
+            file=sys.stderr,
+        )
     try:
         try:
-            result = subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(project.path),
-                    "bundle",
-                    "create",
-                    str(temporary_bundle),
-                    "--all",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=600,
-                check=False,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-            )
+            command = [
+                "git",
+                "-C",
+                str(project.path),
+                "bundle",
+                "create",
+            ]
+            if progress:
+                command.append("--progress")
+            command.extend([str(temporary_bundle), "--all"])
+            env = {
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_PAGER": "cat",
+            }
+            if progress:
+                result = _run_git_bundle_create(command, env=env, timeout=600)
+            else:
+                result = subprocess.run(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=600,
+                    check=False,
+                    env=env,
+                )
         except subprocess.TimeoutExpired as exc:
             raise OSError("git bundle creation timed out") from exc
         if result.returncode:
@@ -591,6 +613,16 @@ def _create_git_bundle(
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
     assert identity is not None
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: {project.name}: git bundle done ({elapsed})",
+            file=sys.stderr,
+        )
     return (
         BackupRecord(
             project=project.name,
@@ -606,6 +638,53 @@ def _create_git_bundle(
             fallback_reason=fallback_reason,
         ),
         identity,
+    )
+
+
+def _run_git_bundle_create(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``git bundle create --progress`` while echoing stderr in real time."""
+    options = {"start_new_session": True} if os.name == "posix" else {}
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        **options,
+    )
+    stderr_chunks: list[str] = []
+
+    def _drain() -> None:
+        assert process.stderr is not None
+        while True:
+            chunk = process.stderr.read(4096)
+            if not chunk:
+                break
+            stderr_chunks.append(chunk)
+            sys.stderr.write(chunk)
+            sys.stderr.flush()
+
+    reader = threading.Thread(target=_drain, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout
+    while process.poll() is None:
+        if time.monotonic() >= deadline:
+            process.kill()
+            reader.join(timeout=5)
+            raise subprocess.TimeoutExpired(command, timeout)
+        time.sleep(0.05)
+    reader.join(timeout=5)
+    return subprocess.CompletedProcess(
+        command,
+        process.returncode or 0,
+        stdout="",
+        stderr="".join(stderr_chunks),
     )
 
 

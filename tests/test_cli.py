@@ -1298,6 +1298,31 @@ class CliTests(unittest.TestCase):
             self.assertIn("after excludes", err)
             self.assertFalse(dest.exists())
 
+    @unittest.skipUnless(GIT_AVAILABLE, "git is required")
+    def test_backup_progress_reports_git_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            git(project, "switch", "-c", "feature/local")
+            (project / "feature.py").write_text("local history\n", encoding="utf-8")
+            git(project, "add", "feature.py")
+            git(project, "commit", "-m", "local-only commit")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--progress",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("[git-bundle]", out)
+            self.assertIn(f"progress: {project.name}: creating git bundle", err)
+            self.assertRegex(
+                err, rf"progress: {re.escape(project.name)}: git bundle done \(\d+s\)"
+            )
+
     def test_backup_progress_reports_per_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -3,8 +3,11 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread,
+    time::Instant,
 };
 
 use crate::{
@@ -58,6 +61,7 @@ fn blocked_backup_reason(reason: &str) -> bool {
 fn create_git_bundle(
     project: &Path,
     bundle: &Path,
+    progress_label: Option<&str>,
 ) -> anyhow::Result<(String, u64, same_file::Handle)> {
     let temporary = create_private_temp_dir(
         bundle
@@ -66,19 +70,60 @@ fn create_git_bundle(
     )?;
     let temporary_bundle = temporary.join("bundle");
     let result = (|| -> anyhow::Result<_> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(project)
-            .args(["bundle", "create"])
+        let progress_started = progress_label.map(|_| Instant::now());
+        if let Some(name) = progress_label {
+            eprintln!("progress: {name}: creating git bundle");
+        }
+        let mut command = Command::new("git");
+        command.arg("-C").arg(project).args(["bundle", "create"]);
+        if progress_label.is_some() {
+            command.arg("--progress");
+        }
+        command
             .arg(git_compatible_path(&temporary_bundle))
             .arg("--all")
             .stdin(Stdio::null())
-            .output()?;
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_PAGER", "cat");
+        let mut child = command.spawn()?;
+        let mut stderr_pipe = child.stderr.take();
+        let stream_stderr = progress_label.is_some();
+        let reader = thread::spawn(move || {
+            let mut output = String::new();
+            if let Some(mut handle) = stderr_pipe.take() {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match handle.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let chunk = String::from_utf8_lossy(&buf[..n]);
+                            if stream_stderr {
+                                eprint!("{chunk}");
+                                let _ = io::stderr().flush();
+                            }
+                            output.push_str(&chunk);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+            output
+        });
+        let status = child.wait()?;
+        let stderr = reader.join().unwrap_or_default();
         anyhow::ensure!(
-            output.status.success(),
+            status.success(),
             "git bundle creation failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            stderr.trim()
         );
+        if let Some(name) = progress_label {
+            let elapsed = progress_started
+                .map(|started| crate::format_elapsed(started.elapsed()))
+                .unwrap_or_else(|| "0s".into());
+            eprintln!("progress: {name}: git bundle done ({elapsed})");
+        }
         Ok(copy_new_file(&temporary_bundle, bundle)?)
     })();
     let _ = fs::remove_dir_all(&temporary);
@@ -493,7 +538,8 @@ pub(crate) fn backup_cmd(
                 });
             }
             if let Some(bundle) = &bundle_recovery {
-                let (hash, bytes, identity) = create_git_bundle(&p.path, &bundle_path)?;
+                let (hash, bytes, identity) =
+                    create_git_bundle(&p.path, &bundle_path, progress.then_some(p.name.as_str()))?;
                 archive_identity = Some(identity);
                 archive_path.clone_from(&bundle_path);
                 let (hash, bytes, encryption) = maybe_encrypt_payload(

@@ -1360,6 +1360,46 @@ fn restore_git_bundle_surfaces_git_stderr_on_invalid_bundle() {
 }
 
 #[test]
+fn backup_progress_reports_git_bundle() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    fs::write(project.join("main.py"), "main\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "main"]);
+    git(&project, &["switch", "-q", "-c", "feature/local"]);
+    fs::write(project.join("feature.py"), "local history\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "local-only"]);
+    let backup_dest = temp.0.join("backups");
+    let name = project.file_name().unwrap().to_string_lossy();
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--progress", "--backup-dest"])
+        .arg(&backup_dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&backup.stdout);
+    let stderr = String::from_utf8_lossy(&backup.stderr);
+    assert!(stdout.contains("[git-bundle]"), "stdout: {stdout}");
+    assert!(
+        stderr.contains(&format!("progress: {name}: creating git bundle")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("progress: {name}: git bundle done (")),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn backup_and_restore_unpushed_git_history_with_bundle() {
     let temp = TestDir::new();
     let project = temp.project();
