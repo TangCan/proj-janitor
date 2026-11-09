@@ -3862,7 +3862,7 @@ fn restore_continue_on_error_restores_remaining_projects() {
     let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["restore", "--dest"])
         .arg(&out)
-        .args(["--continue-on-error", "--json"])
+        .args(["--continue-on-error", "--progress", "--json"])
         .arg(&combined)
         .output()
         .unwrap();
@@ -3891,7 +3891,12 @@ fn restore_continue_on_error_restores_remaining_projects() {
             .collect::<Vec<_>>(),
         vec!["second"]
     );
-    assert!(stderr.contains("second"), "{stderr}");
+    assert!(stderr.contains("error: second:"), "{stderr}");
+    assert!(stderr.contains("progress: failed 2/3: second"), "{stderr}");
+    assert!(
+        stderr.contains("progress: done, restored 2, skipped 0, failed 1 ("),
+        "{stderr}"
+    );
     assert!(out.join("first/ok.txt").is_file());
     assert!(!out.join("second").exists());
     assert!(out.join("third/ok.txt").is_file());

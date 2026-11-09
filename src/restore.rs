@@ -1422,6 +1422,9 @@ pub(crate) fn restore_cmd(
         if let Err(error) = result {
             if continue_on_error {
                 eprintln!("error: {}: {error:#}", r.project);
+                if progress {
+                    eprintln!("progress: failed {index}/{total}: {}", r.project);
+                }
                 failures.push((r.project.clone(), format!("{error:#}")));
                 continue;
             }

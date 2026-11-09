@@ -230,6 +230,13 @@ def execute_restore(
         except (OSError, RestoreError) as exc:
             message = f"cannot restore {plan.project}: {exc}"
             if continue_on_error:
+                # Emit immediately (CR-132), matching Rust restore --continue-on-error.
+                print(f"error: {plan.project}: {exc}", file=sys.stderr)
+                if progress:
+                    print(
+                        f"progress: failed {index}/{total}: {plan.project}",
+                        file=sys.stderr,
+                    )
                 failures.append((plan.project, str(exc)))
                 continue
             completed = ", ".join(

@@ -1192,10 +1192,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             progress=progress,
         )
     except PartialRestoreError as exc:
+        # Per-project errors were already printed during execute_restore (CR-132).
         results = exc.results
         failures = list(exc.failures)
-        for project, error in failures:
-            print(f"error: {project}: {error}", file=sys.stderr)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -742,6 +742,7 @@ class CliTests(unittest.TestCase):
                 "--dest",
                 str(restored),
                 "--continue-on-error",
+                "--progress",
                 "--json",
             )
             self.assertEqual(code, 1, out + err)
@@ -754,7 +755,12 @@ class CliTests(unittest.TestCase):
                 [f["project"] for f in payload["failures"]],
                 ["second"],
             )
-            self.assertIn("second", err)
+            self.assertIn("error: second:", err)
+            self.assertIn("progress: failed 2/3: second", err)
+            self.assertRegex(
+                err, r"progress: done, restored 2, skipped 0, failed 1 \(\d+s\)"
+            )
+            self.assertEqual(err.count("error: second:"), 1)
             self.assertTrue((restored / "first").exists())
             self.assertFalse((restored / "second").exists())
             self.assertTrue((restored / "third").exists())
