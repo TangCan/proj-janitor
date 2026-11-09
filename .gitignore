@@ -9,7 +9,13 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.json
 htmlcov/
+*.profraw
+*.profdata
+lcov.info
+/scripts/.coverage*
 backups/
 .DS_Store
 /target/

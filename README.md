@@ -359,6 +359,14 @@ Python 版回归检查：
 python3 -m unittest discover -s tests -v
 ```
 
+可选行覆盖率基线（不设门禁；需本机安装 `coverage` 与 `cargo-llvm-cov`）：
+
+```bash
+./scripts/measure_coverage.sh
+```
+
+2026-11-09 本地快照约：Python `proj_janitor` 83% 行；Rust `src` 约 84% 行（详见 `docs/结项文档/06-测试报告与缺陷清单.md` 第 12.42 节）。
+
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。

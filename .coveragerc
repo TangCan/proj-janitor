@@ -1,0 +1,14 @@
+[run]
+branch = False
+source = proj_janitor
+omit =
+    */proj_janitor/__main__.py
+
+[report]
+precision = 0
+show_missing = False
+skip_empty = True
+include =
+    proj_janitor/*
+omit =
+    */proj_janitor/__main__.py
