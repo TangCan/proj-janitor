@@ -136,6 +136,7 @@ INIT_CONFIG_TEMPLATE = """\
 
 [verify]
 # check_remote = false
+# progress = true
 
 [restore]
 # check_remote = false
@@ -224,10 +225,11 @@ class PruneConfig:
 
 
 class VerifyConfig:
-    __slots__ = ("check_remote",)
+    __slots__ = ("check_remote", "progress")
 
-    def __init__(self, check_remote: bool = False) -> None:
+    def __init__(self, check_remote: bool = False, progress: bool = False) -> None:
         self.check_remote = check_remote
+        self.progress = progress
 
 
 class RestoreConfig:
@@ -454,14 +456,17 @@ def load_config(path: Path | None = None) -> Config | None:
     verify_data = data.get("verify", {})
     if not isinstance(verify_data, dict):
         raise ConfigError(f"invalid config {path}: [verify] must be a table")
-    if set(verify_data) - {"check_remote"}:
+    if set(verify_data) - {"check_remote", "progress"}:
         raise ConfigError(
             f"invalid config {path}: unknown [verify] key(s) "
-            f"{sorted(set(verify_data) - {'check_remote'})}"
+            f"{sorted(set(verify_data) - {'check_remote', 'progress'})}"
         )
     verify = VerifyConfig(
         check_remote=_parse_bool(verify_data["check_remote"], "[verify].check_remote")
         if "check_remote" in verify_data
+        else False,
+        progress=_parse_bool(verify_data["progress"], "[verify].progress")
+        if "progress" in verify_data
         else False,
     )
 

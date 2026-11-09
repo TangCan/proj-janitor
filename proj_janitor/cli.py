@@ -457,8 +457,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="progress",
         help=(
             "print per-project restore progress with elapsed time on stderr, "
-            "including archive extract, git fetch, LFS pull, and submodule "
-            "update status (overrides [restore].progress)"
+            "including remote probes, archive extract, git fetch, LFS pull, "
+            "and submodule update status (overrides [restore].progress)"
         ),
     )
     restore_progress.add_argument(
@@ -500,7 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="verify only this project (repeatable)",
     )
-    verify.set_defaults(check_remote=None)
+    verify.set_defaults(check_remote=None, progress=None)
     verify_remote = verify.add_mutually_exclusive_group()
     verify_remote.add_argument(
         "--check-remote",
@@ -516,6 +516,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="check_remote",
         help="disable remote probing even when [verify].check_remote is true",
+    )
+    verify_progress = verify.add_mutually_exclusive_group()
+    verify_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print per-project verify progress with elapsed time on stderr, "
+            "including remote/submodule/LFS probes when --check-remote is set "
+            "(overrides [verify].progress)"
+        ),
+    )
+    verify_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable verify progress even when [verify].progress is true",
     )
     verify.add_argument(
         "--config",
@@ -1101,9 +1118,16 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         args.check_remote,
         config.verify.check_remote if config else False,
     )
+    progress = resolve_tri_state(
+        args.progress,
+        config.verify.progress if config else False,
+    )
     try:
         results = verify_manifest(
-            args.manifest, projects=args.project, check_remote=check_remote
+            args.manifest,
+            projects=args.project,
+            check_remote=check_remote,
+            progress=progress,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -121,9 +121,17 @@ def execute_restore(
                     )
                 _verify_archive_hash(plan.archive, plan.project, plan.sha256)
     if check_remote:
-        for plan in plan_list:
-            if plan.skip or plan.strategy != "git":
-                continue
+        git_plans = [
+            plan for plan in plan_list if not plan.skip and plan.strategy == "git"
+        ]
+        probe_total = len(git_plans)
+        for probe_index, plan in enumerate(git_plans, start=1):
+            if progress:
+                print(
+                    f"progress: probing remote {probe_index}/{probe_total}: "
+                    f"{plan.project}",
+                    file=sys.stderr,
+                )
             if plan.remote_url is None or plan.commit is None:
                 raise RestoreError(f"incomplete git restore plan for {plan.project}")
             status, reason, _refs = _probe_remote(plan.remote_url, plan.commit)
@@ -132,21 +140,38 @@ def execute_restore(
                     f"cannot restore {plan.project}: remote "
                     f"{redact_remote_url(plan.remote_url)} is unreachable ({reason})"
                 )
-            for submodule in plan.submodules or []:
-                if not isinstance(submodule, dict):
-                    continue
-                sub_url = submodule.get("url")
-                sub_commit = submodule.get("commit")
+            raw_submodules = [
+                submodule
+                for submodule in (plan.submodules or [])
+                if isinstance(submodule, dict)
+                and isinstance(submodule.get("url"), str)
+                and isinstance(submodule.get("commit"), str)
+            ]
+            if progress and raw_submodules:
+                print(
+                    f"progress: {plan.project}: probing {len(raw_submodules)} "
+                    "submodule(s)",
+                    file=sys.stderr,
+                )
+            for submodule in raw_submodules:
+                sub_url = submodule["url"]
+                sub_commit = submodule["commit"]
                 sub_path = submodule.get("path", "")
-                if not isinstance(sub_url, str) or not isinstance(sub_commit, str):
-                    continue
+                assert isinstance(sub_url, str) and isinstance(sub_commit, str)
                 sub_status, sub_reason, _ = _probe_remote(sub_url, sub_commit)
                 if sub_status == "remote-unreachable":
                     raise RestoreError(
                         f"cannot restore {plan.project}: submodule {sub_path} remote "
                         f"{redact_remote_url(sub_url)} is unreachable ({sub_reason})"
                     )
-            for lfs_check in _probe_lfs_objects(plan.remote_url, plan.lfs_objects or []):
+            lfs_objects = plan.lfs_objects or []
+            if progress and lfs_objects:
+                print(
+                    f"progress: {plan.project}: probing {len(lfs_objects)} "
+                    "LFS object(s)",
+                    file=sys.stderr,
+                )
+            for lfs_check in _probe_lfs_objects(plan.remote_url, lfs_objects):
                 if lfs_check["status"] in ("lfs-missing", "lfs-unreachable"):
                     oid = str(lfs_check["oid"])
                     raise RestoreError(
@@ -696,18 +721,26 @@ def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
     check_remote: bool = False,
+    progress: bool = False,
 ) -> list[dict[str, object]]:
     manifest_path, manifest = load_manifest(manifest_path)
     selected = _select_records(manifest["records"], projects)
     results: list[dict[str, object]] = []
     seen: set[str] = set()
-    for record in selected:
+    total = len(selected)
+    progress_started = time.monotonic() if progress else None
+    for index, record in enumerate(selected, start=1):
         project = _record_project(record)
         if project in seen:
             raise RestoreError(f"duplicate project in manifest: {project}")
         seen.add(project)
 
         strategy = record.get("strategy")
+        if progress:
+            print(
+                f"progress: verifying {index}/{total}: {project} ({strategy})",
+                file=sys.stderr,
+            )
         if strategy == "archive":
             archive = _resolve_archive(record, manifest_path.parent, project)
             expected = record.get("sha256")
@@ -747,6 +780,11 @@ def verify_manifest(
                 "commit": commit,
             }
             if check_remote:
+                if progress:
+                    print(
+                        f"progress: {project}: probing remote",
+                        file=sys.stderr,
+                    )
                 status, reason, refs = _probe_remote(remote_url, commit)
                 entry["status"] = status
                 entry["remote"] = {
@@ -755,15 +793,25 @@ def verify_manifest(
                     "reason": reason,
                     "refs": refs,
                 }
+                raw_submodules = [
+                    submodule
+                    for submodule in (record.get("submodules") or [])
+                    if isinstance(submodule, dict)
+                    and isinstance(submodule.get("url"), str)
+                    and isinstance(submodule.get("commit"), str)
+                ]
+                if progress and raw_submodules:
+                    print(
+                        f"progress: {project}: probing {len(raw_submodules)} "
+                        "submodule(s)",
+                        file=sys.stderr,
+                    )
                 submodule_checks: list[dict[str, object]] = []
-                for submodule in record.get("submodules") or []:
-                    if not isinstance(submodule, dict):
-                        continue
-                    sub_url = submodule.get("url")
-                    sub_commit = submodule.get("commit")
+                for submodule in raw_submodules:
+                    sub_url = submodule["url"]
+                    sub_commit = submodule["commit"]
                     sub_path = submodule.get("path", "")
-                    if not isinstance(sub_url, str) or not isinstance(sub_commit, str):
-                        continue
+                    assert isinstance(sub_url, str) and isinstance(sub_commit, str)
                     sub_status, sub_reason, sub_refs = _probe_remote(
                         sub_url, sub_commit
                     )
@@ -785,9 +833,14 @@ def verify_manifest(
                     entry["status"] = "remote-unreachable"
                 if not submodule_checks:
                     del entry["submodules"]
-                lfs_checks = _probe_lfs_objects(
-                    remote_url, record.get("lfs_objects") or []
-                )
+                lfs_objects = record.get("lfs_objects") or []
+                if progress and lfs_objects:
+                    print(
+                        f"progress: {project}: probing {len(lfs_objects)} "
+                        "LFS object(s)",
+                        file=sys.stderr,
+                    )
+                lfs_checks = _probe_lfs_objects(remote_url, lfs_objects)
                 if lfs_checks:
                     entry["lfs"] = lfs_checks
                     if entry["status"] != "remote-unreachable" and any(
@@ -816,6 +869,16 @@ def verify_manifest(
             raise RestoreError(
                 f"unsupported backup strategy for {project}: {strategy!r}"
             )
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, verified {len(results)} ({elapsed})",
+            file=sys.stderr,
+        )
     return results
 
 

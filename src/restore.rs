@@ -154,12 +154,24 @@ pub(crate) fn verify_cmd(
     manifest_path: &Path,
     projects: &[String],
     check_remote: bool,
+    progress: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
+    let records = selected_records(&manifest.records, projects)?;
+    let total = records.len();
+    let progress_started = progress.then(Instant::now);
     let mut names = HashSet::new();
     let mut results = Vec::new();
-    for record in selected_records(&manifest.records, projects)? {
+    for (index, record) in records.into_iter().enumerate() {
+        if progress {
+            eprintln!(
+                "progress: verifying {}/{total}: {} ({})",
+                index + 1,
+                record.project,
+                record.strategy
+            );
+        }
         anyhow::ensure!(
             safe_name(&record.project),
             "unsafe project name: {}",
@@ -206,8 +218,33 @@ pub(crate) fn verify_cmd(
                     .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
                 validate_git_restore(url, commit)?;
                 if check_remote {
+                    if progress {
+                        eprintln!("progress: {}: probing remote", record.project);
+                    }
                     let probe = probe_remote(url, commit)?;
+                    let submodule_count = record
+                        .submodules
+                        .as_ref()
+                        .map(|modules| modules.len())
+                        .unwrap_or(0);
+                    if progress && submodule_count > 0 {
+                        eprintln!(
+                            "progress: {}: probing {submodule_count} submodule(s)",
+                            record.project
+                        );
+                    }
                     let submodules = probe_submodules(record)?;
+                    let lfs_count = record
+                        .lfs_objects
+                        .as_ref()
+                        .map(|objects| objects.len())
+                        .unwrap_or(0);
+                    if progress && lfs_count > 0 {
+                        eprintln!(
+                            "progress: {}: probing {lfs_count} LFS object(s)",
+                            record.project
+                        );
+                    }
                     let lfs = probe_lfs_objects(url, record.lfs_objects.as_deref().unwrap_or(&[]))?;
                     let status = if submodules
                         .iter()
@@ -302,6 +339,12 @@ pub(crate) fn verify_cmd(
             println!("{}", result.line());
         }
         println!("Verified {} project(s).", results.len());
+    }
+    if progress {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: done, verified {} ({elapsed})", results.len());
     }
     if results
         .iter()
@@ -1201,9 +1244,20 @@ pub(crate) fn restore_cmd(
         }
     }
     if check_remote {
-        for (record, _, _, _, skip) in &plans {
-            if *skip || record.strategy != "git" {
-                continue;
+        let git_plans: Vec<_> = plans
+            .iter()
+            .filter(|(_, _, _, _, skip)| !*skip)
+            .filter(|(record, _, _, _, _)| record.strategy == "git")
+            .collect();
+        let probe_total = git_plans.len();
+        for (probe_index, (record, _, _, _, _)) in git_plans.into_iter().enumerate() {
+            if progress {
+                eprintln!(
+                    "progress: probing remote {}/{}: {}",
+                    probe_index + 1,
+                    probe_total,
+                    record.project
+                );
             }
             let url = record
                 .remote_url
@@ -1221,6 +1275,13 @@ pub(crate) fn restore_cmd(
                 );
             }
             if let Some(submodules) = &record.submodules {
+                if progress && !submodules.is_empty() {
+                    eprintln!(
+                        "progress: {}: probing {} submodule(s)",
+                        record.project,
+                        submodules.len()
+                    );
+                }
                 for sub in submodules {
                     if let RemoteProbe::Unreachable(reason) = probe_remote(&sub.url, &sub.commit)? {
                         anyhow::bail!(
@@ -1231,6 +1292,17 @@ pub(crate) fn restore_cmd(
                         );
                     }
                 }
+            }
+            let lfs_count = record
+                .lfs_objects
+                .as_ref()
+                .map(|objects| objects.len())
+                .unwrap_or(0);
+            if progress && lfs_count > 0 {
+                eprintln!(
+                    "progress: {}: probing {lfs_count} LFS object(s)",
+                    record.project
+                );
             }
             let lfs = probe_lfs_objects(url, record.lfs_objects.as_deref().unwrap_or(&[]))?;
             if let Some(missing) = lfs

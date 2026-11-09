@@ -228,6 +228,15 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.restore.require_dest)
 
+    def test_loads_verify_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".proj-janitor.toml"
+            path.write_text("[verify]\nprogress = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.verify.progress)
+            self.assertFalse(config.verify.check_remote)
+
     def test_loads_restore_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".proj-janitor.toml"

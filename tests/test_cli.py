@@ -514,6 +514,27 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((original / "node_modules").exists())
 
+    def test_verify_progress_reports_per_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("data\n", encoding="utf-8")
+            dest = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifest = next((dest / project.name).glob("manifest-*.json"))
+
+            code, out, err = run_cli("verify", str(manifest), "--progress")
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("progress: verifying 1/1:", err)
+            self.assertRegex(err, r"progress: done, verified 1 \(\d+s\)")
+
     def test_restore_progress_reports_per_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -562,6 +583,29 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: would restore 1 project(s)", err)
+
+    @unittest.skipUnless(GIT_AVAILABLE, "git is required")
+    def test_restore_progress_reports_remote_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+                "--progress",
+                "--yes",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("progress: probing remote 1/1:", err)
+            self.assertIn("progress: restoring 1/1:", err)
 
     @unittest.skipUnless(GIT_AVAILABLE, "git is required")
     def test_restore_progress_reports_git_fetch(self) -> None:

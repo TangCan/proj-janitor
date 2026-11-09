@@ -70,6 +70,9 @@ pub(crate) struct VerifyConfig {
     /// Default for `verify --check-remote` when neither flag is passed.
     #[serde(default)]
     pub(crate) check_remote: bool,
+    /// Emit per-project verify / remote-probe progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]

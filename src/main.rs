@@ -255,7 +255,7 @@ enum Action {
         /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
-        /// Print per-project restore progress with elapsed time (archive, git fetch, LFS, submodules)
+        /// Print per-project restore progress with elapsed time (probes, archive, git, LFS, submodules)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable restore progress even when [restore].progress is true
@@ -284,6 +284,12 @@ enum Action {
         /// Disable remote probing even when [verify].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        /// Print per-project verify progress with elapsed time (remote probes too)
+        #[arg(long, conflicts_with = "no_progress")]
+        progress: bool,
+        /// Disable verify progress even when [verify].progress is true
+        #[arg(long = "no-progress", conflicts_with = "progress")]
+        no_progress: bool,
         /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
@@ -668,6 +674,8 @@ fn run() -> anyhow::Result<()> {
             projects,
             check_remote,
             no_check_remote,
+            progress,
+            no_progress,
             config,
             json,
         } => {
@@ -680,7 +688,15 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.verify.check_remote)
                     .unwrap_or(false),
             );
-            restore::verify_cmd(&manifest, &projects, check_remote, json)
+            let progress = resolve_tri_state(
+                progress,
+                no_progress,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.verify.progress)
+                    .unwrap_or(false),
+            );
+            restore::verify_cmd(&manifest, &projects, check_remote, progress, json)
         }
         Action::Init { dir, force } => {
             let path = init::init_config(&dir, force)?;
