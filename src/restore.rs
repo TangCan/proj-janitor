@@ -74,6 +74,37 @@ fn refuse_insecure_restore_parents(
     Ok(())
 }
 
+fn path_under_allowed_root(target: &Path, root: &Path) -> bool {
+    target == root || target.starts_with(root)
+}
+
+fn refuse_outside_allowed_roots(
+    plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
+    allowed_roots: &[PathBuf],
+) -> anyhow::Result<()> {
+    if allowed_roots.is_empty() {
+        return Ok(());
+    }
+    let mut roots = Vec::with_capacity(allowed_roots.len());
+    for root in allowed_roots {
+        roots.push(resolve_for_creation(&expand(root))?);
+    }
+    for (_, target, _, _, _) in plans {
+        if roots
+            .iter()
+            .any(|root| path_under_allowed_root(target, root))
+        {
+            continue;
+        }
+        anyhow::bail!(
+            "restore target is outside allowed roots \
+             (pass --allowed-root or configure [restore].allowed_roots): {}",
+            target.display()
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_git_restore(remote: &str, commit: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         (7..=64).contains(&commit.len()) && commit.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -1057,6 +1088,7 @@ pub(crate) fn restore_cmd(
     fail_on_remote_skipped: bool,
     require_dest: bool,
     fail_on_insecure_dest: bool,
+    allowed_roots: &[PathBuf],
     force: bool,
     keep_replaced: bool,
     rollback_on_error: bool,
@@ -1201,6 +1233,7 @@ pub(crate) fn restore_cmd(
     if fail_on_insecure_dest {
         refuse_insecure_restore_parents(dest.as_deref(), &plans)?;
     }
+    refuse_outside_allowed_roots(&plans, allowed_roots)?;
     if dry {
         if json {
             let vals: Vec<_> = plans

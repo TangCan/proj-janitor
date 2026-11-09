@@ -153,6 +153,7 @@ INIT_CONFIG_TEMPLATE = """\
 # fail_on_remote_skipped = false
 # fail_on_insecure_dest = false
 # require_dest = false
+# allowed_roots = ["/safe/restore"]
 # force = false
 # keep_replaced = false
 # rollback_on_error = false
@@ -274,6 +275,7 @@ class RestoreConfig:
         "fail_on_remote_skipped",
         "fail_on_insecure_dest",
         "require_dest",
+        "allowed_roots",
         "decrypt_passphrase_file",
         "force",
         "keep_replaced",
@@ -290,6 +292,7 @@ class RestoreConfig:
         fail_on_remote_skipped: bool = False,
         fail_on_insecure_dest: bool = False,
         require_dest: bool = False,
+        allowed_roots: tuple[Path, ...] = (),
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
         keep_replaced: bool = False,
@@ -303,6 +306,7 @@ class RestoreConfig:
         self.fail_on_remote_skipped = fail_on_remote_skipped
         self.fail_on_insecure_dest = fail_on_insecure_dest
         self.require_dest = require_dest
+        self.allowed_roots = allowed_roots
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
         self.keep_replaced = keep_replaced
@@ -391,6 +395,17 @@ def _parse_exclude(value: object, where: str) -> tuple[str, ...]:
             )
         normalized.append(pattern)
     return tuple(normalized)
+
+
+def _parse_path_list(value: object, where: str) -> tuple[Path, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ConfigError(f"config {where} must be a list of strings")
+    roots: list[Path] = []
+    for item in value:
+        if not item.strip():
+            raise ConfigError(f"config {where} entries must not be empty")
+        roots.append(Path(item))
+    return tuple(roots)
 
 
 def _load_toml(path: Path) -> dict:
@@ -559,6 +574,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "fail_on_remote_skipped",
         "fail_on_insecure_dest",
         "require_dest",
+        "allowed_roots",
         "decrypt_passphrase_file",
         "force",
         "keep_replaced",
@@ -598,6 +614,11 @@ def load_config(path: Path | None = None) -> Config | None:
         )
         if "require_dest" in restore_data
         else False,
+        allowed_roots=_parse_path_list(
+            restore_data["allowed_roots"], "[restore].allowed_roots"
+        )
+        if "allowed_roots" in restore_data
+        else (),
         decrypt_passphrase_file=_parse_path(
             restore_data["decrypt_passphrase_file"],
             "[restore].decrypt_passphrase_file",

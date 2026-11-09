@@ -73,6 +73,32 @@ def refuse_insecure_restore_parents(
             probe = parent
 
 
+def format_outside_allowed_roots_refusal(path: Path) -> str:
+    return (
+        "error: restore target is outside allowed roots "
+        f"(pass --allowed-root or configure [restore].allowed_roots): {path}"
+    )
+
+
+def refuse_outside_allowed_roots(
+    plans: Iterable[RestorePlan],
+    allowed_roots: Iterable[Path],
+) -> None:
+    """Raise RestoreError when a restore target is outside every allowed root."""
+    roots = tuple(
+        Path(root).expanduser().resolve(strict=False) for root in allowed_roots
+    )
+    if not roots:
+        return
+    for plan in plans:
+        target = Path(plan.target).expanduser().resolve(strict=False)
+        if any(target == root or target.is_relative_to(root) for root in roots):
+            continue
+        raise RestoreError(
+            format_outside_allowed_roots_refusal(target).removeprefix("error: ")
+        )
+
+
 class GitTimeoutError(RestoreError):
     pass
 

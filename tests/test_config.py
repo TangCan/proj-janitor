@@ -195,6 +195,20 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.restore.fail_on_insecure_dest)
 
+    def test_loads_restore_allowed_roots_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                '[restore]\nallowed_roots = ["/safe/restore", "/tmp/out"]\n',
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertEqual(
+                config.restore.allowed_roots,
+                (Path("/safe/restore"), Path("/tmp/out")),
+            )
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

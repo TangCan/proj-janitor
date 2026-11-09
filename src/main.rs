@@ -287,6 +287,9 @@ enum Action {
             conflicts_with = "fail_on_insecure_dest"
         )]
         no_fail_on_insecure_dest: bool,
+        /// Only allow restore targets under this directory (repeatable; overrides [restore].allowed_roots)
+        #[arg(long = "allowed-root", value_name = "DIR")]
+        allowed_roots: Vec<PathBuf>,
         /// Replace an existing restore target directory after staging succeeds
         #[arg(long, conflicts_with = "no_force")]
         force: bool,
@@ -711,6 +714,7 @@ fn run() -> anyhow::Result<()> {
             no_require_dest,
             fail_on_insecure_dest,
             no_fail_on_insecure_dest,
+            allowed_roots,
             force,
             no_force,
             keep_replaced,
@@ -768,6 +772,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.fail_on_insecure_dest)
                     .unwrap_or(false),
             );
+            let allowed_roots = if !allowed_roots.is_empty() {
+                allowed_roots
+            } else {
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.allowed_roots.clone())
+                    .unwrap_or_default()
+            };
             let force = resolve_tri_state(
                 force,
                 no_force,
@@ -837,6 +849,7 @@ fn run() -> anyhow::Result<()> {
                 fail_on_remote_skipped,
                 require_dest,
                 fail_on_insecure_dest,
+                &allowed_roots,
                 force,
                 keep_replaced,
                 rollback_on_error,

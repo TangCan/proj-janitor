@@ -2753,6 +2753,67 @@ fn backup_fail_on_insecure_dest_refuses_open_directory() {
     assert!(stderr.contains("0755"), "{stderr}");
 }
 
+#[test]
+fn restore_allowed_root_refuses_outside_target() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "hello\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("manifest-") && name.ends_with(".json"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+    let allowed = temp.0.join("allowed-only");
+    fs::create_dir_all(&allowed).unwrap();
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--allowed-root"])
+        .arg(&allowed)
+        .arg("--dest")
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        !blocked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&blocked.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stderr.contains("outside allowed roots"), "{stderr}");
+
+    let allowed_ok = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--allowed-root"])
+        .arg(&allowed)
+        .arg("--dest")
+        .arg(&allowed)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        allowed_ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed_ok.stderr)
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn restore_fail_on_insecure_dest_refuses_open_directory() {

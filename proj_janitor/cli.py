@@ -56,6 +56,7 @@ from proj_janitor.restore import (
     plan_restore,
     redact_remote_url,
     refuse_insecure_restore_parents,
+    refuse_outside_allowed_roots,
     verify_manifest,
 )
 from proj_janitor.retention import (
@@ -509,6 +510,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "allow restore into group/other-accessible directories even when "
             "[restore].fail_on_insecure_dest is true"
+        ),
+    )
+    restore.add_argument(
+        "--allowed-root",
+        action="append",
+        dest="allowed_roots",
+        metavar="DIR",
+        default=None,
+        help=(
+            "only allow restore targets under this directory (repeatable; "
+            "overrides [restore].allowed_roots when any are passed)"
         ),
     )
     restore_force = restore.add_mutually_exclusive_group()
@@ -1232,6 +1244,12 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.fail_on_insecure_dest,
         config.restore.fail_on_insecure_dest if config else False,
     )
+    if args.allowed_roots is not None:
+        allowed_roots = tuple(Path(root) for root in args.allowed_roots)
+    elif config is not None:
+        allowed_roots = config.restore.allowed_roots
+    else:
+        allowed_roots = ()
     force = resolve_tri_state(
         args.force,
         config.restore.force if config else False,
@@ -1289,6 +1307,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         )
         if fail_on_insecure_dest:
             refuse_insecure_restore_parents(plans, args.dest)
+        if allowed_roots:
+            refuse_outside_allowed_roots(plans, allowed_roots)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

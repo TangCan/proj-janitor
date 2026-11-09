@@ -122,6 +122,9 @@ pub(crate) struct RestoreConfig {
     /// Require `--dest` so restore never writes to manifest `source` paths.
     #[serde(default)]
     pub(crate) require_dest: bool,
+    /// When non-empty, restore targets must stay under one of these roots.
+    #[serde(default)]
+    pub(crate) allowed_roots: Vec<std::path::PathBuf>,
     /// Passphrase file used to decrypt openssl-encrypted archives.
     #[serde(default)]
     pub(crate) decrypt_passphrase_file: Option<std::path::PathBuf>,
@@ -203,6 +206,13 @@ pub(crate) fn discover_config(explicit: Option<&Path>) -> Result<Option<Config>>
             "invalid config {}: [backup].exclude brace expansion is not supported: {}",
             path.display(),
             pattern
+        );
+    }
+    for root in &config.restore.allowed_roots {
+        anyhow::ensure!(
+            !root.as_os_str().is_empty(),
+            "invalid config {}: [restore].allowed_roots entries must not be empty",
+            path.display()
         );
     }
     Ok(Some(config))
@@ -368,6 +378,23 @@ mod tests {
         );
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.fail_on_insecure_dest);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_allowed_roots() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[restore]\nallowed_roots = [\"/safe/restore\", \"/tmp/out\"]\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert_eq!(
+            config.restore.allowed_roots,
+            vec![
+                std::path::PathBuf::from("/safe/restore"),
+                std::path::PathBuf::from("/tmp/out")
+            ]
+        );
     }
 
     #[test]

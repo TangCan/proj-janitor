@@ -1322,6 +1322,50 @@ class CliTests(unittest.TestCase):
             self.assertIn("insecure permissions", err)
             self.assertIn("0755", err)
 
+    def test_restore_allowed_root_refuses_outside_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            backups = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backups),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = list((backups / "app").glob("manifest-*.json"))
+            self.assertTrue(manifests)
+            restored = root / "restored"
+            allowed = root / "allowed-only"
+            allowed.mkdir()
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(restored),
+                "--dry-run",
+                "--allowed-root",
+                str(allowed),
+            )
+            self.assertNotEqual(code, 0, err)
+            self.assertIn("outside allowed roots", err)
+            self.assertEqual(out, "")
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(allowed),
+                "--dry-run",
+                "--allowed-root",
+                str(allowed),
+            )
+            self.assertEqual(code, 0, err)
+
     @unittest.skipUnless(os.name == "posix", "Unix permission check")
     def test_restore_fail_on_insecure_dest_refuses_open_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
