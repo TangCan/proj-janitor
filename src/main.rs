@@ -255,7 +255,7 @@ enum Action {
         /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
-        /// Print per-project restore progress with elapsed time (archive extract counts too)
+        /// Print per-project restore progress with elapsed time (archive extract, git fetch too)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable restore progress even when [restore].progress is true

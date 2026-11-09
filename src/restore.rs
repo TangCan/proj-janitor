@@ -1314,7 +1314,7 @@ pub(crate) fn restore_cmd(
                         .commit
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
-                    restore_git(url, commit, target, &r.project, force)?;
+                    restore_git(url, commit, target, &r.project, force, progress)?;
                 }
                 "git_bundle" => {
                     let bundle = archive
@@ -1713,6 +1713,7 @@ fn restore_git(
     target: &Path,
     project: &str,
     force: bool,
+    progress: bool,
 ) -> anyhow::Result<()> {
     if !force {
         anyhow::ensure!(
@@ -1796,6 +1797,9 @@ fn restore_git(
             .arg("-C")
             .arg(&repo)
             .args(["fetch", "--no-write-fetch-head", "--no-tags"]);
+        if progress {
+            fetch.arg("--progress");
+        }
         if uses_config_env {
             fetch.arg(&fetch_remote);
             let actual_env = git_config_env(&format!("remote.{fetch_remote}.url"), url)
@@ -1807,10 +1811,20 @@ fn restore_git(
             fetch.arg("--").arg(url).args(refspecs);
         }
         fetch.stdout(Stdio::null());
+        let fetch_started = progress.then(Instant::now);
+        if progress {
+            eprintln!("progress: {project}: fetching git objects");
+        }
         ensure_git(
-            run_git_with_timeout(&mut fetch, project, "fetch")?,
+            run_git_with_timeout_opts(&mut fetch, project, "fetch", progress)?,
             format!("git fetch failed for {project}"),
         )?;
+        if progress {
+            let elapsed = fetch_started
+                .map(|started| crate::format_elapsed(started.elapsed()))
+                .unwrap_or_else(|| "0s".into());
+            eprintln!("progress: {project}: fetch done ({elapsed})");
+        }
         let mut remove_fetch_remote = Command::new("git");
         remove_fetch_remote
             .arg("-C")
@@ -2033,6 +2047,15 @@ fn run_git_with_timeout(
     project: &str,
     operation: &str,
 ) -> anyhow::Result<GitRun> {
+    run_git_with_timeout_opts(command, project, operation, false)
+}
+
+fn run_git_with_timeout_opts(
+    command: &mut Command,
+    project: &str,
+    operation: &str,
+    stream_stderr: bool,
+) -> anyhow::Result<GitRun> {
     #[cfg(unix)]
     let interrupt = InterruptGuard::new()?;
     #[cfg(unix)]
@@ -2042,8 +2065,22 @@ fn run_git_with_timeout(
     let mut stderr_pipe = child.stderr.take();
     let reader = thread::spawn(move || {
         let mut output = String::new();
-        if let Some(handle) = &mut stderr_pipe {
-            let _ = handle.read_to_string(&mut output);
+        if let Some(mut handle) = stderr_pipe.take() {
+            let mut buf = [0u8; 4096];
+            loop {
+                match handle.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]);
+                        if stream_stderr {
+                            eprint!("{chunk}");
+                            let _ = io::stderr().flush();
+                        }
+                        output.push_str(&chunk);
+                    }
+                    Err(_) => break,
+                }
+            }
         }
         output
     });

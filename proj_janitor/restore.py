@@ -1003,7 +1003,7 @@ def _restore_one(
     progress_label: str | None = None,
 ) -> RestoreResult:
     if plan.strategy == "git":
-        _restore_git(plan, force=force)
+        _restore_git(plan, force=force, progress=progress_label is not None)
     elif plan.strategy == "git_bundle":
         _restore_git_bundle(
             plan,
@@ -1143,7 +1143,9 @@ def _restore_lfs(repo: Path, project: str) -> None:
         )
 
 
-def _restore_git(plan: RestorePlan, *, force: bool = False) -> None:
+def _restore_git(
+    plan: RestorePlan, *, force: bool = False, progress: bool = False
+) -> None:
     if plan.remote_url is None or plan.commit is None:
         raise RestoreError(f"incomplete git restore plan for {plan.project}")
     if not force and (plan.target.exists() or plan.target.is_symlink()):
@@ -1196,6 +1198,8 @@ def _restore_git(plan: RestorePlan, *, force: bool = False) -> None:
                 "upgrade Git or use a credential helper or SSH"
             )
         fetch_args = ["-C", str(repo), "fetch", "--no-write-fetch-head", "--no-tags"]
+        if progress:
+            fetch_args.append("--progress")
         fetch_env = None
         if uses_config_env:
             fetch_args.append(fetch_remote)
@@ -1204,11 +1208,26 @@ def _restore_git(plan: RestorePlan, *, force: bool = False) -> None:
             fetch_env[f"GIT_CONFIG_VALUE_{config_index}"] = plan.remote_url
         else:
             fetch_args.extend([plan.remote_url, *refspecs])
+        fetch_started = time.monotonic() if progress else None
+        if progress:
+            print(
+                f"progress: {plan.project}: fetching git objects",
+                file=sys.stderr,
+            )
         _run_git(
             fetch_args,
             extra_env=fetch_env,
             sensitive_remote=plan.remote_url,
+            stream_stderr=progress,
         )
+        if progress:
+            elapsed = format_elapsed(
+                0.0 if fetch_started is None else time.monotonic() - fetch_started
+            )
+            print(
+                f"progress: {plan.project}: fetch done ({elapsed})",
+                file=sys.stderr,
+            )
         _run_git(
             ["-C", str(repo), "config", "--local", "--remove-section", f"remote.{fetch_remote}"]
         )
@@ -1744,6 +1763,7 @@ def _run_git(
     sensitive_remote: str | None = None,
     check: bool = True,
     timeout: int | None = None,
+    stream_stderr: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     if timeout is None:
         timeout = _GIT_TIMEOUT_SECONDS
@@ -1769,15 +1789,61 @@ def _run_git(
     if os.name == "posix" and threading.current_thread() is threading.main_thread():
         previous_sigterm = signal.signal(signal.SIGTERM, _interrupt_git)
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        if stream_stderr:
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+
+            def _drain(stream: object, chunks: list[str], *, echo: bool) -> None:
+                while True:
+                    chunk = stream.read(4096)  # type: ignore[attr-defined]
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    if echo:
+                        sys.stderr.write(chunk)
+                        sys.stderr.flush()
+
+            readers = [
+                threading.Thread(
+                    target=_drain,
+                    args=(process.stdout, stdout_chunks),
+                    kwargs={"echo": False},
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=_drain,
+                    args=(process.stderr, stderr_chunks),
+                    kwargs={"echo": True},
+                    daemon=True,
+                ),
+            ]
+            for reader in readers:
+                reader.start()
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if time.monotonic() >= deadline:
+                    _stop_git_process(process)
+                    for reader in readers:
+                        reader.join(timeout=5)
+                    raise GitTimeoutError(
+                        f"git {command} timed out after {timeout} seconds"
+                    )
+                time.sleep(0.05)
+            for reader in readers:
+                reader.join(timeout=5)
+            stdout = "".join(stdout_chunks)
+            stderr = "".join(stderr_chunks)
+        else:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                _stop_git_process(process)
+                raise GitTimeoutError(
+                    f"git {command} timed out after {timeout} seconds"
+                ) from exc
     except (KeyboardInterrupt, SystemExit):
         _stop_git_process(process)
         raise
-    except subprocess.TimeoutExpired as exc:
-        _stop_git_process(process)
-        raise GitTimeoutError(
-            f"git {command} timed out after {timeout} seconds"
-        ) from exc
     finally:
         if previous_sigterm is not None:
             signal.signal(signal.SIGTERM, previous_sigterm)

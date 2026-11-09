@@ -563,6 +563,36 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: would restore 1 project(s)", err)
 
+    @unittest.skipUnless(GIT_AVAILABLE, "git is required")
+    def test_restore_progress_reports_git_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--progress",
+                "--yes",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn("progress: restoring 1/1:", err)
+            self.assertIn(f"progress: {project.name}: fetching git objects", err)
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: fetch done \(\d+s\)",
+            )
+            self.assertRegex(
+                err, r"progress: done, restored 1, skipped 0, failed 0 \(\d+s\)"
+            )
+            self.assertTrue((restored / project.name / "main.py").is_file())
+
     def test_restore_skip_existing_leaves_target_and_restores_others(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -3112,6 +3112,89 @@ fn restore_progress_reports_per_project() {
 }
 
 #[test]
+fn restore_progress_reports_git_fetch() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "initial"]);
+    let remote = temp.0.join("app-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let remote_url = git_file_url(&remote);
+    let manifest = temp.0.join("manifest.json");
+    let body = serde_json::json!({
+        "schema_version": 2,
+        "created_at": "2026-11-09T00:00:00+00:00",
+        "tool": "proj-janitor",
+        "version": "0.7.25",
+        "include_artifacts": false,
+        "always_archive": false,
+        "records": [{
+            "project": project.file_name().unwrap().to_string_lossy(),
+            "source": project,
+            "archive": null,
+            "archive_bytes": 0,
+            "source_bytes": 1,
+            "sha256": null,
+            "strategy": "git",
+            "remote": "origin",
+            "remote_url": remote_url,
+            "branch": "main",
+            "commit": head,
+            "upstream": "origin/main",
+            "verified": "local-ref",
+            "fallback_reason": null
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&body).unwrap()).unwrap();
+    let out = temp.0.join("restored");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--progress", "--yes"])
+        .arg(&manifest)
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_0", "always")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let project_name = project.file_name().unwrap().to_string_lossy();
+    assert!(stderr.contains("progress: restoring 1/1:"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: fetching git objects")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("progress: {project_name}: fetch done (")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("progress: done, restored 1, skipped 0, failed 0 ("),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn backup_progress_reports_per_project() {
     let temp = TestDir::new();
     let first = temp.project();
