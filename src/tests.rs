@@ -2182,13 +2182,16 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
     for (name, member) in [
         ("reserved-con.tar.gz", "demo/CON.txt"),
         ("trailing-dot.tar.gz", "demo/file."),
+        ("trailing-space.tar.gz", "demo/file "),
+        ("reserved-com1.tar.gz", "demo/COM1.txt"),
+        ("reserved-lpt1.tar.gz", "demo/LPT1.txt"),
     ] {
         let archive = raw_test_archive(&temp, name, member, None);
         let target = temp.0.join(format!("restored-{name}/demo"));
         let error = extract_archive(&archive, &target, "demo").unwrap_err();
         assert!(
             error.to_string().contains("unsafe archive path"),
-            "unexpected reserved/trailing-dot error for {name}: {error}"
+            "unexpected reserved/trailing component error for {name}: {error}"
         );
         assert!(!target.exists());
     }

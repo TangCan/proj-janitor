@@ -706,7 +706,7 @@ class RestoreTests(unittest.TestCase):
     def test_restore_archive_rejects_relative_symlink_escape_and_reserved_names(
         self,
     ) -> None:
-        """V-03: relative symlink escape and Windows-reserved members must be refused."""
+        """V-03: relative symlink escape, reserved names, trailing dot/space must be refused."""
         cases = (
             (
                 "relative-symlink-escape.tar.gz",
@@ -728,6 +728,27 @@ class RestoreTests(unittest.TestCase):
                 None,
                 "unsafe archive path",
                 "file.",
+            ),
+            (
+                "trailing-space.tar.gz",
+                "app/file ",
+                None,
+                "unsafe archive path",
+                "file ",
+            ),
+            (
+                "reserved-com1.tar.gz",
+                "app/COM1.txt",
+                None,
+                "unsafe archive path",
+                "COM1.txt",
+            ),
+            (
+                "reserved-lpt1.tar.gz",
+                "app/LPT1.txt",
+                None,
+                "unsafe archive path",
+                "LPT1.txt",
             ),
         )
         for archive_name, member_name, link_target, pattern, leaf in cases:

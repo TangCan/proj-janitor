@@ -492,12 +492,33 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
 
+    def build_trailing_space(archive: tarfile.TarFile) -> None:
+        payload = b"x"
+        info = tarfile.TarInfo("demo/file ")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
+    def build_reserved_com1(archive: tarfile.TarFile) -> None:
+        payload = b"x"
+        info = tarfile.TarInfo("demo/COM1.txt")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
+    def build_reserved_lpt1(archive: tarfile.TarFile) -> None:
+        payload = b"x"
+        info = tarfile.TarInfo("demo/LPT1.txt")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
     for kind, build, reasons in (
         ("fifo", build_fifo, ("unsupported entry type", "special file")),
         ("absolute-symlink", build_absolute_symlink, ("symlink escapes project",)),
         ("relative-symlink", build_relative_symlink, ("symlink escapes project",)),
         ("reserved-con", build_reserved_con, ("unsafe archive path", "not Windows-portable")),
         ("trailing-dot", build_trailing_dot, ("unsafe archive path", "not Windows-portable")),
+        ("trailing-space", build_trailing_space, ("unsafe archive path", "not Windows-portable")),
+        ("reserved-com1", build_reserved_com1, ("unsafe archive path", "not Windows-portable")),
+        ("reserved-lpt1", build_reserved_lpt1, ("unsafe archive path", "not Windows-portable")),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
