@@ -237,6 +237,15 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config.verify.progress)
             self.assertFalse(config.verify.check_remote)
 
+    def test_loads_scan_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".proj-janitor.toml"
+            path.write_text("[scan]\nprogress = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.scan.progress)
+            self.assertFalse(config.backup.progress)
+
     def test_loads_restore_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".proj-janitor.toml"

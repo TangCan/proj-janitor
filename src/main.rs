@@ -20,7 +20,6 @@ mod secrets;
 use backup::backup_cmd;
 use clean::clean_cmd;
 use config::{discover_config, resolve_check_remote, resolve_tri_state};
-use project::discover;
 use restore::restore_cmd;
 
 pub(crate) const RULES: &[(&str, &[&str])] = &[
@@ -90,6 +89,15 @@ enum Action {
         /// Include directories without a known project marker
         #[arg(long)]
         all: bool,
+        /// Print per-project scan progress with elapsed time
+        #[arg(long, conflicts_with = "no_progress")]
+        progress: bool,
+        /// Disable scan progress even when [scan].progress is true
+        #[arg(long = "no-progress", conflicts_with = "progress")]
+        no_progress: bool,
+        /// Path to a .proj-janitor.toml config file
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -438,7 +446,25 @@ fn main() {
 }
 fn run() -> anyhow::Result<()> {
     match Cli::parse().command {
-        Action::Scan { roots, all, json } => scan_cmd(&roots, all, json),
+        Action::Scan {
+            roots,
+            all,
+            progress,
+            no_progress,
+            config,
+            json,
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let progress = resolve_tri_state(
+                progress,
+                no_progress,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.scan.progress)
+                    .unwrap_or(false),
+            );
+            scan_cmd(&roots, all, progress, json)
+        }
         Action::Backup {
             roots,
             backup_dest,
@@ -706,16 +732,17 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-fn scan_cmd(roots: &[PathBuf], all: bool, json: bool) -> anyhow::Result<()> {
-    let mut projects = Vec::new();
-    let mut seen = HashSet::new();
+fn scan_cmd(roots: &[PathBuf], all: bool, progress: bool, json: bool) -> anyhow::Result<()> {
+    use project::{inspect, list_candidates};
+    let mut candidates = Vec::new();
+    let mut seen_paths = HashSet::new();
     let mut failed = false;
     for root in roots {
-        match discover(root, all) {
-            Ok(ps) => {
-                for p in ps {
-                    if seen.insert(p.path.clone()) {
-                        projects.push(p)
+        match list_candidates(root, all) {
+            Ok(paths) => {
+                for path in paths {
+                    if seen_paths.insert(path.clone()) {
+                        candidates.push(path);
                     }
                 }
             }
@@ -724,6 +751,31 @@ fn scan_cmd(roots: &[PathBuf], all: bool, json: bool) -> anyhow::Result<()> {
                 failed = true
             }
         }
+    }
+    let total = candidates.len();
+    let progress_started = progress.then(std::time::Instant::now);
+    if progress {
+        eprintln!("progress: scanning {total} project(s)");
+    }
+    let mut projects = Vec::new();
+    for (index, path) in candidates.into_iter().enumerate() {
+        if progress {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            eprintln!("progress: scanning {}/{total}: {name}", index + 1);
+        }
+        match inspect(&path) {
+            Ok(project) => projects.push(project),
+            Err(e) => {
+                eprintln!("error: {e}");
+                failed = true
+            }
+        }
+    }
+    if progress {
+        let elapsed = progress_started
+            .map(|started| format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: done, scanned {} ({elapsed})", projects.len());
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&projects)?);

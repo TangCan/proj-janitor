@@ -68,31 +68,36 @@ pub(crate) struct Submodule {
 fn is_project(path: &Path) -> bool {
     MARKERS.iter().any(|m| path.join(m).exists())
 }
-pub(crate) fn discover(root: &Path, all: bool) -> anyhow::Result<Vec<Project>> {
+pub(crate) fn list_candidates(root: &Path, all: bool) -> anyhow::Result<Vec<PathBuf>> {
     let root = crate::expand(root);
     anyhow::ensure!(root.exists(), "root does not exist: {}", root.display());
     anyhow::ensure!(root.is_dir(), "root is not a directory: {}", root.display());
-    let candidates = if is_project(&root) {
-        vec![root]
-    } else {
-        let mut v = Vec::new();
-        for e in fs::read_dir(&root)? {
-            let e = e?;
-            let p = e.path();
-            let n = e.file_name();
-            if p.is_dir()
-                && !p.is_symlink()
-                && !n.to_string_lossy().starts_with('.')
-                && (all || is_project(&p))
-                && fs::read_dir(&p)?.next().is_some()
-            {
-                v.push(p);
-            }
+    if is_project(&root) {
+        return Ok(vec![root]);
+    }
+    let mut v = Vec::new();
+    for e in fs::read_dir(&root)? {
+        let e = e?;
+        let p = e.path();
+        let n = e.file_name();
+        if p.is_dir()
+            && !p.is_symlink()
+            && !n.to_string_lossy().starts_with('.')
+            && (all || is_project(&p))
+            && fs::read_dir(&p)?.next().is_some()
+        {
+            v.push(p);
         }
-        v.sort();
-        v
-    };
-    candidates.into_iter().map(|p| inspect(&p)).collect()
+    }
+    v.sort();
+    Ok(v)
+}
+
+pub(crate) fn discover(root: &Path, all: bool) -> anyhow::Result<Vec<Project>> {
+    list_candidates(root, all)?
+        .into_iter()
+        .map(|p| inspect(&p))
+        .collect()
 }
 pub(crate) fn inspect(path: &Path) -> anyhow::Result<Project> {
     let path = fs::canonicalize(path)?;

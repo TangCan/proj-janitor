@@ -22,10 +22,10 @@ def is_project(path: Path) -> bool:
     return any((path / marker).exists() for marker in PROJECT_MARKERS)
 
 
-def discover_projects(
+def list_project_paths(
     root: Path,
     include_unmarked: bool = False,
-) -> list[Project]:
+) -> list[Path]:
     root = root.expanduser()
     if not root.exists():
         raise FileNotFoundError(f"root does not exist: {root}")
@@ -33,19 +33,26 @@ def discover_projects(
         raise NotADirectoryError(f"root is not a directory: {root}")
 
     if is_project(root):
-        candidates = [root]
-    else:
-        candidates = sorted(
-            child
-            for child in root.iterdir()
-            if child.is_dir()
-            and not child.is_symlink()
-            and not child.name.startswith(".")
-            and (include_unmarked or is_project(child))
-            and any(child.iterdir())
-        )
+        return [root]
+    return sorted(
+        child
+        for child in root.iterdir()
+        if child.is_dir()
+        and not child.is_symlink()
+        and not child.name.startswith(".")
+        and (include_unmarked or is_project(child))
+        and any(child.iterdir())
+    )
 
-    return [scan_project(candidate) for candidate in candidates]
+
+def discover_projects(
+    root: Path,
+    include_unmarked: bool = False,
+) -> list[Project]:
+    return [
+        scan_project(candidate)
+        for candidate in list_project_paths(root, include_unmarked)
+    ]
 
 
 def scan_project(path: Path) -> Project:

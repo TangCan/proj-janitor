@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -44,6 +45,7 @@ from proj_janitor.models import (
     Project,
     RestorePlan,
     RestoreResult,
+    format_elapsed,
     human_size,
 )
 from proj_janitor.restore import (
@@ -64,6 +66,8 @@ from proj_janitor.scanner import (
     discover_projects,
     format_git_unknown_warnings,
     format_projects,
+    list_project_paths,
+    scan_project,
 )
 
 
@@ -117,6 +121,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include directories without a known project marker",
     )
+    scan.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
+    )
+    scan_progress = scan.add_mutually_exclusive_group()
+    scan_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print per-project scan progress with elapsed time on stderr "
+            "(overrides [scan].progress)"
+        ),
+    )
+    scan_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable scan progress even when [scan].progress is true",
+    )
+    scan.set_defaults(progress=None)
     scan.add_argument("--json", action="store_true", help="emit JSON")
 
     backup = subparsers.add_parser(
@@ -596,7 +623,62 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    projects, failures = _collect_projects(args.roots, args.all)
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    progress = resolve_tri_state(
+        args.progress,
+        config.scan.progress if config else False,
+    )
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    failures = 0
+    for root in args.roots:
+        try:
+            found = list_project_paths(root, args.all)
+        except (OSError, NotADirectoryError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        for path in found:
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(path)
+
+    total = len(candidates)
+    progress_started = time.monotonic() if progress else None
+    if progress:
+        print(f"progress: scanning {total} project(s)", file=sys.stderr)
+
+    projects: list[Project] = []
+    for index, path in enumerate(candidates):
+        if progress:
+            print(
+                f"progress: scanning {index + 1}/{total}: {path.name}",
+                file=sys.stderr,
+            )
+        try:
+            projects.append(scan_project(path))
+        except (OSError, NotADirectoryError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            failures += 1
+
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, scanned {len(projects)} ({elapsed})",
+            file=sys.stderr,
+        )
+
     if args.json:
         print(
             json.dumps(

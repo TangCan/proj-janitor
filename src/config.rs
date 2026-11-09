@@ -19,6 +19,16 @@ pub(crate) struct Config {
     pub(crate) verify: VerifyConfig,
     #[serde(default)]
     pub(crate) restore: RestoreConfig,
+    #[serde(default)]
+    pub(crate) scan: ScanConfig,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScanConfig {
+    /// Emit per-project scan progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -375,6 +385,15 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[backup]\nprogress = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.backup.progress);
+    }
+
+    #[test]
+    fn explicit_path_loads_scan_progress() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[scan]\nprogress = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.scan.progress);
+        assert!(!config.backup.progress);
     }
 
     #[test]

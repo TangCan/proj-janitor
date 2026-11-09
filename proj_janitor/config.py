@@ -134,6 +134,9 @@ INIT_CONFIG_TEMPLATE = """\
 [prune]
 # keep = 3
 
+[scan]
+# progress = true
+
 [verify]
 # check_remote = false
 # progress = true
@@ -262,8 +265,15 @@ class RestoreConfig:
         self.progress = progress
 
 
+class ScanConfig:
+    __slots__ = ("progress",)
+
+    def __init__(self, progress: bool = False) -> None:
+        self.progress = progress
+
+
 class Config:
-    __slots__ = ("backup", "prune", "verify", "restore")
+    __slots__ = ("backup", "prune", "verify", "restore", "scan")
 
     def __init__(
         self,
@@ -271,11 +281,13 @@ class Config:
         prune: PruneConfig,
         verify: VerifyConfig | None = None,
         restore: RestoreConfig | None = None,
+        scan: ScanConfig | None = None,
     ) -> None:
         self.backup = backup
         self.prune = prune
         self.verify = verify if verify is not None else VerifyConfig()
         self.restore = restore if restore is not None else RestoreConfig()
+        self.scan = scan if scan is not None else ScanConfig()
 
 
 def resolve_tri_state(flag: bool | None, config_default: bool) -> bool:
@@ -370,7 +382,7 @@ def load_config(path: Path | None = None) -> Config | None:
             raise ConfigError(f"cannot read config {path}: no such file")
 
     data = _load_toml(path)
-    allowed_top = {"backup", "prune", "verify", "restore"}
+    allowed_top = {"backup", "prune", "verify", "restore", "scan"}
     if set(data) - allowed_top:
         raise ConfigError(
             f"invalid config {path}: unknown top-level key(s) "
@@ -522,4 +534,18 @@ def load_config(path: Path | None = None) -> Config | None:
         else False,
     )
 
-    return Config(backup=backup, prune=prune, verify=verify, restore=restore)
+    scan_data = data.get("scan", {})
+    if not isinstance(scan_data, dict):
+        raise ConfigError(f"invalid config {path}: [scan] must be a table")
+    if set(scan_data) - {"progress"}:
+        raise ConfigError(
+            f"invalid config {path}: unknown [scan] key(s) "
+            f"{sorted(set(scan_data) - {'progress'})}"
+        )
+    scan = ScanConfig(
+        progress=_parse_bool(scan_data["progress"], "[scan].progress")
+        if "progress" in scan_data
+        else False,
+    )
+
+    return Config(backup=backup, prune=prune, verify=verify, restore=restore, scan=scan)
