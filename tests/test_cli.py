@@ -1322,7 +1322,50 @@ class CliTests(unittest.TestCase):
             self.assertIn("insecure permissions", err)
             self.assertIn("0755", err)
 
-    
+    @unittest.skipUnless(os.name == "posix", "Unix permission check")
+    def test_restore_fail_on_insecure_dest_refuses_open_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            backups = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backups),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = list((backups / "app").glob("manifest-*.json"))
+            self.assertTrue(manifests)
+            restored = root / "restored"
+            restored.mkdir(mode=0o755)
+            restored.chmod(0o755)
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(restored),
+                "--dry-run",
+                "--fail-on-insecure-dest",
+            )
+            self.assertNotEqual(code, 0, err)
+            self.assertIn("insecure permissions", err)
+            self.assertIn("0755", err)
+            self.assertIn("restore path", err)
+            self.assertEqual(out, "")
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+
     @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
     def test_archive_backup_encrypt_and_restore_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

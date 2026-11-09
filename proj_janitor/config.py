@@ -151,6 +151,7 @@ INIT_CONFIG_TEMPLATE = """\
 # check_remote = false
 # fail_on_remote_moved = false
 # fail_on_remote_skipped = false
+# fail_on_insecure_dest = false
 # require_dest = false
 # force = false
 # keep_replaced = false
@@ -271,6 +272,7 @@ class RestoreConfig:
         "check_remote",
         "fail_on_remote_moved",
         "fail_on_remote_skipped",
+        "fail_on_insecure_dest",
         "require_dest",
         "decrypt_passphrase_file",
         "force",
@@ -286,6 +288,7 @@ class RestoreConfig:
         check_remote: bool = False,
         fail_on_remote_moved: bool = False,
         fail_on_remote_skipped: bool = False,
+        fail_on_insecure_dest: bool = False,
         require_dest: bool = False,
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
@@ -298,6 +301,7 @@ class RestoreConfig:
         self.check_remote = check_remote
         self.fail_on_remote_moved = fail_on_remote_moved
         self.fail_on_remote_skipped = fail_on_remote_skipped
+        self.fail_on_insecure_dest = fail_on_insecure_dest
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
@@ -553,6 +557,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "check_remote",
         "fail_on_remote_moved",
         "fail_on_remote_skipped",
+        "fail_on_insecure_dest",
         "require_dest",
         "decrypt_passphrase_file",
         "force",
@@ -582,6 +587,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["fail_on_remote_skipped"], "[restore].fail_on_remote_skipped"
         )
         if "fail_on_remote_skipped" in restore_data
+        else False,
+        fail_on_insecure_dest=_parse_bool(
+            restore_data["fail_on_insecure_dest"], "[restore].fail_on_insecure_dest"
+        )
+        if "fail_on_insecure_dest" in restore_data
         else False,
         require_dest=_parse_bool(
             restore_data["require_dest"], "[restore].require_dest"

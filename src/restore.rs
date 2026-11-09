@@ -25,8 +25,9 @@ use crate::{
     Manifest, Record,
     archive::{
         create_private_temp_dir, extract_archive, extract_archive_with_hash,
-        extract_incremental_delta, portable_path_key, publish_restored_tree, remove_deleted_paths,
-        safe_windows_component, sha256, sha256_with_progress,
+        extract_incremental_delta, format_insecure_restore_dest_refusal, insecure_dir_mode,
+        portable_path_key, publish_restored_tree, remove_deleted_paths, safe_windows_component,
+        sha256, sha256_with_progress,
     },
     crypto::{
         archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp,
@@ -36,6 +37,42 @@ use crate::{
     project::{git_compatible_path, git_output, submodule_config, submodule_url_supported},
     resolve_for_creation,
 };
+
+fn refuse_insecure_restore_parents(
+    dest: Option<&Path>,
+    plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
+) -> anyhow::Result<()> {
+    let mut candidates: BTreeSet<PathBuf> = BTreeSet::new();
+    if let Some(dest) = dest {
+        candidates.insert(dest.to_path_buf());
+    } else {
+        for (_, target, _, _, skip) in plans {
+            if *skip {
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                candidates.insert(parent.to_path_buf());
+            }
+        }
+    }
+    for candidate in candidates {
+        let mut probe = candidate;
+        loop {
+            if let Some(mode) = insecure_dir_mode(&probe)? {
+                anyhow::bail!("{}", format_insecure_restore_dest_refusal(&probe, mode));
+            }
+            if probe.exists() {
+                break;
+            }
+            let parent = match probe.parent() {
+                Some(parent) if parent != probe => parent.to_path_buf(),
+                _ => break,
+            };
+            probe = parent;
+        }
+    }
+    Ok(())
+}
 
 pub(crate) fn validate_git_restore(remote: &str, commit: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -1019,6 +1056,7 @@ pub(crate) fn restore_cmd(
     fail_on_remote_moved: bool,
     fail_on_remote_skipped: bool,
     require_dest: bool,
+    fail_on_insecure_dest: bool,
     force: bool,
     keep_replaced: bool,
     rollback_on_error: bool,
@@ -1159,6 +1197,9 @@ pub(crate) fn restore_cmd(
             );
         }
         plans.push((r.clone(), target, archive, overwrite, skip));
+    }
+    if fail_on_insecure_dest {
+        refuse_insecure_restore_parents(dest.as_deref(), &plans)?;
     }
     if dry {
         if json {

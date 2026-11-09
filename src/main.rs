@@ -278,6 +278,15 @@ enum Action {
         /// Allow original-location restore even when [restore].require_dest is true
         #[arg(long = "no-require-dest", conflicts_with = "require_dest")]
         no_require_dest: bool,
+        /// Refuse restore when a destination/parent directory is group/other-accessible (Unix)
+        #[arg(long, conflicts_with = "no_fail_on_insecure_dest")]
+        fail_on_insecure_dest: bool,
+        /// Allow restore into group/other-accessible directories even when [restore].fail_on_insecure_dest is true
+        #[arg(
+            long = "no-fail-on-insecure-dest",
+            conflicts_with = "fail_on_insecure_dest"
+        )]
+        no_fail_on_insecure_dest: bool,
         /// Replace an existing restore target directory after staging succeeds
         #[arg(long, conflicts_with = "no_force")]
         force: bool,
@@ -700,6 +709,8 @@ fn run() -> anyhow::Result<()> {
             no_fail_on_remote_skipped,
             require_dest,
             no_require_dest,
+            fail_on_insecure_dest,
+            no_fail_on_insecure_dest,
             force,
             no_force,
             keep_replaced,
@@ -747,6 +758,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.require_dest)
+                    .unwrap_or(false),
+            );
+            let fail_on_insecure_dest = resolve_tri_state(
+                fail_on_insecure_dest,
+                no_fail_on_insecure_dest,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.fail_on_insecure_dest)
                     .unwrap_or(false),
             );
             let force = resolve_tri_state(
@@ -817,6 +836,7 @@ fn run() -> anyhow::Result<()> {
                 fail_on_remote_moved,
                 fail_on_remote_skipped,
                 require_dest,
+                fail_on_insecure_dest,
                 force,
                 keep_replaced,
                 rollback_on_error,

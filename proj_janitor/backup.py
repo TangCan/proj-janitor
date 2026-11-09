@@ -1030,6 +1030,14 @@ def format_insecure_dest_refusal(path: Path, mode: int) -> str:
     )
 
 
+def format_insecure_restore_dest_refusal(path: Path, mode: int) -> str:
+    return (
+        f"error: restore path has insecure permissions {mode:04o} "
+        f"(group/other access); use chmod 700 or pass "
+        f"--no-fail-on-insecure-dest: {path}"
+    )
+
+
 def available_disk_bytes(path: Path) -> int:
     """Return free bytes on the filesystem containing path (or an ancestor)."""
     probe = path.expanduser()

@@ -116,6 +116,9 @@ pub(crate) struct RestoreConfig {
     /// Treat `remote-skipped` as a hard failure when remote checking is enabled.
     #[serde(default)]
     pub(crate) fail_on_remote_skipped: bool,
+    /// Refuse restore when a target parent directory is group/other-accessible (Unix).
+    #[serde(default)]
+    pub(crate) fail_on_insecure_dest: bool,
     /// Require `--dest` so restore never writes to manifest `source` paths.
     #[serde(default)]
     pub(crate) require_dest: bool,
@@ -354,6 +357,17 @@ mod tests {
         assert!(config.verify.fail_on_remote_skipped);
         assert!(config.restore.fail_on_remote_skipped);
         assert!(!config.verify.check_remote);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_fail_on_insecure_dest() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[restore]\nfail_on_insecure_dest = true\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.fail_on_insecure_dest);
     }
 
     #[test]

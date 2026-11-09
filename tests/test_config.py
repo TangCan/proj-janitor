@@ -185,6 +185,16 @@ class ConfigTests(unittest.TestCase):
             assert config is not None
             self.assertTrue(config.backup.fail_on_insecure_dest)
 
+    def test_loads_restore_fail_on_insecure_dest_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                "[restore]\nfail_on_insecure_dest = true\n", encoding="utf-8"
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.restore.fail_on_insecure_dest)
+
     def test_discovers_config_walking_up_from_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

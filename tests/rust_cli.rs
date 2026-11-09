@@ -2753,6 +2753,70 @@ fn backup_fail_on_insecure_dest_refuses_open_directory() {
     assert!(stderr.contains("0755"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn restore_fail_on_insecure_dest_refuses_open_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "hello\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("manifest-") && name.ends_with(".json"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+    fs::create_dir_all(&restored).unwrap();
+    let mut perms = fs::metadata(&restored).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&restored, perms).unwrap();
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--fail-on-insecure-dest", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        !blocked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&blocked.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stderr.contains("insecure permissions"), "{stderr}");
+    assert!(stderr.contains("0755"), "{stderr}");
+    assert!(stderr.contains("restore path"), "{stderr}");
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+}
+
 #[test]
 fn backup_check_space_dry_run_succeeds_when_space_available() {
     let temp = TestDir::new();

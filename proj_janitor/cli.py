@@ -55,6 +55,7 @@ from proj_janitor.restore import (
     execute_restore,
     plan_restore,
     redact_remote_url,
+    refuse_insecure_restore_parents,
     verify_manifest,
 )
 from proj_janitor.retention import (
@@ -412,6 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
         fail_on_remote_moved=None,
         fail_on_remote_skipped=None,
         require_dest=None,
+        fail_on_insecure_dest=None,
         force=None,
         keep_replaced=None,
         rollback_on_error=None,
@@ -489,6 +491,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="require_dest",
         help="allow original-location restore even when [restore].require_dest is true",
+    )
+    restore_insecure = restore.add_mutually_exclusive_group()
+    restore_insecure.add_argument(
+        "--fail-on-insecure-dest",
+        action="store_true",
+        dest="fail_on_insecure_dest",
+        help=(
+            "refuse restore when a destination/parent directory is group/other-"
+            "accessible on Unix (overrides [restore].fail_on_insecure_dest)"
+        ),
+    )
+    restore_insecure.add_argument(
+        "--no-fail-on-insecure-dest",
+        action="store_false",
+        dest="fail_on_insecure_dest",
+        help=(
+            "allow restore into group/other-accessible directories even when "
+            "[restore].fail_on_insecure_dest is true"
+        ),
     )
     restore_force = restore.add_mutually_exclusive_group()
     restore_force.add_argument(
@@ -1207,6 +1228,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.require_dest,
         config.restore.require_dest if config else False,
     )
+    fail_on_insecure_dest = resolve_tri_state(
+        args.fail_on_insecure_dest,
+        config.restore.fail_on_insecure_dest if config else False,
+    )
     force = resolve_tri_state(
         args.force,
         config.restore.force if config else False,
@@ -1262,6 +1287,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             force=force,
             skip_existing=skip_existing,
         )
+        if fail_on_insecure_dest:
+            refuse_insecure_restore_parents(plans, args.dest)
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
