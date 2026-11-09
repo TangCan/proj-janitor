@@ -4,10 +4,13 @@ import json
 import os
 import re
 import stat
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from proj_janitor.backup import _safe_windows_component
+from proj_janitor.models import format_elapsed
 
 _MANIFEST_RE = re.compile(r"manifest-(\d{8}-\d{6})(?:-(\d+))?\.json\Z")
 _LEGACY_RUN_DIR_RE = re.compile(r"backup-\d{8}-\d{6}\Z")
@@ -199,19 +202,48 @@ def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
 
 def apply_retention_plan(
     plan: RetentionPlan,
+    *,
+    progress: bool = False,
 ) -> RetentionResult:
     deleted: list[PlannedFile] = []
     errors: list[str] = []
     deleted_manifests: set[Path] = set()
+    total = len(plan.manifests) + len(plan.artifacts)
+    progress_started = time.monotonic() if progress else None
+    if progress:
+        print(f"progress: pruning {total} file(s)", file=sys.stderr)
+    index = 0
     for item in plan.manifests:
+        index += 1
+        if progress:
+            print(
+                f"progress: deleting {index}/{total}: {item.path}",
+                file=sys.stderr,
+            )
         if _remove_if_same(item, errors):
             deleted.append(item)
             deleted_manifests.add(item.path)
     for artifact in plan.artifacts:
+        index += 1
+        if progress:
+            print(
+                f"progress: deleting {index}/{total}: {artifact.file.path}",
+                file=sys.stderr,
+            )
         if not set(artifact.manifests).issubset(deleted_manifests):
             continue
         if _remove_if_same(artifact.file, errors):
             deleted.append(artifact.file)
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, deleted {len(deleted)} ({elapsed})",
+            file=sys.stderr,
+        )
     return RetentionResult(tuple(deleted), tuple(errors))
 
 

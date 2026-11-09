@@ -3,17 +3,19 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import sys
+import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Sequence
 
 from proj_janitor.config import (
     ARTIFACT_RULES,
     COVERAGE_DIR,
     is_coverage_artifact,
 )
-from proj_janitor.models import CleanupAction, human_size
+from proj_janitor.models import CleanupAction, format_elapsed, human_size
 from proj_janitor.scanner import measure_tree
 
 _DIR_FLAGS = (
@@ -111,11 +113,25 @@ def build_cleanup_plan(
     return sorted(actions, key=lambda action: (str(action.project), str(action.path)))
 
 
-def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
+def apply_cleanup(
+    actions: Iterable[CleanupAction],
+    *,
+    progress: bool = False,
+) -> CleanupResult:
+    action_list: Sequence[CleanupAction] = (
+        actions if isinstance(actions, (list, tuple)) else list(actions)
+    )
     removed = 0
     freed = 0
     errors: list[str] = []
-    for action in actions:
+    total = len(action_list)
+    progress_started = time.monotonic() if progress else None
+    for index, action in enumerate(action_list):
+        if progress:
+            print(
+                f"progress: deleting {index + 1}/{total}: {action.path}",
+                file=sys.stderr,
+            )
         try:
             project = action.project
             if _DIRFD_CLEANUP:
@@ -177,6 +193,16 @@ def apply_cleanup(actions: Iterable[CleanupAction]) -> CleanupResult:
             continue
         removed += 1
         freed += action.size_bytes
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, deleted {removed} ({elapsed})",
+            file=sys.stderr,
+        )
     return CleanupResult(
         removed=removed,
         freed_bytes=freed,

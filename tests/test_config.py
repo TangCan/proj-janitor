@@ -246,6 +246,19 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config.scan.progress)
             self.assertFalse(config.backup.progress)
 
+    def test_loads_clean_and_prune_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".proj-janitor.toml"
+            path.write_text(
+                "[clean]\nprogress = true\n\n[prune]\nkeep = 2\nprogress = true\n",
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.clean.progress)
+            self.assertTrue(config.prune.progress)
+            self.assertEqual(config.prune.keep, 2)
+
     def test_loads_restore_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".proj-janitor.toml"

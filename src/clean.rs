@@ -15,6 +15,7 @@ pub(crate) fn clean_cmd(
     selected: &[String],
     apply: bool,
     yes: bool,
+    progress: bool,
     json: bool,
     list: bool,
 ) -> anyhow::Result<()> {
@@ -47,112 +48,130 @@ pub(crate) fn clean_cmd(
         }
         rule_patterns.push(((*rule).to_owned(), builder.build()?));
     }
-    let mut actions = Vec::new();
+    let mut candidates = Vec::new();
     let mut failed = false;
     let mut seen = HashSet::new();
-    let mut project_dirs = HashMap::new();
     for root in roots {
         match discover(root, false) {
             Ok(ps) => {
                 for p in ps {
-                    if !seen.insert(p.path.clone()) {
-                        continue;
-                    }
-                    if apply {
-                        let identity = same_file::Handle::from_path(&p.path)?;
-                        let dir = open_cleanup_project(&p.path, &identity)?;
-                        project_dirs.insert(p.path.clone(), dir);
-                    }
-                    for entry in WalkDir::new(&p.path)
-                        .follow_links(false)
-                        .into_iter()
-                        .filter_entry(|entry| entry.path() == p.path || entry.file_name() != ".git")
-                    {
-                        let e = match entry {
-                            Ok(entry) => entry,
-                            Err(error) => {
-                                eprintln!("error: {error}");
-                                failed = true;
-                                continue;
-                            }
-                        };
-                        let path = e.path();
-                        if path == p.path || e.file_type().is_symlink() {
-                            continue;
-                        }
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        if name == ".git" {
-                            continue;
-                        }
-                        let cov = name == "coverage"
-                            && path.parent() == Some(p.path.as_path())
-                            && [
-                                "lcov.info",
-                                "coverage-final.json",
-                                "coverage-summary.json",
-                                "coverage.xml",
-                                "coverage.json",
-                                "coverage.out",
-                                "clover.xml",
-                                "jacoco.xml",
-                                "jacoco.csv",
-                                "status.json",
-                                ".coverage",
-                                "lcov-report",
-                                "coverage.cobertura.xml",
-                            ]
-                            .iter()
-                            .any(|m| path.join(m).exists());
-                        let rule = if name == "coverage" && !cov {
-                            None
-                        } else {
-                            rule_patterns
-                                .iter()
-                                .find(|(_, set)| set.is_match(name.as_ref()))
-                                .map(|(rule, _)| rule.clone())
-                        };
-                        if let Some(rule) = rule {
-                            let size = if e.file_type().is_dir() {
-                                tree_size(path)
-                            } else {
-                                e.metadata().map(|m| m.len()).map_err(anyhow::Error::from)
-                            };
-                            let size = match size {
-                                Ok(size) => size,
-                                Err(error) => {
-                                    eprintln!("error: {error}");
-                                    failed = true;
-                                    continue;
-                                }
-                            };
-                            let kind = if e.file_type().is_dir() {
-                                "dir"
-                            } else {
-                                "file"
-                            };
-                            let identity = match same_file::Handle::from_path(path) {
-                                Ok(identity) => identity,
-                                Err(error) => {
-                                    eprintln!("error: {error}");
-                                    failed = true;
-                                    continue;
-                                }
-                            };
-                            actions.push((
-                                p.path.clone(),
-                                path.to_owned(),
-                                size,
-                                rule,
-                                kind,
-                                identity,
-                            ));
-                        }
+                    if seen.insert(p.path.clone()) {
+                        candidates.push(p);
                     }
                 }
             }
             Err(e) => {
                 eprintln!("error: {e}");
-                failed = true
+                failed = true;
+            }
+        }
+    }
+    let total_projects = candidates.len();
+    let progress_started = progress.then(std::time::Instant::now);
+    if progress {
+        eprintln!("progress: cleaning {total_projects} project(s)");
+    }
+    let mut actions = Vec::new();
+    let mut project_dirs = HashMap::new();
+    for (index, p) in candidates.into_iter().enumerate() {
+        if progress {
+            eprintln!(
+                "progress: planning {}/{total_projects}: {}",
+                index + 1,
+                p.name
+            );
+        }
+        if apply {
+            match (|| -> anyhow::Result<_> {
+                let identity = same_file::Handle::from_path(&p.path)?;
+                open_cleanup_project(&p.path, &identity)
+            })() {
+                Ok(dir) => {
+                    project_dirs.insert(p.path.clone(), dir);
+                }
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    failed = true;
+                    continue;
+                }
+            }
+        }
+        for entry in WalkDir::new(&p.path)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| entry.path() == p.path || entry.file_name() != ".git")
+        {
+            let e = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    failed = true;
+                    continue;
+                }
+            };
+            let path = e.path();
+            if path == p.path || e.file_type().is_symlink() {
+                continue;
+            }
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if name == ".git" {
+                continue;
+            }
+            let cov = name == "coverage"
+                && path.parent() == Some(p.path.as_path())
+                && [
+                    "lcov.info",
+                    "coverage-final.json",
+                    "coverage-summary.json",
+                    "coverage.xml",
+                    "coverage.json",
+                    "coverage.out",
+                    "clover.xml",
+                    "jacoco.xml",
+                    "jacoco.csv",
+                    "status.json",
+                    ".coverage",
+                    "lcov-report",
+                    "coverage.cobertura.xml",
+                ]
+                .iter()
+                .any(|m| path.join(m).exists());
+            let rule = if name == "coverage" && !cov {
+                None
+            } else {
+                rule_patterns
+                    .iter()
+                    .find(|(_, set)| set.is_match(name.as_ref()))
+                    .map(|(rule, _)| rule.clone())
+            };
+            if let Some(rule) = rule {
+                let size = if e.file_type().is_dir() {
+                    tree_size(path)
+                } else {
+                    e.metadata().map(|m| m.len()).map_err(anyhow::Error::from)
+                };
+                let size = match size {
+                    Ok(size) => size,
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        failed = true;
+                        continue;
+                    }
+                };
+                let kind = if e.file_type().is_dir() {
+                    "dir"
+                } else {
+                    "file"
+                };
+                let identity = match same_file::Handle::from_path(path) {
+                    Ok(identity) => identity,
+                    Err(error) => {
+                        eprintln!("error: {error}");
+                        failed = true;
+                        continue;
+                    }
+                };
+                actions.push((p.path.clone(), path.to_owned(), size, rule, kind, identity));
             }
         }
     }
@@ -170,10 +189,21 @@ pub(crate) fn clean_cmd(
         }
     });
     actions.sort_by(|a, b| a.1.cmp(&b.1));
+    if progress && !apply {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!(
+            "progress: done, planned {} item(s) ({elapsed})",
+            actions.len()
+        );
+    }
     if json {
         let vals: Vec<_> = actions
             .iter()
-            .map(|(p, path, size, rule, kind, _)| serde_json::json!({"project":p,"path":path,"rule":rule,"kind":kind,"size_bytes":size}))
+            .map(|(p, path, size, rule, kind, _)| {
+                serde_json::json!({"project":p,"path":path,"rule":rule,"kind":kind,"size_bytes":size})
+            })
             .collect();
         println!("{}", serde_json::to_string_pretty(&vals)?);
     } else if actions.is_empty() {
@@ -210,11 +240,26 @@ pub(crate) fn clean_cmd(
             anyhow::bail!("Aborted")
         }
     }
-    for (project, path, _, _, _, identity) in actions {
+    let total_actions = actions.len();
+    let delete_started = progress.then(std::time::Instant::now);
+    for (index, (project, path, _, _, _, identity)) in actions.into_iter().enumerate() {
+        if progress {
+            eprintln!(
+                "progress: deleting {}/{total_actions}: {}",
+                index + 1,
+                path.display()
+            );
+        }
         let dir = project_dirs
             .get(&project)
             .ok_or_else(|| anyhow::anyhow!("missing cleanup project handle"))?;
         remove_cleanup_target(dir, &project, &path, identity)?;
+    }
+    if progress {
+        let elapsed = delete_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: done, deleted {total_actions} ({elapsed})");
     }
     if failed {
         anyhow::bail!("scan failures")

@@ -50,6 +50,7 @@ pub(crate) fn prune_cmd(
     keep: usize,
     apply: bool,
     yes: bool,
+    progress: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let plan = plan_retention(backup_root, keep)?;
@@ -153,7 +154,11 @@ pub(crate) fn prune_cmd(
             })
         })
         .collect::<Vec<_>>();
-    let result = apply_retention_plan(plan);
+    let result = if progress {
+        apply_retention_plan_with_progress(plan)
+    } else {
+        apply_retention_plan(plan)
+    };
     if json {
         println!(
             "{}",
@@ -418,10 +423,31 @@ pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePl
 }
 
 pub(crate) fn apply_retention_plan(plan: PrunePlan) -> PruneResult {
+    apply_retention_plan_inner(plan, false)
+}
+
+fn apply_retention_plan_with_progress(plan: PrunePlan) -> PruneResult {
+    apply_retention_plan_inner(plan, true)
+}
+
+fn apply_retention_plan_inner(plan: PrunePlan, progress: bool) -> PruneResult {
     let mut deleted = Vec::new();
     let mut errors = Vec::new();
     let mut deleted_manifests = HashSet::new();
+    let total = plan.manifests.len() + plan.artifacts.len();
+    let progress_started = progress.then(std::time::Instant::now);
+    if progress {
+        eprintln!("progress: pruning {total} file(s)");
+    }
+    let mut index = 0usize;
     for file in plan.manifests {
+        index += 1;
+        if progress {
+            eprintln!(
+                "progress: deleting {index}/{total}: {}",
+                file.path.display()
+            );
+        }
         let path = file.path.clone();
         match remove_planned_file(file) {
             Ok(Some(file)) => {
@@ -433,6 +459,13 @@ pub(crate) fn apply_retention_plan(plan: PrunePlan) -> PruneResult {
         }
     }
     for artifact in plan.artifacts {
+        index += 1;
+        if progress {
+            eprintln!(
+                "progress: deleting {index}/{total}: {}",
+                artifact.file.path.display()
+            );
+        }
         if !artifact
             .manifests
             .iter()
@@ -445,6 +478,12 @@ pub(crate) fn apply_retention_plan(plan: PrunePlan) -> PruneResult {
             Ok(None) => {}
             Err(error) => errors.push(error),
         }
+    }
+    if progress {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: done, deleted {} ({elapsed})", deleted.len());
     }
     PruneResult { deleted, errors }
 }

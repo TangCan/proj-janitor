@@ -133,6 +133,10 @@ INIT_CONFIG_TEMPLATE = """\
 
 [prune]
 # keep = 3
+# progress = true
+
+[clean]
+# progress = true
 
 [scan]
 # progress = true
@@ -221,10 +225,18 @@ class BackupConfig:
 
 
 class PruneConfig:
-    __slots__ = ("keep",)
+    __slots__ = ("keep", "progress")
 
-    def __init__(self, keep: int | None = None) -> None:
+    def __init__(self, keep: int | None = None, progress: bool = False) -> None:
         self.keep = keep
+        self.progress = progress
+
+
+class CleanConfig:
+    __slots__ = ("progress",)
+
+    def __init__(self, progress: bool = False) -> None:
+        self.progress = progress
 
 
 class VerifyConfig:
@@ -273,7 +285,7 @@ class ScanConfig:
 
 
 class Config:
-    __slots__ = ("backup", "prune", "verify", "restore", "scan")
+    __slots__ = ("backup", "prune", "verify", "restore", "scan", "clean")
 
     def __init__(
         self,
@@ -282,12 +294,14 @@ class Config:
         verify: VerifyConfig | None = None,
         restore: RestoreConfig | None = None,
         scan: ScanConfig | None = None,
+        clean: CleanConfig | None = None,
     ) -> None:
         self.backup = backup
         self.prune = prune
         self.verify = verify if verify is not None else VerifyConfig()
         self.restore = restore if restore is not None else RestoreConfig()
         self.scan = scan if scan is not None else ScanConfig()
+        self.clean = clean if clean is not None else CleanConfig()
 
 
 def resolve_tri_state(flag: bool | None, config_default: bool) -> bool:
@@ -382,7 +396,7 @@ def load_config(path: Path | None = None) -> Config | None:
             raise ConfigError(f"cannot read config {path}: no such file")
 
     data = _load_toml(path)
-    allowed_top = {"backup", "prune", "verify", "restore", "scan"}
+    allowed_top = {"backup", "prune", "verify", "restore", "scan", "clean"}
     if set(data) - allowed_top:
         raise ConfigError(
             f"invalid config {path}: unknown top-level key(s) "
@@ -454,15 +468,18 @@ def load_config(path: Path | None = None) -> Config | None:
     prune_data = data.get("prune", {})
     if not isinstance(prune_data, dict):
         raise ConfigError(f"invalid config {path}: [prune] must be a table")
-    if set(prune_data) - {"keep"}:
+    if set(prune_data) - {"keep", "progress"}:
         raise ConfigError(
             f"invalid config {path}: unknown [prune] key(s) "
-            f"{sorted(set(prune_data) - {'keep'})}"
+            f"{sorted(set(prune_data) - {'keep', 'progress'})}"
         )
     prune = PruneConfig(
         keep=_parse_keep(prune_data["keep"], "[prune].keep")
         if "keep" in prune_data
-        else None
+        else None,
+        progress=_parse_bool(prune_data["progress"], "[prune].progress")
+        if "progress" in prune_data
+        else False,
     )
 
     verify_data = data.get("verify", {})
@@ -548,4 +565,25 @@ def load_config(path: Path | None = None) -> Config | None:
         else False,
     )
 
-    return Config(backup=backup, prune=prune, verify=verify, restore=restore, scan=scan)
+    clean_data = data.get("clean", {})
+    if not isinstance(clean_data, dict):
+        raise ConfigError(f"invalid config {path}: [clean] must be a table")
+    if set(clean_data) - {"progress"}:
+        raise ConfigError(
+            f"invalid config {path}: unknown [clean] key(s) "
+            f"{sorted(set(clean_data) - {'progress'})}"
+        )
+    clean = CleanConfig(
+        progress=_parse_bool(clean_data["progress"], "[clean].progress")
+        if "progress" in clean_data
+        else False,
+    )
+
+    return Config(
+        backup=backup,
+        prune=prune,
+        verify=verify,
+        restore=restore,
+        scan=scan,
+        clean=clean,
+    )

@@ -187,6 +187,15 @@ enum Action {
         /// Skip the interactive confirmation
         #[arg(long)]
         yes: bool,
+        /// Print per-project clean planning / deletion progress with elapsed time
+        #[arg(long, conflicts_with = "no_progress")]
+        progress: bool,
+        /// Disable clean progress even when [clean].progress is true
+        #[arg(long = "no-progress", conflicts_with = "progress")]
+        no_progress: bool,
+        /// Path to a .proj-janitor.toml config file
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -210,6 +219,12 @@ enum Action {
         /// Skip interactive confirmation
         #[arg(long)]
         yes: bool,
+        /// Print prune deletion progress with elapsed time
+        #[arg(long, conflicts_with = "no_progress")]
+        progress: bool,
+        /// Disable prune progress even when [prune].progress is true
+        #[arg(long = "no-progress", conflicts_with = "progress")]
+        no_progress: bool,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -576,24 +591,49 @@ fn run() -> anyhow::Result<()> {
             rules,
             apply,
             yes,
+            progress,
+            no_progress,
+            config,
             json,
             list_rules,
-        } => clean_cmd(&roots, &rules, apply, yes, json, list_rules),
+        } => {
+            let config = discover_config(config.as_deref())?;
+            let progress = resolve_tri_state(
+                progress,
+                no_progress,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.clean.progress)
+                    .unwrap_or(false),
+            );
+            clean_cmd(&roots, &rules, apply, yes, progress, json, list_rules)
+        }
         Action::Prune {
             backup_root,
             keep,
             config,
             apply,
             yes,
+            progress,
+            no_progress,
             json,
         } => {
             let config = discover_config(config.as_deref())?;
             let keep = keep.or_else(|| config.as_ref().and_then(|cfg| cfg.prune.keep));
+            let progress = resolve_tri_state(
+                progress,
+                no_progress,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.prune.progress)
+                    .unwrap_or(false),
+            );
             retention::prune_cmd(
                 &backup_root,
                 keep.ok_or_else(|| anyhow::anyhow!("set --keep or configure [prune].keep"))?,
                 apply,
                 yes,
+                progress,
                 json,
             )
         }

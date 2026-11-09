@@ -2275,7 +2275,16 @@ fn clean_apply_removes_only_artifacts_and_preserves_project_files() {
     fs::write(project.join("src.txt"), "keep\n").unwrap();
     fs::write(project.join("target/debug/cache"), "remove\n").unwrap();
 
-    clean_cmd(std::slice::from_ref(&project), &[], true, true, true, false).unwrap();
+    clean_cmd(
+        std::slice::from_ref(&project),
+        &[],
+        true,
+        true,
+        false,
+        true,
+        false,
+    )
+    .unwrap();
 
     assert!(!project.join("target").exists());
     assert_eq!(
@@ -2403,6 +2412,7 @@ fn clean_does_not_apply_partial_plan_when_a_root_fails() {
             &[],
             true,
             true,
+            false,
             true,
             false,
         )

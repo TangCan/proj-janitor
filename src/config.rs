@@ -21,6 +21,8 @@ pub(crate) struct Config {
     pub(crate) restore: RestoreConfig,
     #[serde(default)]
     pub(crate) scan: ScanConfig,
+    #[serde(default)]
+    pub(crate) clean: CleanConfig,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -72,6 +74,17 @@ pub(crate) struct PruneConfig {
     /// Default retention count for `prune --keep`.
     #[serde(default)]
     pub(crate) keep: Option<usize>,
+    /// Emit prune apply progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CleanConfig {
+    /// Emit per-project clean planning / deletion progress on stderr.
+    #[serde(default)]
+    pub(crate) progress: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -394,6 +407,19 @@ mod tests {
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.scan.progress);
         assert!(!config.backup.progress);
+    }
+
+    #[test]
+    fn explicit_path_loads_clean_and_prune_progress() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[clean]\nprogress = true\n\n[prune]\nkeep = 2\nprogress = true\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.clean.progress);
+        assert!(config.prune.progress);
+        assert_eq!(config.prune.keep, Some(2));
     }
 
     #[test]

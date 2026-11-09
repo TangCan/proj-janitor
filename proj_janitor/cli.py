@@ -336,6 +336,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the interactive confirmation",
     )
+    clean.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="path to a .proj-janitor.toml config file",
+    )
+    clean_progress = clean.add_mutually_exclusive_group()
+    clean_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print per-project clean planning and deletion progress with "
+            "elapsed time on stderr (overrides [clean].progress)"
+        ),
+    )
+    clean_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable clean progress even when [clean].progress is true",
+    )
+    clean.set_defaults(progress=None)
     clean.add_argument("--json", action="store_true", help="emit JSON")
     clean.add_argument(
         "--list-rules",
@@ -592,6 +615,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prune.add_argument("--apply", action="store_true", help="delete the planned backups")
     prune.add_argument("--yes", action="store_true", help="skip interactive confirmation")
+    prune_progress = prune.add_mutually_exclusive_group()
+    prune_progress.add_argument(
+        "--progress",
+        action="store_true",
+        dest="progress",
+        help=(
+            "print prune deletion progress with elapsed time on stderr "
+            "(overrides [prune].progress)"
+        ),
+    )
+    prune_progress.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="disable prune progress even when [prune].progress is true",
+    )
+    prune.set_defaults(progress=None)
     prune.add_argument("--json", action="store_true", help="emit JSON")
 
     init = subparsers.add_parser(
@@ -1313,6 +1353,10 @@ def _cmd_prune(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    progress = resolve_tri_state(
+        args.progress,
+        config.prune.progress if config else False,
+    )
     keep = args.keep
     if keep is None:
         keep = config.prune.keep if config else None
@@ -1390,7 +1434,7 @@ def _cmd_prune(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 2
 
-    result = apply_retention_plan(plan)
+    result = apply_retention_plan(plan, progress=progress)
     if args.json:
         print(
             json.dumps(
@@ -1504,14 +1548,44 @@ def _cmd_clean(args: argparse.Namespace) -> int:
         print("error: at least one root is required", file=sys.stderr)
         return 2
 
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    progress = resolve_tri_state(
+        args.progress,
+        config.clean.progress if config else False,
+    )
+
     projects, failures = _collect_projects(args.roots, include_unmarked=False)
+    total_projects = len(projects)
+    progress_started = time.monotonic() if progress else None
+    if progress:
+        print(f"progress: cleaning {total_projects} project(s)", file=sys.stderr)
     actions: list[CleanupAction] = []
-    for project in projects:
+    for index, project in enumerate(projects):
+        if progress:
+            print(
+                f"progress: planning {index + 1}/{total_projects}: {project.name}",
+                file=sys.stderr,
+            )
         try:
             actions.extend(build_cleanup_plan(project.path, args.rules))
         except (OSError, ValueError) as exc:
             print(f"error: {project.name}: {exc}", file=sys.stderr)
             failures += 1
+
+    if progress and not args.apply:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, planned {len(actions)} item(s) ({elapsed})",
+            file=sys.stderr,
+        )
 
     if args.json:
         print(
@@ -1551,7 +1625,7 @@ def _cmd_clean(args: argparse.Namespace) -> int:
             print("Aborted.", file=sys.stderr if args.json else sys.stdout)
             return 2
 
-    result = apply_cleanup(actions)
+    result = apply_cleanup(actions, progress=progress)
     summary = (
         f"Removed {result.removed} item(s), "
         f"freed {human_size(result.freed_bytes)}."
