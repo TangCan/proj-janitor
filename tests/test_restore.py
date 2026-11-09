@@ -546,6 +546,86 @@ class RestoreTests(unittest.TestCase):
 
             self.assertFalse((restored / "app").exists())
 
+    def test_restore_archive_rejects_fifo_and_device_nodes(self) -> None:
+        """V-03: special files must not be materialised on restore."""
+        for entry_type, label in (
+            (tarfile.FIFOTYPE, "fifo"),
+            (tarfile.CHRTYPE, "char"),
+            (tarfile.BLKTYPE, "block"),
+        ):
+            with self.subTest(entry_type=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    archive = root / f"{label}.tar.gz"
+                    with tarfile.open(archive, "w:gz") as tar:
+                        special = tarfile.TarInfo(f"app/{label}")
+                        special.type = entry_type
+                        tar.addfile(special)
+                    manifest = write_manifest(
+                        root / "manifest.json",
+                        [
+                            {
+                                "project": "app",
+                                "strategy": "archive",
+                                "archive": str(archive),
+                                "sha256": sha256_file(archive),
+                            }
+                        ],
+                    )
+                    restored = root / "restored"
+                    with self.assertRaisesRegex(
+                        RestoreError, "unsupported entry type"
+                    ):
+                        restore_from_manifest(manifest, restored)
+                    self.assertFalse((restored / "app").exists())
+                    self.assertFalse((restored / "app" / label).exists())
+
+    def test_restore_archive_rejects_absolute_member_and_symlink(self) -> None:
+        """V-03: absolute paths and absolute symlinks must be refused."""
+        cases = (
+            ("absolute-member.tar.gz", "absolute", None, "absolute path"),
+            (
+                "absolute-symlink.tar.gz",
+                "app/link",
+                "/tmp/evil",
+                "symlink escapes project",
+            ),
+        )
+        for archive_name, member_name, link_target, pattern in cases:
+            with self.subTest(archive=archive_name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    archive = root / archive_name
+                    with tarfile.open(archive, "w:gz") as tar:
+                        if link_target is None:
+                            payload = b"x"
+                            info = tarfile.TarInfo(member_name)
+                            info.size = len(payload)
+                            # Force an absolute-looking member name past TarInfo helpers.
+                            info.name = "/etc/passwd"
+                            tar.addfile(info, io.BytesIO(payload))
+                        else:
+                            info = tarfile.TarInfo(member_name)
+                            info.type = tarfile.SYMTYPE
+                            info.linkname = link_target
+                            tar.addfile(info)
+                    manifest = write_manifest(
+                        root / "manifest.json",
+                        [
+                            {
+                                "project": "app",
+                                "strategy": "archive",
+                                "archive": str(archive),
+                                "sha256": sha256_file(archive),
+                            }
+                        ],
+                    )
+                    restored = root / "restored"
+                    with self.assertRaisesRegex(RestoreError, pattern):
+                        restore_from_manifest(manifest, restored)
+                    self.assertFalse((restored / "app").exists())
+                    self.assertFalse((root / "evil").exists())
+
     def test_restore_archive_rejects_case_colliding_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

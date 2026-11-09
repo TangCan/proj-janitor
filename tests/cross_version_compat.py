@@ -26,10 +26,14 @@ def run(command: list[str]) -> str:
 
 
 def run_rejected(command: list[str], reason: str) -> None:
+    run_rejected_any(command, (reason,))
+
+
+def run_rejected_any(command: list[str], reasons: tuple[str, ...]) -> None:
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-    if result.returncode == 0 or reason not in result.stderr:
+    if result.returncode == 0 or not any(reason in result.stderr for reason in reasons):
         raise SystemExit(
-            f"{command!r} should fail with {reason!r}:\n{result.stderr}"
+            f"{command!r} should fail with one of {reasons!r}:\n{result.stderr}"
         )
 
 
@@ -457,6 +461,63 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         )
         assert not (destination / "demo").exists()
     assert not (root / "escape.txt").exists()
+
+    # V-03 matrix extras: FIFO special file and absolute symlink (both CLIs).
+    def build_fifo(archive: tarfile.TarFile) -> None:
+        info = tarfile.TarInfo("demo/pipe")
+        info.type = tarfile.FIFOTYPE
+        archive.addfile(info)
+
+    def build_absolute_symlink(archive: tarfile.TarFile) -> None:
+        info = tarfile.TarInfo("demo/link")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "/tmp/evil"
+        archive.addfile(info)
+
+    for kind, build in (
+        ("fifo", build_fifo),
+        ("absolute-symlink", build_absolute_symlink),
+    ):
+        archive_path = root / f"{kind}.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as archive:
+            build(archive)
+        digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        kind_manifest = root / f"{kind}.json"
+        kind_manifest.write_text(
+            json.dumps({
+                "schema_version": 2,
+                "created_at": "2026-11-09T00:00:00+00:00",
+                "tool": "proj-janitor",
+                "version": "0.7.32",
+                "include_artifacts": False,
+                "always_archive": True,
+                "records": [{
+                    "project": "demo",
+                    "source": str(project),
+                    "archive": str(archive_path),
+                    "archive_bytes": archive_path.stat().st_size,
+                    "source_bytes": 0,
+                    "sha256": digest,
+                    "strategy": "archive",
+                }],
+            }),
+            encoding="utf-8",
+        )
+        reasons = (
+            ("unsupported entry type", "special file")
+            if kind == "fifo"
+            else ("symlink escapes project",)
+        )
+        for tool, command in (
+            ("Python", [sys.executable, "-m", "proj_janitor"]),
+            ("Rust", [str(RUST_CLI)]),
+        ):
+            destination = root / f"{tool.lower()}-{kind}-restore"
+            run_rejected_any(
+                [*command, "restore", str(kind_manifest), "--dest", str(destination)],
+                reasons,
+            )
+            assert not (destination / "demo").exists()
 
     git_manifest = root / "git-manifest.json"
     git_manifest.write_text(

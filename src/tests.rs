@@ -441,6 +441,26 @@ fn raw_windows_traversal_archive(temp: &TestDir) -> PathBuf {
     )
 }
 
+fn raw_special_archive(
+    temp: &TestDir,
+    archive_name: &str,
+    member_name: &str,
+    entry_type: EntryType,
+) -> PathBuf {
+    let archive_path = temp.0.join(archive_name);
+    let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+    let mut tar = Builder::new(encoder);
+    let mut header = Header::new_gnu();
+    header.set_entry_type(entry_type);
+    header.set_mode(0o644);
+    header.set_size(0);
+    header.set_path(member_name).unwrap();
+    header.set_cksum();
+    tar.append(&header, &[][..]).unwrap();
+    tar.into_inner().unwrap().finish().unwrap();
+    archive_path
+}
+
 #[test]
 fn github_remote_validation_accepts_supported_forms_and_redacts_https_tokens() {
     assert_eq!(
@@ -2076,6 +2096,41 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
     let backslash_target = temp.0.join("restored-backslash/demo");
     assert!(extract_archive(&backslash_member, &backslash_target, "demo").is_err());
     assert!(!backslash_target.exists());
+
+    // V-03: special files, absolute members, and absolute symlinks.
+    for (name, entry_type) in [
+        ("fifo.tar.gz", EntryType::Fifo),
+        ("char.tar.gz", EntryType::Char),
+        ("block.tar.gz", EntryType::Block),
+    ] {
+        let special = raw_special_archive(&temp, name, "demo/special", entry_type);
+        let target = temp.0.join(format!("restored-{name}/demo"));
+        let error = extract_archive(&special, &target, "demo").unwrap_err();
+        assert!(
+            error.to_string().contains("special file"),
+            "unexpected special-file error for {name}: {error}"
+        );
+        assert!(!target.exists());
+    }
+
+    let absolute_member = raw_test_archive(&temp, "absolute-member.tar.gz", "/etc/passwd", None);
+    let absolute_target = temp.0.join("restored-absolute/demo");
+    assert!(extract_archive(&absolute_member, &absolute_target, "demo").is_err());
+    assert!(!absolute_target.exists());
+
+    let absolute_link = raw_test_archive(
+        &temp,
+        "absolute-symlink.tar.gz",
+        "demo/link",
+        Some("/tmp/evil"),
+    );
+    let absolute_link_target = temp.0.join("restored-absolute-link/demo");
+    let error = extract_archive(&absolute_link, &absolute_link_target, "demo").unwrap_err();
+    assert!(
+        error.to_string().contains("symlink escapes project"),
+        "unexpected absolute-symlink error: {error}"
+    );
+    assert!(!absolute_link_target.exists());
 }
 
 #[test]
