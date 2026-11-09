@@ -68,6 +68,7 @@ def restore_from_manifest(
     force: bool = False,
     continue_on_error: bool = False,
     skip_existing: bool = False,
+    progress: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
         manifest_path,
@@ -86,6 +87,7 @@ def restore_from_manifest(
         check_remote=check_remote,
         force=force,
         continue_on_error=continue_on_error,
+        progress=progress,
     )
     if verify:
         plans = [
@@ -1037,13 +1039,15 @@ def _restore_one(
     )
 
 
-def _restore_submodules(repo: Path, project: str) -> None:
+def _restore_submodules(
+    repo: Path, project: str, *, progress: bool = False
+) -> None:
     pending = [(repo, 0)]
     while pending:
         current, depth = pending.pop()
         if depth > 32:
             raise RestoreError(f"submodule nesting is too deep for {project}")
-        _restore_lfs(current, project)
+        _restore_lfs(current, project, progress=progress)
         modules = submodule_config(current)
         if modules is None:
             raise RestoreError(f"invalid submodule metadata for {project}")
@@ -1052,34 +1056,48 @@ def _restore_submodules(repo: Path, project: str) -> None:
         if any(not is_supported_submodule_url(url) for _, url in modules):
             raise RestoreError(f"unsupported submodule URL for {project}")
         paths = [path.as_posix() for path, _ in modules]
-        initialized = _run_git(
-            ["-C", str(current), "submodule", "--quiet", "init", "--", *paths],
-            check=False,
-        )
+        init_args = ["-C", str(current), "submodule"]
+        if not progress:
+            init_args.append("--quiet")
+        init_args.extend(["init", "--", *paths])
+        initialized = _run_git(init_args, check=False)
         if initialized.returncode:
             raise RestoreError(
                 f"cannot initialize submodules for {project}: {_git_failure_detail(initialized)}"
             )
+        update_args = [
+            "-c",
+            "submodule.recurse=false",
+            "-C",
+            str(current),
+            "submodule",
+        ]
+        if not progress:
+            update_args.append("--quiet")
+        update_args.extend(["update", "--init", "--checkout", "--", *paths])
+        update_started = time.monotonic() if progress else None
+        if progress:
+            print(
+                f"progress: {project}: updating {len(paths)} submodule(s)",
+                file=sys.stderr,
+            )
         updated = _run_git(
-            [
-                "-c",
-                "submodule.recurse=false",
-                "-C",
-                str(current),
-                "submodule",
-                "--quiet",
-                "update",
-                "--init",
-                "--checkout",
-                "--",
-                *paths,
-            ],
+            update_args,
             extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
             check=False,
+            stream_stderr=progress,
         )
         if updated.returncode:
             raise RestoreError(
                 f"cannot restore submodules for {project}: {_git_failure_detail(updated)}"
+            )
+        if progress:
+            elapsed = format_elapsed(
+                0.0 if update_started is None else time.monotonic() - update_started
+            )
+            print(
+                f"progress: {project}: submodules done ({elapsed})",
+                file=sys.stderr,
             )
         for relative, _ in modules:
             target = current.joinpath(*relative.parts)
@@ -1100,7 +1118,7 @@ def _restore_submodules(repo: Path, project: str) -> None:
             pending.append((target, depth + 1))
 
 
-def _restore_lfs(repo: Path, project: str) -> None:
+def _restore_lfs(repo: Path, project: str, *, progress: bool = False) -> None:
     lfsconfig = repo / ".lfsconfig"
     if lfsconfig.exists() or lfsconfig.is_symlink():
         raise RestoreError(f"unsupported Git LFS configuration for {project}")
@@ -1136,10 +1154,25 @@ def _restore_lfs(repo: Path, project: str) -> None:
         raise RestoreError(
             f"cannot configure Git LFS for {project}: {_git_failure_detail(installed)}"
         )
-    pulled = _run_git(["-C", str(repo), "lfs", "pull"], check=False)
+    pull_started = time.monotonic() if progress else None
+    if progress:
+        print(f"progress: {project}: pulling LFS objects", file=sys.stderr)
+    pulled = _run_git(
+        ["-C", str(repo), "lfs", "pull"],
+        check=False,
+        stream_stderr=progress,
+    )
     if pulled.returncode:
         raise RestoreError(
             f"cannot restore Git LFS objects for {project}: {_git_failure_detail(pulled)}"
+        )
+    if progress:
+        elapsed = format_elapsed(
+            0.0 if pull_started is None else time.monotonic() - pull_started
+        )
+        print(
+            f"progress: {project}: LFS pull done ({elapsed})",
+            file=sys.stderr,
         )
 
 
@@ -1241,7 +1274,7 @@ def _restore_git(
             raise RestoreError(
                 f"restored HEAD {head} does not match {plan.commit}"
             )
-        _restore_submodules(repo, plan.project)
+        _restore_submodules(repo, plan.project, progress=progress)
         _publish_restored_tree(repo, plan.target, force=force)
     finally:
         _cleanup_restore_temp(temporary)

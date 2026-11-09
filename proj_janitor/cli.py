@@ -457,8 +457,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="progress",
         help=(
             "print per-project restore progress with elapsed time on stderr, "
-            "including archive extract member counts and git fetch status "
-            "(overrides [restore].progress)"
+            "including archive extract, git fetch, LFS pull, and submodule "
+            "update status (overrides [restore].progress)"
         ),
     )
     restore_progress.add_argument(

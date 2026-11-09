@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -1023,6 +1024,20 @@ class GitRestoreTests(unittest.TestCase):
             self.assertEqual(
                 (restored_dest / "lfs-app" / "payload.bin").read_bytes(), payload
             )
+
+            progress_dest = root / "restored-progress"
+            stderr = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, git_config),
+                redirect_stderr(stderr),
+            ):
+                _, progress_results = restore_from_manifest(
+                    manifests[0], progress_dest, progress=True
+                )
+            self.assertEqual(progress_results[0].strategy, "git")
+            err = stderr.getvalue()
+            self.assertIn("progress: lfs-app: pulling LFS objects", err)
+            self.assertRegex(err, r"progress: lfs-app: LFS pull done \(\d+s\)")
             object_hash = hashlib.sha256(payload).hexdigest()
             lfs_object = (
                 remote

@@ -1413,11 +1413,11 @@ pub(crate) fn restore_cmd(
     Ok(())
 }
 
-fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
+fn restore_submodules(repo: &Path, project: &str, progress: bool) -> anyhow::Result<()> {
     let mut pending = vec![(repo.to_path_buf(), 0usize)];
     while let Some((parent, depth)) = pending.pop() {
         anyhow::ensure!(depth <= 32, "submodule nesting is too deep for {project}");
-        restore_lfs(&parent, project)?;
+        restore_lfs(&parent, project, progress)?;
         let modules = submodule_config(&parent)
             .map_err(|_| anyhow::anyhow!("invalid submodule metadata for {project}"))?;
         if modules.is_empty() {
@@ -1434,11 +1434,11 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
             .map(|module| module.path.to_string_lossy().into_owned())
             .collect();
         let mut init = Command::new("git");
-        init.arg("-C")
-            .arg(&parent)
-            .args(["submodule", "--quiet", "init", "--"])
-            .args(&paths)
-            .stdout(Stdio::null());
+        init.arg("-C").arg(&parent).arg("submodule");
+        if !progress {
+            init.arg("--quiet");
+        }
+        init.args(["init", "--"]).args(&paths).stdout(Stdio::null());
         ensure_git(
             run_git_with_timeout(&mut init, project, "submodule init")?,
             format!("cannot initialize submodules for {project}"),
@@ -1449,20 +1449,28 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
             .env("GIT_LFS_SKIP_SMUDGE", "1")
             .arg("-C")
             .arg(&parent)
-            .args([
-                "submodule",
-                "--quiet",
-                "update",
-                "--init",
-                "--checkout",
-                "--",
-            ])
+            .arg("submodule");
+        if !progress {
+            update.arg("--quiet");
+        }
+        update
+            .args(["update", "--init", "--checkout", "--"])
             .args(&paths)
             .stdout(Stdio::null());
+        let update_started = progress.then(Instant::now);
+        if progress {
+            eprintln!("progress: {project}: updating {} submodule(s)", paths.len());
+        }
         ensure_git(
-            run_git_with_timeout(&mut update, project, "submodule update")?,
+            run_git_with_timeout_opts(&mut update, project, "submodule update", progress)?,
             format!("cannot restore submodules for {project}"),
         )?;
+        if progress {
+            let elapsed = update_started
+                .map(|started| crate::format_elapsed(started.elapsed()))
+                .unwrap_or_else(|| "0s".into());
+            eprintln!("progress: {project}: submodules done ({elapsed})");
+        }
 
         let parent = fs::canonicalize(parent)?;
         for module in modules {
@@ -1487,7 +1495,7 @@ fn restore_submodules(repo: &Path, project: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
+fn restore_lfs(repo: &Path, project: &str, progress: bool) -> anyhow::Result<()> {
     let lfsconfig = repo.join(".lfsconfig");
     let has_lfsconfig = match fs::symlink_metadata(&lfsconfig) {
         Ok(_) => true,
@@ -1544,10 +1552,20 @@ fn restore_lfs(repo: &Path, project: &str) -> anyhow::Result<()> {
         .arg(repo)
         .args(["lfs", "pull"])
         .stdout(Stdio::null());
+    let pull_started = progress.then(Instant::now);
+    if progress {
+        eprintln!("progress: {project}: pulling LFS objects");
+    }
     ensure_git(
-        run_git_with_timeout(&mut pull, project, "Git LFS pull")?,
+        run_git_with_timeout_opts(&mut pull, project, "Git LFS pull", progress)?,
         format!("cannot restore Git LFS objects for {project}"),
     )?;
+    if progress {
+        let elapsed = pull_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: {project}: LFS pull done ({elapsed})");
+    }
     Ok(())
 }
 
@@ -1875,7 +1893,7 @@ fn restore_git(
                 .starts_with(&commit.to_ascii_lowercase()),
             "restored commit does not match manifest for {project}"
         );
-        restore_submodules(&repo, project)?;
+        restore_submodules(&repo, project, progress)?;
         publish_restored_tree(&repo, target, force)?;
         Ok(())
     })();

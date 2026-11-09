@@ -280,6 +280,36 @@ fn verify_and_restore_check_remote_probes_submodules() {
         "stderr should mention the submodule: {stderr}"
     );
     assert!(!failed_dest.join("app").exists());
+
+    let progress_dest = temp.0.join("progress-restore");
+    let progress = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--progress", "--yes"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&progress_dest)
+        .env("GIT_CONFIG_COUNT", "3")
+        .env("GIT_CONFIG_KEY_0", format!("url.{parent_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app.git")
+        .env("GIT_CONFIG_KEY_1", format!("url.{child_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_1", "https://github.com/acme/child.git")
+        .env("GIT_CONFIG_KEY_2", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_2", "always")
+        .output()
+        .unwrap();
+    assert!(
+        progress.status.success(),
+        "{}",
+        String::from_utf8_lossy(&progress.stderr)
+    );
+    let progress_err = String::from_utf8_lossy(&progress.stderr);
+    assert!(
+        progress_err.contains("progress: app: updating 1 submodule(s)"),
+        "{progress_err}"
+    );
+    assert!(
+        progress_err.contains("progress: app: submodules done ("),
+        "{progress_err}"
+    );
 }
 
 #[test]
@@ -496,6 +526,34 @@ fn backup_and_restore_git_lfs_objects_with_git_strategy() {
     assert_eq!(
         fs::read(restored_dest.join("lfs-app/payload.bin")).unwrap(),
         payload
+    );
+
+    let progress_dest = temp.0.join("restored-progress");
+    let progress_restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--progress", "--yes"])
+        .arg(&manifest)
+        .arg("--dest")
+        .arg(&progress_dest)
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", format!("url.{remote_url}.insteadOf"))
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/lfs-app.git")
+        .env("GIT_CONFIG_KEY_1", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_1", "always")
+        .output()
+        .unwrap();
+    assert!(
+        progress_restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&progress_restore.stderr)
+    );
+    let progress_err = String::from_utf8_lossy(&progress_restore.stderr);
+    assert!(
+        progress_err.contains("progress: lfs-app: pulling LFS objects"),
+        "{progress_err}"
+    );
+    assert!(
+        progress_err.contains("progress: lfs-app: LFS pull done ("),
+        "{progress_err}"
     );
 
     let lfs_object = remote
