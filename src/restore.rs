@@ -1341,7 +1341,13 @@ pub(crate) fn restore_cmd(
                     r.project, r.strategy
                 );
             }
-            done.push((r.project.clone(), r.strategy.clone(), target.clone(), true, None));
+            done.push((
+                r.project.clone(),
+                r.strategy.clone(),
+                target.clone(),
+                true,
+                None,
+            ));
             continue;
         }
         if progress {
@@ -1532,12 +1538,22 @@ pub(crate) fn restore_cmd(
         }
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        let restored: Vec<_> = done.iter().filter(|(_, _, _, skipped, _)| !*skipped).collect();
-        let skipped: Vec<_> = done.iter().filter(|(_, _, _, skipped, _)| *skipped).collect();
+        let restored: Vec<_> = done
+            .iter()
+            .filter(|(_, _, _, skipped, _)| !*skipped)
+            .collect();
+        let skipped: Vec<_> = done
+            .iter()
+            .filter(|(_, _, _, skipped, _)| *skipped)
+            .collect();
         println!("Restored {} project(s).", restored.len());
         for (p, s, t, _, aside) in &restored {
             if let Some(path) = aside {
-                println!("[{s}] {p} -> {} (replaced aside {})", t.display(), path.display())
+                println!(
+                    "[{s}] {p} -> {} (replaced aside {})",
+                    t.display(),
+                    path.display()
+                )
             } else {
                 println!("[{s}] {p} -> {}", t.display())
             }
@@ -1550,7 +1566,10 @@ pub(crate) fn restore_cmd(
         }
     }
     if progress {
-        let restored = done.iter().filter(|(_, _, _, skipped, _)| !*skipped).count();
+        let restored = done
+            .iter()
+            .filter(|(_, _, _, skipped, _)| !*skipped)
+            .count();
         let skipped = done.iter().filter(|(_, _, _, skipped, _)| *skipped).count();
         let elapsed = progress_started
             .map(|started| crate::format_elapsed(started.elapsed()))

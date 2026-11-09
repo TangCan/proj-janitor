@@ -167,7 +167,7 @@ enum Action {
             conflicts_with = "fail_on_insecure_dest"
         )]
         no_fail_on_insecure_dest: bool,
-        /// Encrypt archive/bundle payloads with openssl using this passphrase file
+        /// Encrypt archive/bundle payloads with openssl using this passphrase file (Unix: mode must exclude group/other)
         #[arg(long, value_name = "FILE")]
         encrypt_passphrase_file: Option<PathBuf>,
         /// Disable encryption even when [backup].encrypt_passphrase_file is set
@@ -296,7 +296,7 @@ enum Action {
         /// Disable restore progress even when [restore].progress is true
         #[arg(long = "no-progress", conflicts_with = "progress")]
         no_progress: bool,
-        /// Passphrase file for openssl-encrypted archives
+        /// Passphrase file for openssl-encrypted archives (Unix: mode must exclude group/other)
         #[arg(long, value_name = "FILE")]
         decrypt_passphrase_file: Option<PathBuf>,
         /// Path to a .proj-janitor.toml config file

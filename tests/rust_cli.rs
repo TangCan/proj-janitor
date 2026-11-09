@@ -3004,6 +3004,13 @@ fn backup_encrypt_and_restore_round_trip() {
     let dest = temp.0.join("backups");
     let passphrase = temp.0.join("pass.txt");
     fs::write(&passphrase, "test-passphrase\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&passphrase, perms).unwrap();
+    }
     let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["backup", "--always-archive", "--encrypt-passphrase-file"])
         .arg(&passphrase)
@@ -3068,6 +3075,42 @@ fn backup_encrypt_and_restore_round_trip() {
     assert_eq!(restored, "payload\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn encrypt_refuses_insecure_passphrase_permissions() {
+    if !Command::new("openssl")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("skipping openssl encryption test: openssl unavailable");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("secret.txt"), "payload\n").unwrap();
+    let dest = temp.0.join("backups");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&passphrase, perms).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--encrypt-passphrase-file"])
+        .arg(&passphrase)
+        .arg("--backup-dest")
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("insecure permissions"), "{stderr}");
+    assert!(stderr.contains("chmod 600"), "{stderr}");
+}
+
 #[test]
 fn encrypt_decrypt_progress_reports_openssl() {
     if !Command::new("openssl")
@@ -3085,6 +3128,13 @@ fn encrypt_decrypt_progress_reports_openssl() {
     let dest = temp.0.join("backups");
     let passphrase = temp.0.join("pass.txt");
     fs::write(&passphrase, "test-passphrase\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&passphrase, perms).unwrap();
+    }
     let name = project.file_name().unwrap().to_string_lossy();
     let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args([
@@ -4130,7 +4180,10 @@ fn restore_keep_replaced_renames_old_target_aside() {
     let json: serde_json::Value = serde_json::from_slice(&forced.stdout).unwrap();
     let aside = PathBuf::from(json["projects"][0]["replaced_aside"].as_str().unwrap());
     assert!(aside.is_dir());
-    assert_eq!(fs::read_to_string(aside.join("stale.txt")).unwrap(), "old\n");
+    assert_eq!(
+        fs::read_to_string(aside.join("stale.txt")).unwrap(),
+        "old\n"
+    );
     assert!(!target.join("stale.txt").exists());
     assert_eq!(
         fs::read_to_string(target.join("ok.txt")).unwrap(),

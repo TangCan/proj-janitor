@@ -181,7 +181,10 @@ def run_backup(
 ) -> tuple[list[Path], list[BackupRecord], list[tuple[str, str]]]:
     backup_dest = backup_dest.expanduser().resolve()
     if encrypt_passphrase_file is not None:
-        validate_passphrase_file(encrypt_passphrase_file)
+        try:
+            validate_passphrase_file(encrypt_passphrase_file)
+        except OSError as exc:
+            raise ValueError(str(exc)) from exc
     if fail_on_insecure_dest:
         insecure = insecure_dir_mode(backup_dest)
         if insecure is not None:

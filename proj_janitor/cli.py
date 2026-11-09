@@ -301,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="encrypt_passphrase_file",
         help=(
             "encrypt archive/bundle payloads with openssl using this passphrase file "
-            "(overrides [backup].encrypt_passphrase_file)"
+            "(Unix: refuse group/other-readable modes; overrides [backup].encrypt_passphrase_file)"
         ),
     )
     backup.add_argument(
@@ -563,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="decrypt_passphrase_file",
         help=(
             "passphrase file for openssl-encrypted archives "
-            "(overrides [restore].decrypt_passphrase_file)"
+            "(Unix: refuse group/other-readable modes; overrides [restore].decrypt_passphrase_file)"
         ),
     )
     restore.add_argument(

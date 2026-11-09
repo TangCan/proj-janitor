@@ -2194,14 +2194,14 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             false,
             false,
             false,
-        false,
-        false,
+            false,
+            false,
             false,
             false,
             false,
             None,
             false,
-    )
+        )
         .unwrap_err();
         let error = error.to_string();
         assert!(
@@ -2265,14 +2265,14 @@ fn restore_git_rejects_windows_invalid_project_names() {
             false,
             false,
             false,
-        false,
-        false,
+            false,
+            false,
             false,
             false,
             false,
             None,
             false,
-    )
+        )
         .unwrap_err();
 
         assert!(error.to_string().contains("unsafe project name"));

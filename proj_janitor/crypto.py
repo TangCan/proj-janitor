@@ -34,8 +34,17 @@ def validate_passphrase_file(path: Path) -> None:
     target = path.expanduser()
     if not target.is_file():
         raise OSError(f"passphrase path is not a file: {target}")
-    if target.stat().st_size <= 0:
+    meta = target.stat()
+    if meta.st_size <= 0:
         raise OSError(f"passphrase file is empty: {target}")
+    # CR-135: refuse group/other-readable passphrase files on Unix (SSH-key style).
+    if os.name == "posix":
+        mode = meta.st_mode & 0o777
+        if mode & 0o077:
+            raise OSError(
+                f"passphrase file has insecure permissions {mode:04o} "
+                f"(group/other access); use chmod 600: {target}"
+            )
 
 
 def openssl_encrypt_file(

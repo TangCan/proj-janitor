@@ -48,6 +48,18 @@ pub(crate) fn validate_passphrase_file(path: &Path) -> anyhow::Result<()> {
         "passphrase file is empty: {}",
         path.display()
     );
+    // CR-135: refuse group/other-readable passphrase files on Unix (SSH-key style).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = meta.permissions().mode() & 0o777;
+        anyhow::ensure!(
+            mode & 0o077 == 0,
+            "passphrase file has insecure permissions {mode:04o} \
+             (group/other access); use chmod 600: {}",
+            path.display()
+        );
+    }
     Ok(())
 }
 
