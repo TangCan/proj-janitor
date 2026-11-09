@@ -2382,6 +2382,175 @@ fn restore_check_remote_blocks_unreachable_and_keeps_credentials_hidden() {
 }
 
 #[test]
+fn verify_fail_on_remote_moved_exits_one() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    fs::write(project.join("later.txt"), "later\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "later"]);
+    git(&project, &["push", "-q", "origin", "main"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.37",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--fail-on-remote-moved"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!blocked.status.success());
+    let stdout = String::from_utf8_lossy(&blocked.stdout);
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stdout.contains("no remote ref points at"), "{stdout}");
+    assert!(
+        stderr.contains("no ref matching the recorded commit"),
+        "{stderr}"
+    );
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+}
+
+#[test]
+fn restore_fail_on_remote_moved_blocks_before_write() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    fs::write(project.join("later.txt"), "later\n").unwrap();
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "later"]);
+    git(&project, &["push", "-q", "origin", "main"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.37",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let restored = temp.0.join("restored");
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "restore",
+            "--check-remote",
+            "--fail-on-remote-moved",
+            "--dest",
+        ])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!blocked.status.success());
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stderr.contains("has no ref matching commit"), "{stderr}");
+    assert!(!restored.join("demo").exists());
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--check-remote", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+    assert!(restored.join("demo").exists());
+}
+
+#[test]
 fn backup_uses_dest_from_config_file() {
     let temp = TestDir::new();
     let project = temp.project();

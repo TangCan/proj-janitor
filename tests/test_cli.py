@@ -2250,6 +2250,74 @@ class GitCliTests(unittest.TestCase):
                 git(restored / "app", "rev-parse", "HEAD"), head
             )
 
+    def test_verify_fail_on_remote_moved_exits_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            (project / "later.py").write_text("print('later')\n", encoding="utf-8")
+            git(project, "add", ".")
+            git(project, "commit", "-q", "-m", "later")
+            git(project, "push", "-q", str(remote), "main")
+            manifest = write_git_manifest(root, project, remote, head)
+
+            code, out, err = run_cli(
+                "verify",
+                str(manifest),
+                "--check-remote",
+                "--fail-on-remote-moved",
+            )
+
+            self.assertEqual(code, 1, err)
+            self.assertIn("no remote ref points at", out)
+            self.assertIn(
+                "error: one or more remotes have no ref matching the recorded commit",
+                err,
+            )
+
+            code, _out, err = run_cli(
+                "verify", str(manifest), "--check-remote"
+            )
+            self.assertEqual(code, 0, err)
+
+    def test_restore_fail_on_remote_moved_blocks_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            (project / "later.py").write_text("print('later')\n", encoding="utf-8")
+            git(project, "add", ".")
+            git(project, "commit", "-q", "-m", "later")
+            git(project, "push", "-q", str(remote), "main")
+            manifest = write_git_manifest(root, project, remote, head)
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+                "--fail-on-remote-moved",
+            )
+
+            self.assertEqual(code, 1, err)
+            self.assertIn("has no ref matching commit", err)
+            self.assertFalse((restored / "app").exists())
+            self.assertEqual(out, "")
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("Restored 1 project(s)", out)
+
 
 if __name__ == "__main__":
     unittest.main()

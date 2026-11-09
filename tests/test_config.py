@@ -220,6 +220,20 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(resolve_check_remote(True, False))
             self.assertFalse(resolve_check_remote(None, False))
 
+    def test_loads_verify_and_restore_fail_on_remote_moved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                "[verify]\nfail_on_remote_moved = true\n"
+                "[restore]\nfail_on_remote_moved = true\n",
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.verify.fail_on_remote_moved)
+            self.assertTrue(config.restore.fail_on_remote_moved)
+            self.assertFalse(config.verify.check_remote)
+
     def test_loads_restore_require_dest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cfg.toml"

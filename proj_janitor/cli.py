@@ -409,6 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     restore.set_defaults(
         check_remote=None,
+        fail_on_remote_moved=None,
         require_dest=None,
         force=None,
         keep_replaced=None,
@@ -432,6 +433,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="check_remote",
         help="disable remote probing even when [restore].check_remote is true",
+    )
+    restore_moved = restore.add_mutually_exclusive_group()
+    restore_moved.add_argument(
+        "--fail-on-remote-moved",
+        action="store_true",
+        dest="fail_on_remote_moved",
+        help=(
+            "with --check-remote, also refuse restore when no remote ref points at "
+            "the recorded commit (overrides [restore].fail_on_remote_moved)"
+        ),
+    )
+    restore_moved.add_argument(
+        "--no-fail-on-remote-moved",
+        action="store_false",
+        dest="fail_on_remote_moved",
+        help=(
+            "allow restore when remotes are reachable but no ref matches the "
+            "recorded commit (overrides [restore].fail_on_remote_moved)"
+        ),
     )
     restore_dest_policy = restore.add_mutually_exclusive_group()
     restore_dest_policy.add_argument(
@@ -591,7 +611,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="verify only this project (repeatable)",
     )
-    verify.set_defaults(check_remote=None, progress=None)
+    verify.set_defaults(check_remote=None, fail_on_remote_moved=None, progress=None)
     verify_remote = verify.add_mutually_exclusive_group()
     verify_remote.add_argument(
         "--check-remote",
@@ -607,6 +627,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="check_remote",
         help="disable remote probing even when [verify].check_remote is true",
+    )
+    verify_moved = verify.add_mutually_exclusive_group()
+    verify_moved.add_argument(
+        "--fail-on-remote-moved",
+        action="store_true",
+        dest="fail_on_remote_moved",
+        help=(
+            "with --check-remote, exit non-zero when no remote ref points at the "
+            "recorded commit (overrides [verify].fail_on_remote_moved)"
+        ),
+    )
+    verify_moved.add_argument(
+        "--no-fail-on-remote-moved",
+        action="store_false",
+        dest="fail_on_remote_moved",
+        help=(
+            "treat remote-moved as informational even when "
+            "[verify].fail_on_remote_moved is true"
+        ),
     )
     verify_progress = verify.add_mutually_exclusive_group()
     verify_progress.add_argument(
@@ -1110,6 +1149,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.check_remote,
         config.restore.check_remote if config else False,
     )
+    fail_on_remote_moved = resolve_tri_state(
+        args.fail_on_remote_moved,
+        config.restore.fail_on_remote_moved if config else False,
+    )
     require_dest = resolve_tri_state(
         args.require_dest,
         config.restore.require_dest if config else False,
@@ -1250,6 +1293,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             plans,
             verify=not args.no_verify,
             check_remote=check_remote,
+            fail_on_remote_moved=fail_on_remote_moved,
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
             keep_replaced=keep_replaced,
@@ -1312,6 +1356,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         args.check_remote,
         config.verify.check_remote if config else False,
     )
+    fail_on_remote_moved = resolve_tri_state(
+        args.fail_on_remote_moved,
+        config.verify.fail_on_remote_moved if config else False,
+    )
     progress = resolve_tri_state(
         args.progress,
         config.verify.progress if config else False,
@@ -1333,7 +1381,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             "projects": results,
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return _verify_exit_code(results)
+        return _verify_exit_code(
+            results, fail_on_remote_moved=fail_on_remote_moved and check_remote
+        )
 
     for result in results:
         if result["strategy"] in ("archive", "git_bundle"):
@@ -1350,7 +1400,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 f"(commit {str(result['commit'])[:12]}; remote not checked)"
             )
     print(f"Verified {len(results)} project(s).")
-    return _verify_exit_code(results)
+    return _verify_exit_code(
+        results, fail_on_remote_moved=fail_on_remote_moved and check_remote
+    )
 
 
 def _verify_remote_line(result: dict) -> str:
@@ -1405,7 +1457,18 @@ def _verify_remote_line(result: dict) -> str:
     return line
 
 
-def _verify_exit_code(results: list[dict]) -> int:
+def _verify_result_has_remote_moved(result: dict) -> bool:
+    if result.get("status") == "remote-moved":
+        return True
+    for sub in result.get("submodules") or []:
+        if isinstance(sub, dict) and sub.get("status") == "remote-moved":
+            return True
+    return False
+
+
+def _verify_exit_code(
+    results: list[dict], *, fail_on_remote_moved: bool = False
+) -> int:
     if any(
         result["status"] in ("remote-unreachable", "lfs-unavailable")
         for result in results
@@ -1413,6 +1476,15 @@ def _verify_exit_code(results: list[dict]) -> int:
         sys.stdout.flush()
         print(
             "error: one or more remotes or LFS objects could not be verified",
+            file=sys.stderr,
+        )
+        return 1
+    if fail_on_remote_moved and any(
+        _verify_result_has_remote_moved(result) for result in results
+    ):
+        sys.stdout.flush()
+        print(
+            "error: one or more remotes have no ref matching the recorded commit",
             file=sys.stderr,
         )
         return 1

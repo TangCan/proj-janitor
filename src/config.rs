@@ -93,6 +93,9 @@ pub(crate) struct VerifyConfig {
     /// Default for `verify --check-remote` when neither flag is passed.
     #[serde(default)]
     pub(crate) check_remote: bool,
+    /// Treat `remote-moved` as failure when remote checking is enabled.
+    #[serde(default)]
+    pub(crate) fail_on_remote_moved: bool,
     /// Emit per-project verify / remote-probe progress on stderr.
     #[serde(default)]
     pub(crate) progress: bool,
@@ -104,6 +107,9 @@ pub(crate) struct RestoreConfig {
     /// Default for `restore --check-remote` when neither flag is passed.
     #[serde(default)]
     pub(crate) check_remote: bool,
+    /// Treat `remote-moved` as a hard failure when remote checking is enabled.
+    #[serde(default)]
+    pub(crate) fail_on_remote_moved: bool,
     /// Require `--dest` so restore never writes to manifest `source` paths.
     #[serde(default)]
     pub(crate) require_dest: bool,
@@ -316,6 +322,19 @@ mod tests {
         assert!(resolve_check_remote(true, false, false));
         assert!(resolve_check_remote(false, false, true));
         assert!(!resolve_check_remote(false, false, false));
+    }
+
+    #[test]
+    fn explicit_path_loads_verify_and_restore_fail_on_remote_moved() {
+        let temp = TempDir::new();
+        let path = write_config(
+            temp.0.as_path(),
+            "[verify]\nfail_on_remote_moved = true\n[restore]\nfail_on_remote_moved = true\n",
+        );
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.verify.fail_on_remote_moved);
+        assert!(config.restore.fail_on_remote_moved);
+        assert!(!config.verify.check_remote);
     }
 
     #[test]

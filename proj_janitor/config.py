@@ -143,10 +143,12 @@ INIT_CONFIG_TEMPLATE = """\
 
 [verify]
 # check_remote = false
+# fail_on_remote_moved = false
 # progress = true
 
 [restore]
 # check_remote = false
+# fail_on_remote_moved = false
 # require_dest = false
 # force = false
 # keep_replaced = false
@@ -242,16 +244,23 @@ class CleanConfig:
 
 
 class VerifyConfig:
-    __slots__ = ("check_remote", "progress")
+    __slots__ = ("check_remote", "fail_on_remote_moved", "progress")
 
-    def __init__(self, check_remote: bool = False, progress: bool = False) -> None:
+    def __init__(
+        self,
+        check_remote: bool = False,
+        fail_on_remote_moved: bool = False,
+        progress: bool = False,
+    ) -> None:
         self.check_remote = check_remote
+        self.fail_on_remote_moved = fail_on_remote_moved
         self.progress = progress
 
 
 class RestoreConfig:
     __slots__ = (
         "check_remote",
+        "fail_on_remote_moved",
         "require_dest",
         "decrypt_passphrase_file",
         "force",
@@ -265,6 +274,7 @@ class RestoreConfig:
     def __init__(
         self,
         check_remote: bool = False,
+        fail_on_remote_moved: bool = False,
         require_dest: bool = False,
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
@@ -275,6 +285,7 @@ class RestoreConfig:
         progress: bool = False,
     ) -> None:
         self.check_remote = check_remote
+        self.fail_on_remote_moved = fail_on_remote_moved
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
@@ -493,14 +504,20 @@ def load_config(path: Path | None = None) -> Config | None:
     verify_data = data.get("verify", {})
     if not isinstance(verify_data, dict):
         raise ConfigError(f"invalid config {path}: [verify] must be a table")
-    if set(verify_data) - {"check_remote", "progress"}:
+    allowed_verify = {"check_remote", "fail_on_remote_moved", "progress"}
+    if set(verify_data) - allowed_verify:
         raise ConfigError(
             f"invalid config {path}: unknown [verify] key(s) "
-            f"{sorted(set(verify_data) - {'check_remote', 'progress'})}"
+            f"{sorted(set(verify_data) - allowed_verify)}"
         )
     verify = VerifyConfig(
         check_remote=_parse_bool(verify_data["check_remote"], "[verify].check_remote")
         if "check_remote" in verify_data
+        else False,
+        fail_on_remote_moved=_parse_bool(
+            verify_data["fail_on_remote_moved"], "[verify].fail_on_remote_moved"
+        )
+        if "fail_on_remote_moved" in verify_data
         else False,
         progress=_parse_bool(verify_data["progress"], "[verify].progress")
         if "progress" in verify_data
@@ -512,6 +529,7 @@ def load_config(path: Path | None = None) -> Config | None:
         raise ConfigError(f"invalid config {path}: [restore] must be a table")
     allowed_restore = {
         "check_remote",
+        "fail_on_remote_moved",
         "require_dest",
         "decrypt_passphrase_file",
         "force",
@@ -531,6 +549,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["check_remote"], "[restore].check_remote"
         )
         if "check_remote" in restore_data
+        else False,
+        fail_on_remote_moved=_parse_bool(
+            restore_data["fail_on_remote_moved"], "[restore].fail_on_remote_moved"
+        )
+        if "fail_on_remote_moved" in restore_data
         else False,
         require_dest=_parse_bool(
             restore_data["require_dest"], "[restore].require_dest"

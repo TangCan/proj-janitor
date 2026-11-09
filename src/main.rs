@@ -254,6 +254,15 @@ enum Action {
         /// Disable remote probing even when [restore].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        /// With --check-remote, also refuse restore when no remote ref matches the recorded commit
+        #[arg(long, conflicts_with = "no_fail_on_remote_moved")]
+        fail_on_remote_moved: bool,
+        /// Allow restore when remotes are reachable but no ref matches the recorded commit
+        #[arg(
+            long = "no-fail-on-remote-moved",
+            conflicts_with = "fail_on_remote_moved"
+        )]
+        no_fail_on_remote_moved: bool,
         /// Require --dest; refuse original-location restore
         #[arg(long, conflicts_with = "no_require_dest")]
         require_dest: bool,
@@ -319,6 +328,15 @@ enum Action {
         /// Disable remote probing even when [verify].check_remote is true
         #[arg(long = "no-check-remote", conflicts_with = "check_remote")]
         no_check_remote: bool,
+        /// With --check-remote, exit non-zero when no remote ref matches the recorded commit
+        #[arg(long, conflicts_with = "no_fail_on_remote_moved")]
+        fail_on_remote_moved: bool,
+        /// Treat remote-moved as informational even when [verify].fail_on_remote_moved is true
+        #[arg(
+            long = "no-fail-on-remote-moved",
+            conflicts_with = "fail_on_remote_moved"
+        )]
+        no_fail_on_remote_moved: bool,
         /// Print per-project verify progress with elapsed time (SHA-256 hashing and remote probes)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
@@ -658,6 +676,8 @@ fn run() -> anyhow::Result<()> {
             yes,
             check_remote,
             no_check_remote,
+            fail_on_remote_moved,
+            no_fail_on_remote_moved,
             require_dest,
             no_require_dest,
             force,
@@ -683,6 +703,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.check_remote)
+                    .unwrap_or(false),
+            );
+            let fail_on_remote_moved = resolve_tri_state(
+                fail_on_remote_moved,
+                no_fail_on_remote_moved,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.fail_on_remote_moved)
                     .unwrap_or(false),
             );
             let require_dest = resolve_tri_state(
@@ -758,6 +786,7 @@ fn run() -> anyhow::Result<()> {
                 no_verify,
                 yes,
                 check_remote,
+                fail_on_remote_moved,
                 require_dest,
                 force,
                 keep_replaced,
@@ -774,6 +803,8 @@ fn run() -> anyhow::Result<()> {
             projects,
             check_remote,
             no_check_remote,
+            fail_on_remote_moved,
+            no_fail_on_remote_moved,
             progress,
             no_progress,
             config,
@@ -788,6 +819,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.verify.check_remote)
                     .unwrap_or(false),
             );
+            let fail_on_remote_moved = resolve_tri_state(
+                fail_on_remote_moved,
+                no_fail_on_remote_moved,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.verify.fail_on_remote_moved)
+                    .unwrap_or(false),
+            );
             let progress = resolve_tri_state(
                 progress,
                 no_progress,
@@ -796,7 +835,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.verify.progress)
                     .unwrap_or(false),
             );
-            restore::verify_cmd(&manifest, &projects, check_remote, progress, json)
+            restore::verify_cmd(
+                &manifest,
+                &projects,
+                check_remote,
+                fail_on_remote_moved,
+                progress,
+                json,
+            )
         }
         Action::Init { dir, force } => {
             let path = init::init_config(&dir, force)?;

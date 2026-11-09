@@ -157,6 +157,7 @@ pub(crate) fn verify_cmd(
     manifest_path: &Path,
     projects: &[String],
     check_remote: bool,
+    fail_on_remote_moved: bool,
     progress: bool,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -356,6 +357,18 @@ pub(crate) fn verify_cmd(
         .any(|result| result.status == "remote-unreachable" || result.status == "lfs-unavailable")
     {
         anyhow::bail!("one or more remotes or LFS objects could not be verified");
+    }
+    if check_remote
+        && fail_on_remote_moved
+        && results.iter().any(|result| {
+            result.status == "remote-moved"
+                || result
+                    .submodules
+                    .iter()
+                    .any(|module| module.remote.status == "remote-moved")
+        })
+    {
+        anyhow::bail!("one or more remotes have no ref matching the recorded commit");
     }
     Ok(())
 }
@@ -990,6 +1003,7 @@ pub(crate) fn restore_cmd(
     no_verify: bool,
     yes: bool,
     check_remote: bool,
+    fail_on_remote_moved: bool,
     require_dest: bool,
     force: bool,
     keep_replaced: bool,
@@ -1285,12 +1299,23 @@ pub(crate) fn restore_cmd(
                 .commit
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("missing commit for {}", record.project))?;
-            if let RemoteProbe::Unreachable(reason) = probe_remote(url, commit)? {
-                anyhow::bail!(
-                    "cannot restore {}: remote {} is unreachable ({reason})",
-                    record.project,
-                    redact_remote(url)
-                );
+            match probe_remote(url, commit)? {
+                RemoteProbe::Unreachable(reason) => {
+                    anyhow::bail!(
+                        "cannot restore {}: remote {} is unreachable ({reason})",
+                        record.project,
+                        redact_remote(url)
+                    );
+                }
+                RemoteProbe::Moved if fail_on_remote_moved => {
+                    anyhow::bail!(
+                        "cannot restore {}: remote {} has no ref matching commit {}",
+                        record.project,
+                        redact_remote(url),
+                        &commit[..12.min(commit.len())]
+                    );
+                }
+                _ => {}
             }
             if let Some(submodules) = &record.submodules {
                 if progress && !submodules.is_empty() {
@@ -1301,13 +1326,24 @@ pub(crate) fn restore_cmd(
                     );
                 }
                 for sub in submodules {
-                    if let RemoteProbe::Unreachable(reason) = probe_remote(&sub.url, &sub.commit)? {
-                        anyhow::bail!(
-                            "cannot restore {}: submodule {} remote {} is unreachable ({reason})",
-                            record.project,
-                            sub.path,
-                            redact_remote(&sub.url)
-                        );
+                    match probe_remote(&sub.url, &sub.commit)? {
+                        RemoteProbe::Unreachable(reason) => {
+                            anyhow::bail!(
+                                "cannot restore {}: submodule {} remote {} is unreachable ({reason})",
+                                record.project,
+                                sub.path,
+                                redact_remote(&sub.url)
+                            );
+                        }
+                        RemoteProbe::Moved if fail_on_remote_moved => {
+                            anyhow::bail!(
+                                "cannot restore {}: submodule {} remote {} has no ref matching the pinned commit",
+                                record.project,
+                                sub.path,
+                                redact_remote(&sub.url)
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
