@@ -158,6 +158,7 @@ pub(crate) fn verify_cmd(
     projects: &[String],
     check_remote: bool,
     fail_on_remote_moved: bool,
+    fail_on_remote_skipped: bool,
     progress: bool,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -369,6 +370,18 @@ pub(crate) fn verify_cmd(
         })
     {
         anyhow::bail!("one or more remotes have no ref matching the recorded commit");
+    }
+    if check_remote
+        && fail_on_remote_skipped
+        && results.iter().any(|result| {
+            result.status == "remote-skipped"
+                || result
+                    .submodules
+                    .iter()
+                    .any(|module| module.remote.status == "remote-skipped")
+        })
+    {
+        anyhow::bail!("one or more remotes were not checked (credentials/query/fragment in URL)");
     }
     Ok(())
 }
@@ -1004,6 +1017,7 @@ pub(crate) fn restore_cmd(
     yes: bool,
     check_remote: bool,
     fail_on_remote_moved: bool,
+    fail_on_remote_skipped: bool,
     require_dest: bool,
     force: bool,
     keep_replaced: bool,
@@ -1315,6 +1329,13 @@ pub(crate) fn restore_cmd(
                         &commit[..12.min(commit.len())]
                     );
                 }
+                RemoteProbe::Skipped if fail_on_remote_skipped => {
+                    anyhow::bail!(
+                        "cannot restore {}: remote {} was not checked (credentials-in-remote-url)",
+                        record.project,
+                        redact_remote(url)
+                    );
+                }
                 _ => {}
             }
             if let Some(submodules) = &record.submodules {
@@ -1338,6 +1359,14 @@ pub(crate) fn restore_cmd(
                         RemoteProbe::Moved if fail_on_remote_moved => {
                             anyhow::bail!(
                                 "cannot restore {}: submodule {} remote {} has no ref matching the pinned commit",
+                                record.project,
+                                sub.path,
+                                redact_remote(&sub.url)
+                            );
+                        }
+                        RemoteProbe::Skipped if fail_on_remote_skipped => {
+                            anyhow::bail!(
+                                "cannot restore {}: submodule {} remote {} was not checked (credentials-in-remote-url)",
                                 record.project,
                                 sub.path,
                                 redact_remote(&sub.url)

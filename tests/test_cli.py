@@ -2318,6 +2318,65 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("Restored 1 project(s)", out)
 
+    def test_verify_fail_on_remote_skipped_exits_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(
+                root,
+                project,
+                "https://user:token@github.com/acme/app.git",
+                head,
+            )
+
+            code, out, err = run_cli(
+                "verify",
+                str(manifest),
+                "--check-remote",
+                "--fail-on-remote-skipped",
+            )
+            self.assertEqual(code, 1, err)
+            self.assertIn("not contacted", out)
+            self.assertIn(
+                "error: one or more remotes were not checked "
+                "(credentials/query/fragment in URL)",
+                err,
+            )
+            self.assertNotIn("token", out + err)
+
+            code, _out, err = run_cli(
+                "verify", str(manifest), "--check-remote"
+            )
+            self.assertEqual(code, 0, err)
+
+    def test_restore_fail_on_remote_skipped_blocks_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(
+                root,
+                project,
+                "https://user:token@github.com/acme/app.git",
+                head,
+            )
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--check-remote",
+                "--fail-on-remote-skipped",
+            )
+            self.assertEqual(code, 1, err)
+            self.assertIn("was not checked", err)
+            self.assertNotIn("token", out + err)
+            self.assertFalse((restored / "app").exists())
+            self.assertEqual(out, "")
+
 
 if __name__ == "__main__":
     unittest.main()

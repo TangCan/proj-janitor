@@ -263,6 +263,15 @@ enum Action {
             conflicts_with = "fail_on_remote_moved"
         )]
         no_fail_on_remote_moved: bool,
+        /// With --check-remote, also refuse restore when a credentialed remote URL was not probed
+        #[arg(long, conflicts_with = "no_fail_on_remote_skipped")]
+        fail_on_remote_skipped: bool,
+        /// Allow restore when credentialed remotes are skipped without probing
+        #[arg(
+            long = "no-fail-on-remote-skipped",
+            conflicts_with = "fail_on_remote_skipped"
+        )]
+        no_fail_on_remote_skipped: bool,
         /// Require --dest; refuse original-location restore
         #[arg(long, conflicts_with = "no_require_dest")]
         require_dest: bool,
@@ -337,6 +346,15 @@ enum Action {
             conflicts_with = "fail_on_remote_moved"
         )]
         no_fail_on_remote_moved: bool,
+        /// With --check-remote, exit non-zero when a credentialed remote URL was not probed
+        #[arg(long, conflicts_with = "no_fail_on_remote_skipped")]
+        fail_on_remote_skipped: bool,
+        /// Treat remote-skipped as informational even when [verify].fail_on_remote_skipped is true
+        #[arg(
+            long = "no-fail-on-remote-skipped",
+            conflicts_with = "fail_on_remote_skipped"
+        )]
+        no_fail_on_remote_skipped: bool,
         /// Print per-project verify progress with elapsed time (SHA-256 hashing and remote probes)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
@@ -678,6 +696,8 @@ fn run() -> anyhow::Result<()> {
             no_check_remote,
             fail_on_remote_moved,
             no_fail_on_remote_moved,
+            fail_on_remote_skipped,
+            no_fail_on_remote_skipped,
             require_dest,
             no_require_dest,
             force,
@@ -711,6 +731,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.fail_on_remote_moved)
+                    .unwrap_or(false),
+            );
+            let fail_on_remote_skipped = resolve_tri_state(
+                fail_on_remote_skipped,
+                no_fail_on_remote_skipped,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.fail_on_remote_skipped)
                     .unwrap_or(false),
             );
             let require_dest = resolve_tri_state(
@@ -787,6 +815,7 @@ fn run() -> anyhow::Result<()> {
                 yes,
                 check_remote,
                 fail_on_remote_moved,
+                fail_on_remote_skipped,
                 require_dest,
                 force,
                 keep_replaced,
@@ -805,6 +834,8 @@ fn run() -> anyhow::Result<()> {
             no_check_remote,
             fail_on_remote_moved,
             no_fail_on_remote_moved,
+            fail_on_remote_skipped,
+            no_fail_on_remote_skipped,
             progress,
             no_progress,
             config,
@@ -827,6 +858,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.verify.fail_on_remote_moved)
                     .unwrap_or(false),
             );
+            let fail_on_remote_skipped = resolve_tri_state(
+                fail_on_remote_skipped,
+                no_fail_on_remote_skipped,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.verify.fail_on_remote_skipped)
+                    .unwrap_or(false),
+            );
             let progress = resolve_tri_state(
                 progress,
                 no_progress,
@@ -840,6 +879,7 @@ fn run() -> anyhow::Result<()> {
                 &projects,
                 check_remote,
                 fail_on_remote_moved,
+                fail_on_remote_skipped,
                 progress,
                 json,
             )

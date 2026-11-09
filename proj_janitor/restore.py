@@ -111,6 +111,7 @@ def execute_restore(
     verify: bool = True,
     check_remote: bool = False,
     fail_on_remote_moved: bool = False,
+    fail_on_remote_skipped: bool = False,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
     keep_replaced: bool = False,
@@ -160,6 +161,12 @@ def execute_restore(
                     f"{redact_remote_url(plan.remote_url)} has no ref matching "
                     f"commit {plan.commit[:12]} ({reason})"
                 )
+            if fail_on_remote_skipped and status == "remote-skipped":
+                raise RestoreError(
+                    f"cannot restore {plan.project}: remote "
+                    f"{redact_remote_url(plan.remote_url)} was not checked "
+                    f"({reason})"
+                )
             raw_submodules = [
                 submodule
                 for submodule in (plan.submodules or [])
@@ -189,6 +196,11 @@ def execute_restore(
                         f"cannot restore {plan.project}: submodule {sub_path} remote "
                         f"{redact_remote_url(sub_url)} has no ref matching the "
                         f"pinned commit ({sub_reason})"
+                    )
+                if fail_on_remote_skipped and sub_status == "remote-skipped":
+                    raise RestoreError(
+                        f"cannot restore {plan.project}: submodule {sub_path} remote "
+                        f"{redact_remote_url(sub_url)} was not checked ({sub_reason})"
                     )
             lfs_objects = plan.lfs_objects or []
             if progress and lfs_objects:

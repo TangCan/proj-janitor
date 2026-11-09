@@ -2551,6 +2551,118 @@ fn restore_fail_on_remote_moved_blocks_before_write() {
 }
 
 #[test]
+fn verify_fail_on_remote_skipped_exits_one() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.38",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": "https://user:token@github.com/team/demo.git",
+                "branch": "main",
+                "commit": "a".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote", "--fail-on-remote-skipped"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!blocked.status.success());
+    let stdout = String::from_utf8_lossy(&blocked.stdout);
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stdout.contains("not contacted"), "{stdout}");
+    assert!(stderr.contains("remotes were not checked"), "{stderr}");
+    assert!(!stdout.contains("token"));
+    assert!(!stderr.contains("token"));
+
+    let allowed = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--check-remote"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        allowed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&allowed.stderr)
+    );
+}
+
+#[test]
+fn restore_fail_on_remote_skipped_blocks_before_write() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.38",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": "https://user:token@github.com/team/demo.git",
+                "branch": "main",
+                "commit": "a".repeat(40),
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let restored = temp.0.join("restored");
+
+    let blocked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "restore",
+            "--check-remote",
+            "--fail-on-remote-skipped",
+            "--dest",
+        ])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!blocked.status.success());
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stderr.contains("was not checked"), "{stderr}");
+    assert!(!stderr.contains("token"));
+    assert!(!restored.join("demo").exists());
+}
+
+#[test]
 fn backup_uses_dest_from_config_file() {
     let temp = TestDir::new();
     let project = temp.project();

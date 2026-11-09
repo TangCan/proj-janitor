@@ -234,6 +234,20 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config.restore.fail_on_remote_moved)
             self.assertFalse(config.verify.check_remote)
 
+    def test_loads_verify_and_restore_fail_on_remote_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text(
+                "[verify]\nfail_on_remote_skipped = true\n"
+                "[restore]\nfail_on_remote_skipped = true\n",
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.verify.fail_on_remote_skipped)
+            self.assertTrue(config.restore.fail_on_remote_skipped)
+            self.assertFalse(config.verify.check_remote)
+
     def test_loads_restore_require_dest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cfg.toml"
