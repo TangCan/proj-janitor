@@ -11,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable
@@ -27,7 +28,7 @@ from proj_janitor.backup import (
     sha256_file,
     sha256_stream,
 )
-from proj_janitor.models import RestorePlan, RestoreResult
+from proj_janitor.models import RestorePlan, RestoreResult, format_elapsed
 from proj_janitor.scanner import is_supported_submodule_url, submodule_config
 
 _COMMIT_RE = re.compile(r"[0-9a-fA-F]{7,64}\Z")
@@ -160,6 +161,7 @@ def execute_restore(
     results: list[RestoreResult] = []
     failures: list[tuple[str, str]] = []
     total = len(plan_list)
+    progress_started = time.monotonic() if progress else None
     for index, plan in enumerate(plan_list, start=1):
         if plan.skip:
             if progress:
@@ -206,9 +208,14 @@ def execute_restore(
     if progress:
         restored = sum(1 for result in results if not result.skipped)
         skipped = sum(1 for result in results if result.skipped)
+        elapsed = format_elapsed(
+            0.0
+            if progress_started is None
+            else time.monotonic() - progress_started
+        )
         print(
             f"progress: done, restored {restored}, skipped {skipped}, "
-            f"failed {len(failures)}",
+            f"failed {len(failures)} ({elapsed})",
             file=sys.stderr,
         )
     if failures:
@@ -1659,10 +1666,15 @@ def _safe_extract(
                 tar.extractall(dest, **extract_kwargs)  # type: ignore[arg-type]
             else:
                 total = len(members)
+                progress_started = time.monotonic()
                 for index, member in enumerate(members, start=1):
                     tar.extract(member, dest, **extract_kwargs)  # type: ignore[arg-type]
-                    _report_extract_progress(progress_label, index, done=False)
-                _report_extract_progress(progress_label, total, done=True)
+                    _report_extract_progress(
+                        progress_label, progress_started, index, done=False
+                    )
+                _report_extract_progress(
+                    progress_label, progress_started, total, done=True
+                )
     except (OSError, tarfile.TarError, TypeError) as exc:
         raise RestoreError(f"cannot extract archive {archive}: {exc}") from exc
 
@@ -1686,16 +1698,19 @@ def _is_extractable_file_member(member: tarfile.TarInfo) -> bool:
     return member.type in allowed
 
 
-def _report_extract_progress(label: str, members: int, *, done: bool) -> None:
+def _report_extract_progress(
+    label: str, started: float, members: int, *, done: bool
+) -> None:
+    elapsed = format_elapsed(time.monotonic() - started)
     if done:
         print(
-            f"progress: {label}: extracted {members} members (done)",
+            f"progress: {label}: extracted {members} members (done, {elapsed})",
             file=sys.stderr,
         )
         return
     if members == 1 or members % 100 == 0:
         print(
-            f"progress: {label}: extracted {members} members",
+            f"progress: {label}: extracted {members} members ({elapsed})",
             file=sys.stderr,
         )
 

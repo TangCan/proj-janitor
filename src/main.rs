@@ -137,7 +137,7 @@ enum Action {
         /// Include secret paths in archives and only warn (overrides config)
         #[arg(long = "no-exclude-secrets", conflicts_with = "exclude_secrets")]
         no_exclude_secrets: bool,
-        /// Print packing progress on stderr; with --dry-run, estimate size after excludes
+        /// Print packing progress with elapsed time; with --dry-run, estimate size after excludes
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable progress output even when [backup].progress is true
@@ -254,7 +254,7 @@ enum Action {
         /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
-        /// Print per-project restore progress on stderr (archive extract counts too)
+        /// Print per-project restore progress with elapsed time (archive extract counts too)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable restore progress even when [restore].progress is true
@@ -755,6 +755,18 @@ pub(crate) fn human(n: u64) -> String {
         format!("{n} B")
     } else {
         format!("{v:.1} {unit}")
+    }
+}
+
+/// Compact elapsed time for `--progress` lines (R-08 observability).
+pub(crate) fn format_elapsed(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m{:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h{:02}m{:02}s", secs / 3600, (secs / 60) % 60, secs % 60)
     }
 }
 pub(crate) fn expand(p: &Path) -> PathBuf {

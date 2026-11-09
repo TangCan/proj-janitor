@@ -1250,6 +1250,7 @@ pub(crate) fn restore_cmd(
     let mut done: Vec<(String, String, PathBuf, bool)> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
     let total = plans.len();
+    let progress_started = progress.then(std::time::Instant::now);
     for (index, (r, target, archive, _, skip)) in plans.iter().enumerate() {
         let index = index + 1;
         if *skip {
@@ -1398,8 +1399,11 @@ pub(crate) fn restore_cmd(
     if progress {
         let restored = done.iter().filter(|(_, _, _, skipped)| !*skipped).count();
         let skipped = done.iter().filter(|(_, _, _, skipped)| *skipped).count();
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
         eprintln!(
-            "progress: done, restored {restored}, skipped {skipped}, failed {}",
+            "progress: done, restored {restored}, skipped {skipped}, failed {} ({elapsed})",
             failures.len()
         );
     }

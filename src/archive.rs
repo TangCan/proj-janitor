@@ -341,6 +341,7 @@ pub(crate) fn create_incremental_archive(
         // Match Python tarfile: store sparse files as regular members so restores
         // do not depend on GNU sparse headers (EntryType::is_file is Regular-only).
         tar.sparse(false);
+        let progress_started = progress_label.map(|_| std::time::Instant::now());
         let root = project.file_name().unwrap_or_default();
         let mut archive_paths = HashMap::new();
         register_archive_case_path(Path::new(root), &mut archive_paths)?;
@@ -405,7 +406,7 @@ pub(crate) fn create_incremental_archive(
                     size: 0,
                 });
                 seen_files += 1;
-                report_archive_progress(progress_label, seen_files, seen_bytes);
+                report_archive_progress(progress_label, progress_started, seen_files, seen_bytes);
             } else if e.file_type().is_dir() {
                 tar.append_dir(name, e.path())?;
             } else if e.file_type().is_file() {
@@ -424,12 +425,15 @@ pub(crate) fn create_incremental_archive(
                 });
                 seen_files += 1;
                 seen_bytes += meta.len();
-                report_archive_progress(progress_label, seen_files, seen_bytes);
+                report_archive_progress(progress_label, progress_started, seen_files, seen_bytes);
             }
         }
         if let Some(label) = progress_label {
+            let elapsed = progress_started
+                .map(|started| crate::format_elapsed(started.elapsed()))
+                .unwrap_or_else(|| "0s".into());
             eprintln!(
-                "progress: {label}: done, {seen_files} files, {} scanned",
+                "progress: {label}: done, {seen_files} files, {} scanned ({elapsed})",
                 crate::human(seen_bytes)
             );
         }
@@ -538,6 +542,7 @@ pub(crate) fn extract_archive_with_hash(
         let mut ar = Archive::new(dec);
         let entries = ar.entries()?;
         let mut member_count = 0;
+        let progress_started = progress_label.map(|_| std::time::Instant::now());
         let mut directories = Vec::new();
         let mut symlinks = Vec::new();
         let mut casefolded_paths = HashMap::new();
@@ -602,10 +607,10 @@ pub(crate) fn extract_archive_with_hash(
                 io::copy(&mut e, &mut f)?;
                 set_mode(&out, mode)?;
             }
-            report_extract_progress(progress_label, member_count, false);
+            report_extract_progress(progress_label, progress_started, member_count, false);
         }
         anyhow::ensure!(member_count > 0, "archive is empty");
-        report_extract_progress(progress_label, member_count, true);
+        report_extract_progress(progress_label, progress_started, member_count, true);
         let root = tmp.join(project);
         anyhow::ensure!(
             root.is_dir() && !root.is_symlink(),
@@ -973,28 +978,44 @@ pub(crate) fn build_exclude_globset(exclude: &[String]) -> anyhow::Result<GlobSe
     }
     builder.build().context("invalid exclude patterns")
 }
-fn report_archive_progress(label: Option<&str>, files: u64, bytes: u64) {
+fn report_archive_progress(
+    label: Option<&str>,
+    started: Option<std::time::Instant>,
+    files: u64,
+    bytes: u64,
+) {
     let Some(name) = label else {
         return;
     };
     if files == 1 || files.is_multiple_of(100) {
+        let elapsed = started
+            .map(|t| crate::format_elapsed(t.elapsed()))
+            .unwrap_or_else(|| "0s".into());
         eprintln!(
-            "progress: {name}: {files} files, {} scanned",
+            "progress: {name}: {files} files, {} scanned ({elapsed})",
             crate::human(bytes)
         );
     }
 }
 
-fn report_extract_progress(label: Option<&str>, members: u64, done: bool) {
+fn report_extract_progress(
+    label: Option<&str>,
+    started: Option<std::time::Instant>,
+    members: u64,
+    done: bool,
+) {
     let Some(name) = label else {
         return;
     };
+    let elapsed = started
+        .map(|t| crate::format_elapsed(t.elapsed()))
+        .unwrap_or_else(|| "0s".into());
     if done {
-        eprintln!("progress: {name}: extracted {members} members (done)");
+        eprintln!("progress: {name}: extracted {members} members (done, {elapsed})");
         return;
     }
     if members == 1 || members.is_multiple_of(100) {
-        eprintln!("progress: {name}: extracted {members} members");
+        eprintln!("progress: {name}: extracted {members} members ({elapsed})");
     }
 }
 

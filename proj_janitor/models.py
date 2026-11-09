@@ -132,3 +132,15 @@ def human_size(size_bytes: int) -> str:
             return f"{value:.1f} {unit}"
         value /= 1024
     return f"{value:.1f} TiB"
+
+
+def format_elapsed(seconds: float) -> str:
+    """Compact elapsed time for ``--progress`` lines (R-08 observability)."""
+    secs = max(0, int(seconds))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m{secs % 60:02d}s"
+    hours = secs // 3600
+    minutes = (secs // 60) % 60
+    return f"{hours}h{minutes:02d}m{secs % 60:02d}s"

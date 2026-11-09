@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unicodedata
 from collections import Counter
 from dataclasses import asdict
@@ -23,7 +24,14 @@ from proj_janitor.config import (
     artifact_patterns,
     is_coverage_artifact,
 )
-from proj_janitor.models import BackupPlan, BackupRecord, GitRecovery, Project, human_size
+from proj_janitor.models import (
+    BackupPlan,
+    BackupRecord,
+    GitRecovery,
+    Project,
+    format_elapsed,
+    human_size,
+)
 from proj_janitor.crypto import (
     OPENSSL_AES_256_CBC_PBKDF2,
     encrypted_sibling,
@@ -746,6 +754,7 @@ def _create_incremental_archive(
     inventory: list[dict] = []
     seen_files = 0
     seen_bytes = 0
+    progress_started = time.monotonic() if progress_label is not None else None
     archive_file = _open_new_file(archive, binary=True)
     archive_identity: tuple[int, int] | None = None
     try:
@@ -793,7 +802,10 @@ def _create_incremental_archive(
                         )
                         seen_files += 1
                         _report_archive_progress(
-                            progress_label, seen_files, seen_bytes
+                            progress_label,
+                            progress_started,
+                            seen_files,
+                            seen_bytes,
                         )
                         return
                     if info.isdir():
@@ -818,7 +830,10 @@ def _create_incremental_archive(
                     seen_files += 1
                     seen_bytes += int(info.size or 0)
                     _report_archive_progress(
-                        progress_label, seen_files, seen_bytes
+                        progress_label,
+                        progress_started,
+                        seen_files,
+                        seen_bytes,
                     )
 
                 for dirpath, dirnames, filenames in os.walk(
@@ -851,9 +866,14 @@ def _create_incremental_archive(
                     else []
                 )
             if progress_label is not None:
+                elapsed = format_elapsed(
+                    0.0
+                    if progress_started is None
+                    else time.monotonic() - progress_started
+                )
                 print(
                     f"progress: {progress_label}: done, {seen_files} files, "
-                    f"{human_size(seen_bytes)} scanned",
+                    f"{human_size(seen_bytes)} scanned ({elapsed})",
                     file=sys.stderr,
                 )
             archive_file.flush()
@@ -986,13 +1006,20 @@ def _archive_entry_excluded(
 
 
 def _report_archive_progress(
-    label: str | None, files: int, bytes_total: int
+    label: str | None,
+    started: float | None,
+    files: int,
+    bytes_total: int,
 ) -> None:
     if label is None:
         return
     if files == 1 or files % 100 == 0:
+        elapsed = format_elapsed(
+            0.0 if started is None else time.monotonic() - started
+        )
         print(
-            f"progress: {label}: {files} files, {human_size(bytes_total)} scanned",
+            f"progress: {label}: {files} files, {human_size(bytes_total)} "
+            f"scanned ({elapsed})",
             file=sys.stderr,
         )
 

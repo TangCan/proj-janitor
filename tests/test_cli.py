@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import tarfile
 import tempfile
@@ -538,13 +539,18 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, out + err)
             self.assertIn("progress: restoring 1/1:", err)
-            self.assertIn(f"progress: {project.name}: extracted 1 members", err)
-            self.assertIn(
-                f"progress: {project.name}: extracted ",
+            self.assertRegex(
                 err,
+                rf"progress: {re.escape(project.name)}: extracted 1 members \(\d+s\)",
             )
-            self.assertIn("members (done)", err)
-            self.assertIn("progress: done, restored 1", err)
+            self.assertRegex(
+                err,
+                rf"progress: {re.escape(project.name)}: extracted \d+ members "
+                r"\(done, \d+s\)",
+            )
+            self.assertRegex(
+                err, r"progress: done, restored 1, skipped 0, failed 0 \(\d+s\)"
+            )
 
             code, out, err = run_cli(
                 "restore",

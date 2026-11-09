@@ -217,8 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="progress",
         help=(
-            "print archive packing progress on stderr; with --dry-run, estimate "
-            "file count and bytes after excludes (overrides [backup].progress)"
+            "print archive packing progress with elapsed time on stderr; with "
+            "--dry-run, estimate file count and bytes after excludes "
+            "(overrides [backup].progress)"
         ),
     )
     backup_progress.add_argument(
@@ -447,8 +448,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="progress",
         help=(
-            "print per-project restore progress on stderr, including archive "
-            "extract member counts (overrides [restore].progress)"
+            "print per-project restore progress with elapsed time on stderr, "
+            "including archive extract member counts "
+            "(overrides [restore].progress)"
         ),
     )
     restore_progress.add_argument(
