@@ -485,8 +485,36 @@ fn create_private_file(path: &Path) -> io::Result<File> {
 
 pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        ensure_private_dir(parent)?;
     }
+    create_private_dir_leaf(path)
+}
+
+/// Create ``path`` and any missing parents with owner-only mode on Unix.
+/// Existing directories are left unchanged.
+pub(crate) fn ensure_private_dir(path: &Path) -> io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    let mut probe = path.to_path_buf();
+    loop {
+        if probe.exists() {
+            break;
+        }
+        missing.push(probe.clone());
+        match probe.parent() {
+            Some(parent) if parent != probe => probe = parent.to_path_buf(),
+            _ => break,
+        }
+    }
+    for component in missing.into_iter().rev() {
+        create_private_dir_leaf(&component)?;
+    }
+    Ok(())
+}
+
+fn create_private_dir_leaf(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     let result = {
         use std::os::unix::fs::DirBuilderExt;
@@ -537,7 +565,7 @@ pub(crate) fn extract_archive_with_hash(
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
-    fs::create_dir_all(parent)?;
+    ensure_private_dir(parent)?;
     let tmp = create_private_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<Option<PathBuf>> {
         let dec = GzDecoder::new(f);

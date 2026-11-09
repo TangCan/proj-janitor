@@ -1367,6 +1367,38 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
 
     @unittest.skipUnless(os.name == "posix", "Unix permission check")
+    def test_restore_creates_private_destination_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+            backups = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backups),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = list((backups / "app").glob("manifest-*.json"))
+            self.assertTrue(manifests)
+            restored = root / "private-restore" / "nested"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(restored),
+            )
+            self.assertEqual(code, 0, err)
+            self.assertTrue((restored / "app").is_dir())
+            for path in (root / "private-restore", restored):
+                mode = path.stat().st_mode & 0o777
+                self.assertEqual(mode & 0o077, 0, f"{path} mode={mode:04o}")
+                self.assertEqual(mode & 0o700, 0o700, f"{path} mode={mode:04o}")
+
+    @unittest.skipUnless(os.name == "posix", "Unix permission check")
     def test_restore_fail_on_insecure_dest_refuses_open_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

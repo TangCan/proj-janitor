@@ -24,7 +24,7 @@ const REMOTE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 use crate::{
     Manifest, Record,
     archive::{
-        create_private_temp_dir, extract_archive, extract_archive_with_hash,
+        create_private_temp_dir, ensure_private_dir, extract_archive, extract_archive_with_hash,
         extract_incremental_delta, format_insecure_restore_dest_refusal, insecure_dir_mode,
         portable_path_key, publish_restored_tree, remove_deleted_paths, safe_windows_component,
         sha256, sha256_with_progress,
@@ -1505,7 +1505,7 @@ pub(crate) fn restore_cmd(
             );
         }
         let result = (|| -> anyhow::Result<Option<PathBuf>> {
-            fs::create_dir_all(
+            ensure_private_dir(
                 target
                     .parent()
                     .ok_or_else(|| anyhow::anyhow!("target has no parent"))?,
@@ -2119,7 +2119,7 @@ fn restore_git(
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
-    fs::create_dir_all(parent)?;
+    ensure_private_dir(parent)?;
     let temporary = create_private_temp_dir(parent)?;
     let repo = temporary.join("repo");
     let result = (|| -> anyhow::Result<Option<PathBuf>> {
@@ -2298,7 +2298,7 @@ fn restore_git_bundle(
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
-    fs::create_dir_all(parent)?;
+    ensure_private_dir(parent)?;
     let temporary = create_private_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<Option<PathBuf>> {
         let stable_bundle = temporary.join("source.bundle");

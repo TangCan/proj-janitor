@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from proj_janitor.backup import (
     _portable_path_key,
+    ensure_private_dir,
     format_insecure_restore_dest_refusal,
     format_unsafe_archive_path,
     insecure_dir_mode,
@@ -277,7 +278,7 @@ def execute_restore(
                     )
     try:
         for plan in plan_list:
-            plan.target.parent.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(plan.target.parent)
     except OSError as exc:
         raise RestoreError(
             f"cannot create restore target directory: {exc}"
@@ -1461,7 +1462,7 @@ def _restore_git(
     if not force and (plan.target.exists() or plan.target.is_symlink()):
         raise RestoreError(f"restore target already exists: {plan.target}")
 
-    plan.target.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(plan.target.parent)
     temporary = Path(
         tempfile.mkdtemp(
             prefix=f".{plan.project}-restore-",
@@ -1577,7 +1578,7 @@ def _restore_git_bundle(
         raise RestoreError(f"incomplete git bundle restore plan for {plan.project}")
     if not force and (plan.target.exists() or plan.target.is_symlink()):
         raise RestoreError(f"restore target already exists: {plan.target}")
-    plan.target.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(plan.target.parent)
     temporary = Path(
         tempfile.mkdtemp(
             prefix=f".{plan.project}-restore-",
@@ -1736,7 +1737,7 @@ def _restore_archive(
                         f"expected {plan.sha256}, got {actual}"
                     )
                 archive_source.seek(0)
-            plan.target.parent.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(plan.target.parent)
             temporary = Path(
                 tempfile.mkdtemp(
                     prefix=f".{plan.project}-restore-",

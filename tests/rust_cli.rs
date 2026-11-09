@@ -2753,6 +2753,55 @@ fn backup_fail_on_insecure_dest_refuses_open_directory() {
     assert!(stderr.contains("0755"), "{stderr}");
 }
 
+#[cfg(unix)]
+#[test]
+fn restore_creates_private_destination_directories() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "hello\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("manifest-") && name.ends_with(".json"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("private-restore").join("nested");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(restored.join("demo").is_dir());
+    for path in [temp.0.join("private-restore"), restored] {
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode & 0o077, 0, "{} mode={mode:04o}", path.display());
+        assert_eq!(mode & 0o700, 0o700, "{} mode={mode:04o}", path.display());
+    }
+}
+
 #[test]
 fn restore_allowed_root_refuses_outside_target() {
     let temp = TestDir::new();

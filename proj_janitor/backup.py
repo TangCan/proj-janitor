@@ -1022,6 +1022,30 @@ def insecure_dir_mode(path: Path) -> int | None:
     return mode if mode & 0o077 else None
 
 
+def ensure_private_dir(path: Path) -> None:
+    """Create ``path`` and any missing parents with owner-only mode on Unix.
+
+    Existing directories are left unchanged (use ``--fail-on-insecure-dest`` to refuse
+    group/other-accessible ancestors). Non-Unix platforms use default mkdir.
+    """
+    target = path.expanduser()
+    if target.exists():
+        return
+    missing: list[Path] = []
+    probe = target
+    while not probe.exists():
+        missing.append(probe)
+        parent = probe.parent
+        if parent == probe:
+            break
+        probe = parent
+    for component in reversed(missing):
+        if os.name == "posix":
+            component.mkdir(mode=0o700, exist_ok=True)
+        else:
+            component.mkdir(exist_ok=True)
+
+
 def format_insecure_dest_refusal(path: Path, mode: int) -> str:
     return (
         f"error: backup dest has insecure permissions {mode:04o} "
