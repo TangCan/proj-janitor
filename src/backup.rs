@@ -234,7 +234,17 @@ pub(crate) fn backup_cmd(
         create_private_dir(&dest)?;
     }
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    for (p, dir_name) in projects.iter().zip(&project_dirs) {
+    let total = projects.len();
+    let progress_started = progress.then(std::time::Instant::now);
+    if progress && dry {
+        eprintln!("progress: would backup {total} project(s)");
+    }
+    let mut backed_up = 0usize;
+    let mut failed_count = 0usize;
+    for (index, (p, dir_name)) in projects.iter().zip(&project_dirs).enumerate() {
+        if progress && !dry {
+            eprintln!("progress: backing up {}/{total}: {}", index + 1, p.name);
+        }
         let dir = dest.join(dir_name);
         let mut run_stamp = timestamp.clone();
         let mut suffix = 2;
@@ -281,6 +291,7 @@ pub(crate) fn backup_cmd(
                 eprintln!("error: {}: {reason}", p.name);
             }
             failed = true;
+            failed_count += 1;
             continue;
         }
         if dry {
@@ -407,6 +418,7 @@ pub(crate) fn backup_cmd(
             if !unsafe_paths.is_empty() {
                 eprintln!("{}", format_unsafe_archive_refusal(&p.name, &unsafe_paths));
                 failed = true;
+                failed_count += 1;
                 continue;
             }
         }
@@ -423,6 +435,7 @@ pub(crate) fn backup_cmd(
             if !secrets.is_empty() {
                 eprintln!("{}", format_secret_refusal(&p.name, &secrets));
                 failed = true;
+                failed_count += 1;
                 continue;
             }
         }
@@ -438,11 +451,13 @@ pub(crate) fn backup_cmd(
                 Ok(available) if archive_space_insufficient(bytes, available) => {
                     eprintln!("{}", format_space_refusal(&p.name, bytes, available));
                     failed = true;
+                    failed_count += 1;
                     continue;
                 }
                 Err(error) => {
                     eprintln!("error: {}: {error:#}", p.name);
                     failed = true;
+                    failed_count += 1;
                     continue;
                 }
                 _ => {}
@@ -620,9 +635,11 @@ pub(crate) fn backup_cmd(
                     }
                     eprintln!("error: {}: cannot write manifest: {e}", p.name);
                     failed = true;
+                    failed_count += 1;
                     continue;
                 }
                 drop(manifest_identity.take());
+                backed_up += 1;
                 if record.strategy == "git" {
                     println!(
                         "[git] {}: {} @ {}",
@@ -673,9 +690,16 @@ pub(crate) fn backup_cmd(
                     remove_file_if_same(&archive_path, identity);
                 }
                 eprintln!("error: {}: {e}", p.name);
-                failed = true
+                failed = true;
+                failed_count += 1;
             }
         }
+    }
+    if progress && !dry {
+        let elapsed = progress_started
+            .map(|started| crate::format_elapsed(started.elapsed()))
+            .unwrap_or_else(|| "0s".into());
+        eprintln!("progress: done, backed up {backed_up}, failed {failed_count} ({elapsed})");
     }
     if failed {
         anyhow::bail!("one or more backup operations failed")

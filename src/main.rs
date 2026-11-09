@@ -12,6 +12,7 @@ mod backup;
 mod clean;
 mod config;
 mod crypto;
+mod init;
 mod project;
 mod restore;
 mod retention;
@@ -137,7 +138,7 @@ enum Action {
         /// Include secret paths in archives and only warn (overrides config)
         #[arg(long = "no-exclude-secrets", conflicts_with = "exclude_secrets")]
         no_exclude_secrets: bool,
-        /// Print packing progress with elapsed time; with --dry-run, estimate size after excludes
+        /// Print per-project and packing progress with elapsed time; with --dry-run, estimate size after excludes
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
         /// Disable progress output even when [backup].progress is true
@@ -289,6 +290,15 @@ enum Action {
         /// Emit JSON
         #[arg(long)]
         json: bool,
+    },
+    /// Write a starter .proj-janitor.toml in the current (or given) directory
+    Init {
+        /// Directory that should receive .proj-janitor.toml (default: .)
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+        /// Overwrite an existing .proj-janitor.toml
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -671,6 +681,11 @@ fn run() -> anyhow::Result<()> {
                     .unwrap_or(false),
             );
             restore::verify_cmd(&manifest, &projects, check_remote, json)
+        }
+        Action::Init { dir, force } => {
+            let path = init::init_config(&dir, force)?;
+            println!("Wrote {}", path.display());
+            Ok(())
         }
     }
 }

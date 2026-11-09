@@ -8,6 +8,7 @@ from unittest import mock
 from proj_janitor.config import (
     CONFIG_NAME,
     ConfigError,
+    init_config,
     load_config,
     resolve_check_remote,
 )
@@ -270,6 +271,20 @@ class ConfigTests(unittest.TestCase):
             path.write_text("[verify]\nbogus = true\n", encoding="utf-8")
             with self.assertRaisesRegex(ConfigError, r"unknown \[verify\] key"):
                 load_config(path)
+
+    def test_init_config_writes_loadable_starter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = init_config(root)
+            self.assertEqual(path, root / CONFIG_NAME)
+            config = load_config(path)
+            assert config is not None
+            self.assertIsNone(config.backup.dest)
+            self.assertFalse(config.backup.progress)
+            with self.assertRaisesRegex(ConfigError, "config already exists"):
+                init_config(root)
+            overwritten = init_config(root, force=True)
+            self.assertEqual(overwritten, path)
 
 
 if __name__ == "__main__":

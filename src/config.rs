@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-const CONFIG_NAME: &str = ".proj-janitor.toml";
+pub(crate) const CONFIG_NAME: &str = ".proj-janitor.toml";
 
 /// User configuration loaded from a `.proj-janitor.toml` file.
 ///

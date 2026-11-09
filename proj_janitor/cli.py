@@ -20,7 +20,13 @@ from proj_janitor.backup import (
     prepare_backup,
     run_backup,
 )
-from proj_janitor.config import ConfigError, load_config, resolve_check_remote, resolve_tri_state
+from proj_janitor.config import (
+    ConfigError,
+    init_config,
+    load_config,
+    resolve_check_remote,
+    resolve_tri_state,
+)
 from proj_janitor.secrets import (
     find_possible_secret_paths,
     format_secret_exclusion,
@@ -77,6 +83,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_restore(args)
     if args.command == "verify":
         return _cmd_verify(args)
+    if args.command == "init":
+        return _cmd_init(args)
 
     parser.print_help()
     return 2
@@ -217,9 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="progress",
         help=(
-            "print archive packing progress with elapsed time on stderr; with "
-            "--dry-run, estimate file count and bytes after excludes "
-            "(overrides [backup].progress)"
+            "print per-project and archive packing progress with elapsed time "
+            "on stderr; with --dry-run, estimate file count and bytes after "
+            "excludes (overrides [backup].progress)"
         ),
     )
     backup_progress.add_argument(
@@ -541,7 +549,33 @@ def build_parser() -> argparse.ArgumentParser:
     prune.add_argument("--apply", action="store_true", help="delete the planned backups")
     prune.add_argument("--yes", action="store_true", help="skip interactive confirmation")
     prune.add_argument("--json", action="store_true", help="emit JSON")
+
+    init = subparsers.add_parser(
+        "init",
+        help="write a starter .proj-janitor.toml in the current (or given) directory",
+    )
+    init.add_argument(
+        "--dir",
+        type=Path,
+        default=Path("."),
+        help="directory that should receive .proj-janitor.toml (default: .)",
+    )
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing .proj-janitor.toml",
+    )
     return parser
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    try:
+        path = init_config(args.dir, force=args.force)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote {path}")
+    return 0
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
@@ -679,6 +713,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+        if progress:
+            print(
+                f"progress: would backup {len(plans)} project(s)",
+                file=sys.stderr,
+            )
         safe_manifest_paths = [
             manifest_path
             for manifest_path, plan in zip(manifest_paths, plans, strict=True)

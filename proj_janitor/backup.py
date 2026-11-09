@@ -211,7 +211,16 @@ def run_backup(
     completed_paths: list[Path] = []
     failures: list[tuple[str, str]] = []
     created_at = datetime.now(timezone.utc).isoformat()
-    for manifest_path, plan in zip(manifest_paths, plans, strict=True):
+    total = len(plans)
+    progress_started = time.monotonic() if progress else None
+    for index, (manifest_path, plan) in enumerate(
+        zip(manifest_paths, plans, strict=True), start=1
+    ):
+        if progress:
+            print(
+                f"progress: backing up {index}/{total}: {plan.project.name}",
+                file=sys.stderr,
+            )
         if plan.strategy == "blocked":
             failures.append(
                 (plan.project.name, plan.reason or "unsafe to archive")
@@ -307,6 +316,17 @@ def run_backup(
             raise
         records.append(record)
         completed_paths.append(manifest_path)
+    if progress:
+        elapsed = (
+            "0s"
+            if progress_started is None
+            else format_elapsed(time.monotonic() - progress_started)
+        )
+        print(
+            f"progress: done, backed up {len(records)}, failed {len(failures)} "
+            f"({elapsed})",
+            file=sys.stderr,
+        )
     return completed_paths, records, failures
 
 
