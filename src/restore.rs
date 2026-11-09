@@ -2284,7 +2284,8 @@ fn stop_child(child: &mut Child) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         let pid = libc::pid_t::try_from(child.id())?;
-        // shortcut: descendants that detach can escape; use stronger OS supervision for strict containment.
+        // Detached descendants that call setsid() can escape killpg (CR-131);
+        // use stronger OS supervision (cgroup/job) for strict containment.
         // SAFETY: the child was started in its own process group immediately before this call.
         if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
             let _ = child.kill();

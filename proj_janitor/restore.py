@@ -2043,7 +2043,8 @@ def _git_config_env(key: str, value: str) -> dict[str, str] | None:
 
 
 def _stop_git_process(process: subprocess.Popen[str]) -> None:
-    # shortcut: detached descendants can escape; use stronger OS supervision for strict containment.
+    # Detached descendants that call setsid() can escape killpg (CR-131);
+    # use stronger OS supervision (cgroup/job) for strict containment.
     if os.name == "posix":
         try:
             os.killpg(process.pid, signal.SIGKILL)

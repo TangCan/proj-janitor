@@ -289,7 +289,7 @@ projjan verify <manifest> --check-remote --json
 - 原始位置模式默认要求交互确认；标准输入不是 TTY 时必须显式加 `--yes`，`--json` 的实际恢复也必须加 `--yes`。`--dest` 模式不需要该确认。
 - `git` 策略：初始化仓库，将脱敏 URL 写入 `origin`，再直接从远程 fetch 分支和 tags（不写 `FETCH_HEAD`），最后 `git checkout --detach <commit>`。恢复后是 detached HEAD，不会自动创建或切换原分支；远程必须仍包含该提交。
 - `git_bundle` 策略：校验 SHA-256 和 bundle 结构，从 bundle 取回本地分支与 tags，恢复 manifest 记录的分支和提交；不配置远程。
-- Git 恢复的 init、remote add、fetch、checkout 和 HEAD 校验单步最长等待 10 分钟；超时会尝试终止 Git 进程树并报告失败，目标项目不会发布到最终路径。
+- Git 恢复的 init、remote add、fetch、checkout 和 HEAD 校验单步最长等待 10 分钟；超时会尝试终止 Git 进程树并报告失败，目标项目不会发布到最终路径。POSIX 上对进程组发送 `SIGKILL`；已 `setsid`/脱离进程组的后代可能逃逸（CR-131 有回归证明该已知限制），严格隔离需依赖 OS 级监督（cgroup/job）。
 - 远程 URL 带凭据或查询参数时，Git 恢复失败会隐藏原始错误文本，避免错误输出回显敏感 URL。
 - 带认证信息、查询或 fragment 的 URL 通过 Git 的临时配置环境传递；若本机 Git 不支持此方式，工具会拒绝恢复，并提示改用 credential helper/SSH 或升级 Git。
 - 该方式避免凭据写入仓库配置或命令行，但同权限进程仍可能检查 Git 进程环境；共享机器应优先使用 credential helper/SSH。

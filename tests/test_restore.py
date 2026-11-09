@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -226,6 +227,82 @@ class RestoreTests(unittest.TestCase):
             finally:
                 if processes and processes[0].poll() is None:
                     restore_module._stop_git_process(processes[0])
+
+    def test_posix_detached_descendant_survives_process_group_kill(self) -> None:
+        """V-06: setsid() grandchildren escape killpg (documented limitation)."""
+        if os.name != "posix":
+            self.skipTest("POSIX process groups are required")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            marker = root / "detached-output"
+            pid_file = root / "detached.pid"
+            detached_code = (
+                "import os,pathlib,time;"
+                "os.setsid();"
+                f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()));"
+                f"p=pathlib.Path({str(marker)!r});"
+                "exec(\"while True:\\n with p.open('a') as f: f.write('y')\\n "
+                "time.sleep(0.02)\")"
+            )
+            fake_git = bin_dir / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                f"{shlex.quote(sys.executable)} -c {shlex.quote(detached_code)} &\n"
+                "wait\n",
+                encoding="utf-8",
+            )
+            fake_git.chmod(0o755)
+            real_popen = restore_module.subprocess.Popen
+            processes: list[subprocess.Popen[str]] = []
+
+            def capture_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+
+            detached_pid: int | None = None
+            try:
+                with (
+                    mock.patch.object(
+                        restore_module.subprocess, "Popen", side_effect=capture_process
+                    ),
+                    mock.patch.object(restore_module, "_GIT_TIMEOUT_SECONDS", 0.5),
+                    self.assertRaisesRegex(RestoreError, "timed out after"),
+                ):
+                    restore_module._run_git(
+                        ["status"],
+                        extra_env={
+                            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+                        },
+                    )
+
+                self.assertIsNotNone(processes[0].poll())
+                deadline = time.monotonic() + 2
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(pid_file.is_file(), "detached child did not start")
+                detached_pid = int(pid_file.read_text(encoding="utf-8"))
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(marker.is_file())
+                size = marker.stat().st_size
+                time.sleep(0.15)
+                # Still growing: killpg did not reach the setsid() grandchild.
+                self.assertGreater(marker.stat().st_size, size)
+            finally:
+                if processes and processes[0].poll() is None:
+                    restore_module._stop_git_process(processes[0])
+                if detached_pid is not None:
+                    try:
+                        os.kill(detached_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        os.waitpid(detached_pid, 0)
+                    except ChildProcessError:
+                        pass
 
     def test_windows_git_timeout_kills_child_process_tree(self) -> None:
         if os.name != "nt" or shutil.which("taskkill") is None:
