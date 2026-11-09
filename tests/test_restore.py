@@ -703,6 +703,67 @@ class RestoreTests(unittest.TestCase):
                     self.assertFalse((restored / "app").exists())
                     self.assertFalse((root / "evil").exists())
 
+    def test_restore_archive_rejects_relative_symlink_escape_and_reserved_names(
+        self,
+    ) -> None:
+        """V-03: relative symlink escape and Windows-reserved members must be refused."""
+        cases = (
+            (
+                "relative-symlink-escape.tar.gz",
+                "app/nested/link",
+                "../../evil",
+                "symlink escapes project",
+                "evil",
+            ),
+            (
+                "reserved-con.tar.gz",
+                "app/CON.txt",
+                None,
+                "unsafe archive path",
+                "CON.txt",
+            ),
+            (
+                "trailing-dot.tar.gz",
+                "app/file.",
+                None,
+                "unsafe archive path",
+                "file.",
+            ),
+        )
+        for archive_name, member_name, link_target, pattern, leaf in cases:
+            with self.subTest(archive=archive_name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    archive = root / archive_name
+                    with tarfile.open(archive, "w:gz") as tar:
+                        if link_target is None:
+                            payload = b"x"
+                            info = tarfile.TarInfo(member_name)
+                            info.size = len(payload)
+                            tar.addfile(info, io.BytesIO(payload))
+                        else:
+                            info = tarfile.TarInfo(member_name)
+                            info.type = tarfile.SYMTYPE
+                            info.linkname = link_target
+                            tar.addfile(info)
+                    manifest = write_manifest(
+                        root / "manifest.json",
+                        [
+                            {
+                                "project": "app",
+                                "strategy": "archive",
+                                "archive": str(archive),
+                                "sha256": sha256_file(archive),
+                            }
+                        ],
+                    )
+                    restored = root / "restored"
+                    with self.assertRaisesRegex(RestoreError, pattern):
+                        restore_from_manifest(manifest, restored)
+                    self.assertFalse((restored / "app").exists())
+                    self.assertFalse((root / leaf).exists())
+                    self.assertFalse((restored / leaf).exists())
+
     def test_restore_archive_rejects_case_colliding_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

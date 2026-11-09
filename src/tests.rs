@@ -2162,6 +2162,36 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
         "unexpected absolute-symlink error: {error}"
     );
     assert!(!absolute_link_target.exists());
+
+    // V-03: relative symlink escape, Windows-reserved names, trailing-dot components.
+    let relative_escape = raw_test_archive(
+        &temp,
+        "relative-symlink-escape.tar.gz",
+        "demo/nested/link",
+        Some("../../evil"),
+    );
+    let relative_target = temp.0.join("restored-relative-escape/demo");
+    let error = extract_archive(&relative_escape, &relative_target, "demo").unwrap_err();
+    assert!(
+        error.to_string().contains("symlink escapes project"),
+        "unexpected relative-symlink error: {error}"
+    );
+    assert!(!relative_target.exists());
+    assert!(!temp.0.join("restored-relative-escape/evil").exists());
+
+    for (name, member) in [
+        ("reserved-con.tar.gz", "demo/CON.txt"),
+        ("trailing-dot.tar.gz", "demo/file."),
+    ] {
+        let archive = raw_test_archive(&temp, name, member, None);
+        let target = temp.0.join(format!("restored-{name}/demo"));
+        let error = extract_archive(&archive, &target, "demo").unwrap_err();
+        assert!(
+            error.to_string().contains("unsafe archive path"),
+            "unexpected reserved/trailing-dot error for {name}: {error}"
+        );
+        assert!(!target.exists());
+    }
 }
 
 #[test]

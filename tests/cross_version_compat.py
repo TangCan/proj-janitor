@@ -462,7 +462,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         assert not (destination / "demo").exists()
     assert not (root / "escape.txt").exists()
 
-    # V-03 matrix extras: FIFO special file and absolute symlink (both CLIs).
+    # V-03 matrix extras: FIFO, absolute/relative symlink escape, reserved names.
     def build_fifo(archive: tarfile.TarFile) -> None:
         info = tarfile.TarInfo("demo/pipe")
         info.type = tarfile.FIFOTYPE
@@ -474,9 +474,30 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         info.linkname = "/tmp/evil"
         archive.addfile(info)
 
-    for kind, build in (
-        ("fifo", build_fifo),
-        ("absolute-symlink", build_absolute_symlink),
+    def build_relative_symlink(archive: tarfile.TarFile) -> None:
+        info = tarfile.TarInfo("demo/nested/link")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "../../evil"
+        archive.addfile(info)
+
+    def build_reserved_con(archive: tarfile.TarFile) -> None:
+        payload = b"x"
+        info = tarfile.TarInfo("demo/CON.txt")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
+    def build_trailing_dot(archive: tarfile.TarFile) -> None:
+        payload = b"x"
+        info = tarfile.TarInfo("demo/file.")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
+    for kind, build, reasons in (
+        ("fifo", build_fifo, ("unsupported entry type", "special file")),
+        ("absolute-symlink", build_absolute_symlink, ("symlink escapes project",)),
+        ("relative-symlink", build_relative_symlink, ("symlink escapes project",)),
+        ("reserved-con", build_reserved_con, ("unsafe archive path", "not Windows-portable")),
+        ("trailing-dot", build_trailing_dot, ("unsafe archive path", "not Windows-portable")),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
@@ -488,7 +509,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
                 "schema_version": 2,
                 "created_at": "2026-11-09T00:00:00+00:00",
                 "tool": "proj-janitor",
-                "version": "0.7.32",
+                "version": "0.7.42",
                 "include_artifacts": False,
                 "always_archive": True,
                 "records": [{
@@ -503,11 +524,6 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             }),
             encoding="utf-8",
         )
-        reasons = (
-            ("unsupported entry type", "special file")
-            if kind == "fifo"
-            else ("symlink escapes project",)
-        )
         for tool, command in (
             ("Python", [sys.executable, "-m", "proj_janitor"]),
             ("Rust", [str(RUST_CLI)]),
@@ -518,6 +534,7 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
                 reasons,
             )
             assert not (destination / "demo").exists()
+        assert not (root / "evil").exists()
 
     git_manifest = root / "git-manifest.json"
     git_manifest.write_text(
