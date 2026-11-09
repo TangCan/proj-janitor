@@ -503,7 +503,7 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> anyhow::Result<()> {
-    extract_archive_with_hash(archive, target, project, None, false, None)
+    extract_archive_with_hash(archive, target, project, None, false, false, None).map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -513,8 +513,9 @@ pub(crate) fn extract_archive_with_hash(
     project: &str,
     expected_hash: Option<&str>,
     force: bool,
+    keep_replaced: bool,
     progress_label: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<PathBuf>> {
     if !force {
         anyhow::ensure!(
             !target.exists() && !target.is_symlink(),
@@ -538,7 +539,7 @@ pub(crate) fn extract_archive_with_hash(
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
     let tmp = create_private_temp_dir(parent)?;
-    let result = (|| -> anyhow::Result<()> {
+    let result = (|| -> anyhow::Result<Option<PathBuf>> {
         let dec = GzDecoder::new(f);
         let mut ar = Archive::new(dec);
         let entries = ar.entries()?;
@@ -626,23 +627,45 @@ pub(crate) fn extract_archive_with_hash(
         for (directory, mode) in directories.into_iter().rev() {
             set_mode(&directory, mode)?;
         }
-        publish_restored_tree(&root, target, force)?;
-        Ok(())
+        let aside = publish_restored_tree(&root, target, force, keep_replaced)?;
+        Ok(aside)
     })();
     let _ = fs::remove_dir_all(&tmp);
     result
+}
+
+/// Choose a sibling path for a force-replaced restore target (CR-133).
+pub(crate) fn replaced_aside_path(target: &Path) -> PathBuf {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "restored".into());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut candidate = parent.join(format!("{name}.replaced-{stamp}"));
+    let mut n = 0u32;
+    while candidate.exists() || candidate.is_symlink() {
+        n += 1;
+        candidate = parent.join(format!("{name}.replaced-{stamp}-{n}"));
+    }
+    candidate
 }
 
 pub(crate) fn publish_restored_tree(
     staged: &Path,
     target: &Path,
     force: bool,
-) -> anyhow::Result<()> {
+    keep_replaced: bool,
+) -> anyhow::Result<Option<PathBuf>> {
     anyhow::ensure!(
         !target.is_symlink(),
         "restore target is a symlink: {}",
         target.display()
     );
+    let mut aside = None;
     if target.exists() {
         anyhow::ensure!(force, "restore target already exists: {}", target.display());
         anyhow::ensure!(
@@ -650,10 +673,17 @@ pub(crate) fn publish_restored_tree(
             "restore target exists and is not a directory: {}",
             target.display()
         );
-        fs::remove_dir_all(target)?;
+        if keep_replaced {
+            let path = replaced_aside_path(target);
+            fs::rename(target, &path)?;
+            eprintln!("replaced previous target aside: {}", path.display());
+            aside = Some(path);
+        } else {
+            fs::remove_dir_all(target)?;
+        }
     }
     fs::rename(staged, target)?;
-    Ok(())
+    Ok(aside)
 }
 
 fn remove_path(path: &Path) -> anyhow::Result<()> {

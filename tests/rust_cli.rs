@@ -3979,3 +3979,63 @@ fn restore_force_replaces_existing_target_with_yes() {
         "fresh\n"
     );
 }
+
+#[test]
+fn restore_keep_replaced_renames_old_target_aside() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "fresh\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let project_dir = dest.join(project.file_name().unwrap());
+    let manifest = fs::read_dir(&project_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let out = temp.0.join("restored");
+    let target = out.join(project.file_name().unwrap());
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("stale.txt"), "old\n").unwrap();
+
+    let forced = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--force", "--keep-replaced", "--yes", "--json"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        forced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&forced.stderr);
+    assert!(
+        stderr.contains("replaced previous target aside:"),
+        "{stderr}"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&forced.stdout).unwrap();
+    let aside = PathBuf::from(json["projects"][0]["replaced_aside"].as_str().unwrap());
+    assert!(aside.is_dir());
+    assert_eq!(fs::read_to_string(aside.join("stale.txt")).unwrap(), "old\n");
+    assert!(!target.join("stale.txt").exists());
+    assert_eq!(
+        fs::read_to_string(target.join("ok.txt")).unwrap(),
+        "fresh\n"
+    );
+}

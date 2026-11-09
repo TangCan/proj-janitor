@@ -823,6 +823,48 @@ class CliTests(unittest.TestCase):
             self.assertFalse((first / "stale.txt").exists())
             self.assertTrue((first / "main.py").is_file() or (first / "src" / "main.py").is_file())
 
+    def test_restore_keep_replaced_renames_old_target_aside(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            dest = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = sorted((dest / project.name).glob("manifest-*.json"))
+            self.assertEqual(len(manifests), 1)
+
+            out = root / "restored"
+            first = out / project.name
+            first.mkdir(parents=True)
+            (first / "stale.txt").write_text("old\n", encoding="utf-8")
+
+            code, out_text, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(out),
+                "--force",
+                "--keep-replaced",
+                "--yes",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("replaced previous target aside:", err)
+            payload = json.loads(out_text)
+            aside = Path(payload["projects"][0]["replaced_aside"])
+            self.assertTrue(aside.is_dir())
+            self.assertTrue((aside / "stale.txt").is_file())
+            self.assertFalse((first / "stale.txt").exists())
+            self.assertTrue(
+                (first / "main.py").is_file() or (first / "src" / "main.py").is_file()
+            )
+
     def test_restore_require_dest_blocks_original_location(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

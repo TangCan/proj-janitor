@@ -989,6 +989,7 @@ pub(crate) fn restore_cmd(
     check_remote: bool,
     require_dest: bool,
     force: bool,
+    keep_replaced: bool,
     continue_on_error: bool,
     skip_existing: bool,
     progress: bool,
@@ -1138,6 +1139,7 @@ pub(crate) fn restore_cmd(
                         "in_place": dest.is_none(),
                         "overwrite": overwrite,
                         "skip": skip,
+                        "keep_replaced": *overwrite && keep_replaced,
                     })
                 })
                 .collect();
@@ -1151,6 +1153,8 @@ pub(crate) fn restore_cmd(
             for (r, t, a, overwrite, skip) in &plans {
                 let suffix = if *skip {
                     " (skip existing)"
+                } else if *overwrite && keep_replaced {
+                    " (overwrite, keep replaced)"
                 } else if *overwrite {
                     " (overwrite)"
                 } else {
@@ -1323,7 +1327,7 @@ pub(crate) fn restore_cmd(
             }
         }
     }
-    let mut done: Vec<(String, String, PathBuf, bool)> = Vec::new();
+    let mut done: Vec<(String, String, PathBuf, bool, Option<PathBuf>)> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
     let total = plans.len();
     let progress_started = progress.then(std::time::Instant::now);
@@ -1336,7 +1340,7 @@ pub(crate) fn restore_cmd(
                     r.project, r.strategy
                 );
             }
-            done.push((r.project.clone(), r.strategy.clone(), target.clone(), true));
+            done.push((r.project.clone(), r.strategy.clone(), target.clone(), true, None));
             continue;
         }
         if progress {
@@ -1345,7 +1349,7 @@ pub(crate) fn restore_cmd(
                 r.project, r.strategy
             );
         }
-        let result = (|| -> anyhow::Result<()> {
+        let result = (|| -> anyhow::Result<Option<PathBuf>> {
             fs::create_dir_all(
                 target
                     .parent()
@@ -1365,8 +1369,9 @@ pub(crate) fn restore_cmd(
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
                             force,
+                            keep_replaced,
                             progress.then_some(r.project.as_str()),
-                        )?;
+                        )
                     } else {
                         restore_encrypted_or_plain_archive(
                             archive,
@@ -1377,8 +1382,9 @@ pub(crate) fn restore_cmd(
                             no_verify,
                             decrypt_passphrase_file.as_deref(),
                             force,
+                            keep_replaced,
                             progress.then_some(r.project.as_str()),
-                        )?;
+                        )
                     }
                 }
                 "git" => {
@@ -1390,7 +1396,15 @@ pub(crate) fn restore_cmd(
                         .commit
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
-                    restore_git(url, commit, target, &r.project, force, progress)?;
+                    restore_git(
+                        url,
+                        commit,
+                        target,
+                        &r.project,
+                        force,
+                        keep_replaced,
+                        progress,
+                    )
                 }
                 "git_bundle" => {
                     let bundle = archive
@@ -1413,40 +1427,58 @@ pub(crate) fn restore_cmd(
                         target,
                         &r.project,
                         force,
-                    )?;
+                        keep_replaced,
+                    )
                 }
                 x => anyhow::bail!("unsupported backup strategy: {x}"),
-            };
-            Ok(())
+            }
         })();
-        if let Err(error) = result {
-            if continue_on_error {
-                eprintln!("error: {}: {error:#}", r.project);
-                if progress {
-                    eprintln!("progress: failed {index}/{total}: {}", r.project);
+        let aside = match result {
+            Ok(aside) => aside,
+            Err(error) => {
+                if continue_on_error {
+                    eprintln!("error: {}: {error:#}", r.project);
+                    if progress {
+                        eprintln!("progress: failed {index}/{total}: {}", r.project);
+                    }
+                    failures.push((r.project.clone(), format!("{error:#}")));
+                    continue;
                 }
-                failures.push((r.project.clone(), format!("{error:#}")));
-                continue;
+                if done.is_empty() {
+                    return Err(error);
+                }
+                let completed = done
+                    .iter()
+                    .filter(|(_, _, _, skipped, _)| !*skipped)
+                    .map(|(project, _, path, _, _)| format!("{project} -> {}", path.display()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(anyhow::anyhow!("{error}; already restored: {completed}"));
             }
-            if done.is_empty() {
-                return Err(error);
-            }
-            let completed = done
-                .iter()
-                .filter(|(_, _, _, skipped)| !*skipped)
-                .map(|(project, _, path, _)| format!("{project} -> {}", path.display()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(anyhow::anyhow!("{error}; already restored: {completed}"));
-        }
-        done.push((r.project.clone(), r.strategy.clone(), target.clone(), false));
+        };
+        done.push((
+            r.project.clone(),
+            r.strategy.clone(),
+            target.clone(),
+            false,
+            aside,
+        ));
     }
     if json {
         let mut payload = serde_json::json!({
             "dry_run": false,
             "mode": if dest.is_some() { "dest" } else { "original" },
-            "projects": done.iter().map(|(p, s, t, skipped)| {
-                serde_json::json!({"project": p, "strategy": s, "target": t, "skipped": skipped})
+            "projects": done.iter().map(|(p, s, t, skipped, aside)| {
+                let mut item = serde_json::json!({
+                    "project": p,
+                    "strategy": s,
+                    "target": t,
+                    "skipped": skipped,
+                });
+                if let Some(path) = aside {
+                    item["replaced_aside"] = serde_json::json!(path);
+                }
+                item
             }).collect::<Vec<_>>(),
         });
         if !failures.is_empty() {
@@ -1462,22 +1494,26 @@ pub(crate) fn restore_cmd(
         }
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        let restored: Vec<_> = done.iter().filter(|(_, _, _, skipped)| !*skipped).collect();
-        let skipped: Vec<_> = done.iter().filter(|(_, _, _, skipped)| *skipped).collect();
+        let restored: Vec<_> = done.iter().filter(|(_, _, _, skipped, _)| !*skipped).collect();
+        let skipped: Vec<_> = done.iter().filter(|(_, _, _, skipped, _)| *skipped).collect();
         println!("Restored {} project(s).", restored.len());
-        for (p, s, t, _) in &restored {
-            println!("[{s}] {p} -> {}", t.display())
+        for (p, s, t, _, aside) in &restored {
+            if let Some(path) = aside {
+                println!("[{s}] {p} -> {} (replaced aside {})", t.display(), path.display())
+            } else {
+                println!("[{s}] {p} -> {}", t.display())
+            }
         }
         if !skipped.is_empty() {
             println!("Skipped {} existing project(s).", skipped.len());
-            for (p, _, t, _) in &skipped {
+            for (p, _, t, _, _) in &skipped {
                 println!("[skipped] {p} -> {}", t.display())
             }
         }
     }
     if progress {
-        let restored = done.iter().filter(|(_, _, _, skipped)| !*skipped).count();
-        let skipped = done.iter().filter(|(_, _, _, skipped)| *skipped).count();
+        let restored = done.iter().filter(|(_, _, _, skipped, _)| !*skipped).count();
+        let skipped = done.iter().filter(|(_, _, _, skipped, _)| *skipped).count();
         let elapsed = progress_started
             .map(|started| crate::format_elapsed(started.elapsed()))
             .unwrap_or_else(|| "0s".into());
@@ -1678,8 +1714,9 @@ fn restore_incremental(
     no_verify: bool,
     passphrase_file: Option<&Path>,
     force: bool,
+    keep_replaced: bool,
     progress_label: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<PathBuf>> {
     let mut chain: Vec<(Record, PathBuf)> = Vec::new();
     let mut current = record.clone();
     let mut current_archive = archive.to_path_buf();
@@ -1713,7 +1750,7 @@ fn restore_incremental(
         base_record.incremental.is_none(),
         "incremental chain does not terminate at a full snapshot"
     );
-    restore_encrypted_or_plain_archive(
+    let aside = restore_encrypted_or_plain_archive(
         base_archive,
         target,
         &base_record.project,
@@ -1722,6 +1759,7 @@ fn restore_incremental(
         no_verify,
         passphrase_file,
         force,
+        keep_replaced,
         progress_label,
     )?;
     for (rec, delta_archive) in &chain[1..] {
@@ -1756,7 +1794,7 @@ fn restore_incremental(
             extract_incremental_delta(delta_archive, target, &rec.project, expected)?;
         }
     }
-    Ok(())
+    Ok(aside)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1769,8 +1807,9 @@ fn restore_encrypted_or_plain_archive(
     no_verify: bool,
     passphrase_file: Option<&Path>,
     force: bool,
+    keep_replaced: bool,
     progress_label: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<PathBuf>> {
     if archive_is_encrypted(archive, encryption) {
         let pass = passphrase_file.ok_or_else(|| {
             anyhow::anyhow!(
@@ -1787,12 +1826,20 @@ fn restore_encrypted_or_plain_archive(
             );
         }
         let plain = openssl_decrypt_to_temp(archive, pass, progress_label)?;
-        let result =
-            extract_archive_with_hash(&plain, target, project, None, force, progress_label);
+        let result = extract_archive_with_hash(
+            &plain,
+            target,
+            project,
+            None,
+            force,
+            keep_replaced,
+            progress_label,
+        );
         cleanup_decrypt_temp(&plain);
         result
-    } else if no_verify && !force && progress_label.is_none() {
-        extract_archive(archive, target, project)
+    } else if no_verify && !force && !keep_replaced && progress_label.is_none() {
+        extract_archive(archive, target, project)?;
+        Ok(None)
     } else {
         extract_archive_with_hash(
             archive,
@@ -1800,6 +1847,7 @@ fn restore_encrypted_or_plain_archive(
             project,
             if no_verify { None } else { expected_hash },
             force,
+            keep_replaced,
             progress_label,
         )
     }
@@ -1811,8 +1859,9 @@ fn restore_git(
     target: &Path,
     project: &str,
     force: bool,
+    keep_replaced: bool,
     progress: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<PathBuf>> {
     if !force {
         anyhow::ensure!(
             !target.exists() && !target.is_symlink(),
@@ -1826,7 +1875,7 @@ fn restore_git(
     fs::create_dir_all(parent)?;
     let temporary = create_private_temp_dir(parent)?;
     let repo = temporary.join("repo");
-    let result = (|| -> anyhow::Result<()> {
+    let result = (|| -> anyhow::Result<Option<PathBuf>> {
         let safe_url = redact_remote(url);
         let mut init = Command::new("git");
         init.arg("-C")
@@ -1974,8 +2023,7 @@ fn restore_git(
             "restored commit does not match manifest for {project}"
         );
         restore_submodules(&repo, project, progress)?;
-        publish_restored_tree(&repo, target, force)?;
-        Ok(())
+        publish_restored_tree(&repo, target, force, keep_replaced)
     })();
     let _ = fs::remove_dir_all(&temporary);
     result
@@ -1991,7 +2039,8 @@ fn restore_git_bundle(
     target: &Path,
     project: &str,
     force: bool,
-) -> anyhow::Result<()> {
+    keep_replaced: bool,
+) -> anyhow::Result<Option<PathBuf>> {
     if !force {
         anyhow::ensure!(
             !target.exists() && !target.is_symlink(),
@@ -2004,7 +2053,7 @@ fn restore_git_bundle(
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     fs::create_dir_all(parent)?;
     let temporary = create_private_temp_dir(parent)?;
-    let result = (|| -> anyhow::Result<()> {
+    let result = (|| -> anyhow::Result<Option<PathBuf>> {
         let stable_bundle = temporary.join("source.bundle");
         fs::copy(bundle, &stable_bundle)?;
         let git_bundle_path = git_compatible_path(&stable_bundle);
@@ -2089,8 +2138,7 @@ fn restore_git_bundle(
             head.eq_ignore_ascii_case(commit),
             "Git bundle commit does not match manifest for {project}"
         );
-        publish_restored_tree(&repo, target, force)?;
-        Ok(())
+        publish_restored_tree(&repo, target, force, keep_replaced)
     })();
     let _ = fs::remove_dir_all(&temporary);
     result

@@ -66,6 +66,7 @@ def restore_from_manifest(
     verify: bool = True,
     check_remote: bool = False,
     force: bool = False,
+    keep_replaced: bool = False,
     continue_on_error: bool = False,
     skip_existing: bool = False,
     progress: bool = False,
@@ -86,6 +87,7 @@ def restore_from_manifest(
         verify=verify,
         check_remote=check_remote,
         force=force,
+        keep_replaced=keep_replaced,
         continue_on_error=continue_on_error,
         progress=progress,
     )
@@ -106,6 +108,7 @@ def execute_restore(
     check_remote: bool = False,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    keep_replaced: bool = False,
     continue_on_error: bool = False,
     progress: bool = False,
 ) -> list[RestoreResult]:
@@ -224,6 +227,7 @@ def execute_restore(
                     verify=verify,
                     decrypt_passphrase_file=decrypt_passphrase_file,
                     force=force,
+                    keep_replaced=keep_replaced,
                     progress_label=plan.project if progress else None,
                 )
             )
@@ -436,10 +440,30 @@ def _plan_existing(
     return True, False
 
 
-def _publish_restored_tree(staged: Path, target: Path, *, force: bool) -> None:
-    """Move a staged restore tree into place, optionally replacing an existing directory."""
+def _replaced_aside_path(target: Path) -> Path:
+    """Choose a sibling path for a force-replaced restore target (CR-133)."""
+    stamp = int(time.time())
+    parent = target.parent
+    name = target.name or "restored"
+    candidate = parent / f"{name}.replaced-{stamp}"
+    n = 0
+    while candidate.exists() or candidate.is_symlink():
+        n += 1
+        candidate = parent / f"{name}.replaced-{stamp}-{n}"
+    return candidate
+
+
+def _publish_restored_tree(
+    staged: Path, target: Path, *, force: bool, keep_replaced: bool = False
+) -> Path | None:
+    """Move a staged restore tree into place, optionally replacing an existing directory.
+
+    When ``force`` and ``keep_replaced`` are both true, the previous target is
+    renamed aside instead of deleted. Returns the aside path when created.
+    """
     if target.is_symlink():
         raise RestoreError(f"restore target is a symlink: {target}")
+    aside: Path | None = None
     if target.exists():
         if not force:
             raise RestoreError(f"restore target already exists: {target}")
@@ -448,13 +472,19 @@ def _publish_restored_tree(staged: Path, target: Path, *, force: bool) -> None:
                 f"restore target exists and is not a directory: {target}"
             )
         try:
-            shutil.rmtree(target)
+            if keep_replaced:
+                aside = _replaced_aside_path(target)
+                target.rename(aside)
+                print(f"replaced previous target aside: {aside}", file=sys.stderr)
+            else:
+                shutil.rmtree(target)
         except OSError as exc:
             raise RestoreError(f"cannot replace restore target {target}: {exc}") from exc
     try:
         staged.rename(target)
     except OSError as exc:
         raise RestoreError(f"cannot publish restore target {target}: {exc}") from exc
+    return aside
 
 
 def _verify_archive_hash(
@@ -1091,32 +1121,38 @@ def _restore_one(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    keep_replaced: bool = False,
     progress_label: str | None = None,
 ) -> RestoreResult:
     if plan.strategy == "git":
-        _restore_git(plan, force=force, progress=progress_label is not None)
+        aside = _restore_git(
+            plan, force=force, keep_replaced=keep_replaced, progress=progress_label is not None
+        )
     elif plan.strategy == "git_bundle":
-        _restore_git_bundle(
+        aside = _restore_git_bundle(
             plan,
             verify=verify,
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
+            keep_replaced=keep_replaced,
         )
     elif plan.strategy == "archive":
         if plan.incremental:
-            _restore_incremental(
+            aside = _restore_incremental(
                 plan,
                 verify=verify,
                 decrypt_passphrase_file=decrypt_passphrase_file,
                 force=force,
+                keep_replaced=keep_replaced,
                 progress_label=progress_label,
             )
         else:
-            _restore_archive(
+            aside = _restore_archive(
                 plan,
                 verify=verify,
                 decrypt_passphrase_file=decrypt_passphrase_file,
                 force=force,
+                keep_replaced=keep_replaced,
                 progress_label=progress_label,
             )
     else:
@@ -1125,6 +1161,7 @@ def _restore_one(
         project=plan.project,
         strategy=plan.strategy,
         target=plan.target,
+        replaced_aside=aside,
     )
 
 
@@ -1266,8 +1303,12 @@ def _restore_lfs(repo: Path, project: str, *, progress: bool = False) -> None:
 
 
 def _restore_git(
-    plan: RestorePlan, *, force: bool = False, progress: bool = False
-) -> None:
+    plan: RestorePlan,
+    *,
+    force: bool = False,
+    keep_replaced: bool = False,
+    progress: bool = False,
+) -> Path | None:
     if plan.remote_url is None or plan.commit is None:
         raise RestoreError(f"incomplete git restore plan for {plan.project}")
     if not force and (plan.target.exists() or plan.target.is_symlink()):
@@ -1364,7 +1405,9 @@ def _restore_git(
                 f"restored HEAD {head} does not match {plan.commit}"
             )
         _restore_submodules(repo, plan.project, progress=progress)
-        _publish_restored_tree(repo, plan.target, force=force)
+        return _publish_restored_tree(
+            repo, plan.target, force=force, keep_replaced=keep_replaced
+        )
     finally:
         _cleanup_restore_temp(temporary)
 
@@ -1375,7 +1418,8 @@ def _restore_git_bundle(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
-) -> None:
+    keep_replaced: bool = False,
+) -> Path | None:
     from proj_janitor.crypto import (
         archive_is_encrypted,
         cleanup_decrypt_temp,
@@ -1484,7 +1528,9 @@ def _restore_git_bundle(
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"], check=False)
         if head.returncode or head.stdout.strip().lower() != plan.commit.lower():
             raise RestoreError(f"Git bundle commit mismatch for {plan.project}")
-        _publish_restored_tree(repo, plan.target, force=force)
+        return _publish_restored_tree(
+            repo, plan.target, force=force, keep_replaced=keep_replaced
+        )
     finally:
         if decrypted is not None:
             cleanup_decrypt_temp(decrypted)
@@ -1497,8 +1543,9 @@ def _restore_archive(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    keep_replaced: bool = False,
     progress_label: str | None = None,
-) -> None:
+) -> Path | None:
     from proj_janitor.crypto import (
         archive_is_encrypted,
         cleanup_decrypt_temp,
@@ -1562,7 +1609,9 @@ def _restore_archive(
                     raise RestoreError(
                         f"archive does not contain project directory: {plan.project}"
                     )
-                _publish_restored_tree(extracted, plan.target, force=force)
+                return _publish_restored_tree(
+                    extracted, plan.target, force=force, keep_replaced=keep_replaced
+                )
             finally:
                 _cleanup_restore_temp(temporary)
     finally:
@@ -1576,8 +1625,9 @@ def _restore_incremental(
     verify: bool,
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
+    keep_replaced: bool = False,
     progress_label: str | None = None,
-) -> None:
+) -> Path | None:
     if plan.archive is None:
         raise RestoreError(f"incomplete incremental restore plan for {plan.project}")
     manifest_dir = plan.manifest_dir
@@ -1638,11 +1688,12 @@ def _restore_incremental(
         chain.insert(0, base_plan)
         current = base_plan
 
-    _restore_archive(
+    aside = _restore_archive(
         chain[0],
         verify=verify,
         decrypt_passphrase_file=decrypt_passphrase_file,
         force=force,
+        keep_replaced=keep_replaced,
         progress_label=progress_label,
     )
     for delta_plan in chain[1:]:
@@ -1658,6 +1709,7 @@ def _restore_incremental(
             project,
             delta_plan.sha256 if verify else None,
         )
+    return aside
 
 
 def _remove_deleted_paths(target: Path, paths: list[str]) -> None:

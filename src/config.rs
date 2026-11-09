@@ -113,6 +113,9 @@ pub(crate) struct RestoreConfig {
     /// Replace an existing restore target directory after staging succeeds.
     #[serde(default)]
     pub(crate) force: bool,
+    /// When force-replacing, rename the previous target aside instead of deleting it.
+    #[serde(default)]
+    pub(crate) keep_replaced: bool,
     /// Keep restoring remaining projects after a per-project failure.
     #[serde(default)]
     pub(crate) continue_on_error: bool,
@@ -327,7 +330,17 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[restore]\nforce = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.force);
+        assert!(!config.restore.keep_replaced);
         assert!(!config.restore.continue_on_error);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_keep_replaced() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\nkeep_replaced = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.keep_replaced);
+        assert!(!config.restore.force);
     }
 
     #[test]

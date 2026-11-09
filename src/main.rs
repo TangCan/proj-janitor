@@ -266,6 +266,12 @@ enum Action {
         /// Refuse existing restore targets even when [restore].force is true
         #[arg(long = "no-force", conflicts_with = "force")]
         no_force: bool,
+        /// When --force replaces a target, rename the old directory aside instead of deleting it
+        #[arg(long, conflicts_with = "no_keep_replaced")]
+        keep_replaced: bool,
+        /// Delete replaced targets even when [restore].keep_replaced is true
+        #[arg(long = "no-keep-replaced", conflicts_with = "keep_replaced")]
+        no_keep_replaced: bool,
         /// Keep restoring remaining projects after a per-project failure
         #[arg(long, conflicts_with = "no_continue_on_error")]
         continue_on_error: bool,
@@ -650,6 +656,8 @@ fn run() -> anyhow::Result<()> {
             no_require_dest,
             force,
             no_force,
+            keep_replaced,
+            no_keep_replaced,
             continue_on_error,
             no_continue_on_error,
             skip_existing,
@@ -683,6 +691,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.force)
+                    .unwrap_or(false),
+            );
+            let keep_replaced = resolve_tri_state(
+                keep_replaced,
+                no_keep_replaced,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.keep_replaced)
                     .unwrap_or(false),
             );
             let continue_on_error = resolve_tri_state(
@@ -728,6 +744,7 @@ fn run() -> anyhow::Result<()> {
                 check_remote,
                 require_dest,
                 force,
+                keep_replaced,
                 continue_on_error,
                 skip_existing,
                 progress,

@@ -149,6 +149,7 @@ INIT_CONFIG_TEMPLATE = """\
 # check_remote = false
 # require_dest = false
 # force = false
+# keep_replaced = false
 # continue_on_error = false
 # skip_existing = false
 # progress = true
@@ -253,6 +254,7 @@ class RestoreConfig:
         "require_dest",
         "decrypt_passphrase_file",
         "force",
+        "keep_replaced",
         "continue_on_error",
         "skip_existing",
         "progress",
@@ -264,6 +266,7 @@ class RestoreConfig:
         require_dest: bool = False,
         decrypt_passphrase_file: Path | None = None,
         force: bool = False,
+        keep_replaced: bool = False,
         continue_on_error: bool = False,
         skip_existing: bool = False,
         progress: bool = False,
@@ -272,6 +275,7 @@ class RestoreConfig:
         self.require_dest = require_dest
         self.decrypt_passphrase_file = decrypt_passphrase_file
         self.force = force
+        self.keep_replaced = keep_replaced
         self.continue_on_error = continue_on_error
         self.skip_existing = skip_existing
         self.progress = progress
@@ -507,6 +511,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "require_dest",
         "decrypt_passphrase_file",
         "force",
+        "keep_replaced",
         "continue_on_error",
         "skip_existing",
         "progress",
@@ -535,6 +540,11 @@ def load_config(path: Path | None = None) -> Config | None:
         else None,
         force=_parse_bool(restore_data["force"], "[restore].force")
         if "force" in restore_data
+        else False,
+        keep_replaced=_parse_bool(
+            restore_data["keep_replaced"], "[restore].keep_replaced"
+        )
+        if "keep_replaced" in restore_data
         else False,
         continue_on_error=_parse_bool(
             restore_data["continue_on_error"], "[restore].continue_on_error"

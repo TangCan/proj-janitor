@@ -410,6 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
         check_remote=None,
         require_dest=None,
         force=None,
+        keep_replaced=None,
         continue_on_error=None,
         skip_existing=None,
         progress=None,
@@ -461,6 +462,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         dest="force",
         help="refuse existing restore targets even when [restore].force is true",
+    )
+    restore_keep_replaced = restore.add_mutually_exclusive_group()
+    restore_keep_replaced.add_argument(
+        "--keep-replaced",
+        action="store_true",
+        dest="keep_replaced",
+        default=None,
+        help=(
+            "when --force replaces a target, rename the old directory aside "
+            "instead of deleting it (overrides [restore].keep_replaced)"
+        ),
+    )
+    restore_keep_replaced.add_argument(
+        "--no-keep-replaced",
+        action="store_false",
+        dest="keep_replaced",
+        help="delete replaced targets even when [restore].keep_replaced is true",
     )
     restore_continue = restore.add_mutually_exclusive_group()
     restore_continue.add_argument(
@@ -1072,6 +1090,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.force,
         config.restore.force if config else False,
     )
+    keep_replaced = resolve_tri_state(
+        args.keep_replaced,
+        config.restore.keep_replaced if config else False,
+    )
     continue_on_error = resolve_tri_state(
         args.continue_on_error,
         config.restore.continue_on_error if config else False,
@@ -1122,7 +1144,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             payload = {
                 "dry_run": True,
                 "mode": mode,
-                "projects": [_restore_plan_json(plan) for plan in plans],
+                "projects": [
+                    _restore_plan_json(plan, keep_replaced=keep_replaced)
+                    for plan in plans
+                ],
             }
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
@@ -1130,7 +1155,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         if in_place:
             print("Targets are the original backup locations:")
         for plan in plans:
-            _print_restore_plan(plan)
+            _print_restore_plan(plan, keep_replaced=keep_replaced)
         if progress:
             skips = sum(1 for plan in plans if plan.skip)
             print(
@@ -1188,6 +1213,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             check_remote=check_remote,
             decrypt_passphrase_file=decrypt_passphrase_file,
             force=force,
+            keep_replaced=keep_replaced,
             continue_on_error=continue_on_error,
             progress=progress,
         )
@@ -1482,9 +1508,11 @@ def _retention_plan_json(plan: RetentionPlan) -> dict:
     }
 
 
-def _print_restore_plan(plan: RestorePlan) -> None:
+def _print_restore_plan(plan: RestorePlan, *, keep_replaced: bool = False) -> None:
     if plan.skip:
         suffix = " (skip existing)"
+    elif plan.overwrite and keep_replaced:
+        suffix = " (overwrite, keep replaced)"
     elif plan.overwrite:
         suffix = " (overwrite)"
     else:
@@ -1512,7 +1540,7 @@ def _print_restore_plan(plan: RestorePlan) -> None:
     )
 
 
-def _restore_plan_json(plan: RestorePlan) -> dict:
+def _restore_plan_json(plan: RestorePlan, *, keep_replaced: bool = False) -> dict:
     return {
         "project": plan.project,
         "strategy": plan.strategy,
@@ -1527,16 +1555,20 @@ def _restore_plan_json(plan: RestorePlan) -> dict:
         "in_place": plan.in_place,
         "overwrite": plan.overwrite,
         "skip": plan.skip,
+        "keep_replaced": bool(plan.overwrite and keep_replaced),
     }
 
 
 def _restore_result_json(result: RestoreResult) -> dict:
-    return {
+    payload = {
         "project": result.project,
         "strategy": result.strategy,
         "target": str(result.target),
         "skipped": result.skipped,
     }
+    if result.replaced_aside is not None:
+        payload["replaced_aside"] = str(result.replaced_aside)
+    return payload
 
 
 def _cmd_clean(args: argparse.Namespace) -> int:

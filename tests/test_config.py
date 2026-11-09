@@ -294,7 +294,17 @@ class ConfigTests(unittest.TestCase):
             config = load_config(path)
             assert config is not None
             self.assertTrue(config.restore.force)
+            self.assertFalse(config.restore.keep_replaced)
             self.assertFalse(config.restore.check_remote)
+
+    def test_loads_restore_keep_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cfg.toml"
+            path.write_text("[restore]\nkeep_replaced = true\n", encoding="utf-8")
+            config = load_config(path)
+            assert config is not None
+            self.assertTrue(config.restore.keep_replaced)
+            self.assertFalse(config.restore.force)
 
     def test_unknown_verify_key_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

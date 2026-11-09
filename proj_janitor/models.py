@@ -121,6 +121,7 @@ class RestoreResult:
     strategy: str
     target: Path
     skipped: bool = False
+    replaced_aside: Path | None = None
 
 
 def human_size(size_bytes: int) -> str:

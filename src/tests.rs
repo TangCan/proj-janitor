@@ -1792,6 +1792,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -1807,6 +1808,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1833,6 +1835,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1882,6 +1885,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         true, // --continue-on-error
         false,
         false,
@@ -1924,6 +1928,7 @@ fn restore_rechecks_archive_after_plan_before_extraction() {
         &target,
         "demo",
         Some(&expected),
+        false,
         false,
         None,
     )
@@ -2011,6 +2016,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         false,
         false,
         true,
+        false,
         false,
         false,
         false,
@@ -2183,12 +2189,13 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             false,
             false,
             false,
+        false,
             false,
             false,
             false,
             None,
             false,
-        )
+    )
         .unwrap_err();
         let error = error.to_string();
         assert!(
@@ -2252,12 +2259,13 @@ fn restore_git_rejects_windows_invalid_project_names() {
             false,
             false,
             false,
+        false,
             false,
             false,
             false,
             None,
             false,
-        )
+    )
         .unwrap_err();
 
         assert!(error.to_string().contains("unsafe project name"));
@@ -2663,6 +2671,7 @@ fn restore_check_remote_blocks_unreachable_remote() {
         false,
         false,
         false,
+        false,
         None,
         false,
     )
@@ -2722,6 +2731,7 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         false,
         true,
         true,
+        false,
         false,
         false,
         false,
