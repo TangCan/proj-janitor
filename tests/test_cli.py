@@ -1346,6 +1346,19 @@ class CliTests(unittest.TestCase):
             self.assertIn("insecure permissions", err)
             self.assertIn("0755", err)
 
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("warning:", err)
+            self.assertIn("insecure permissions", err)
+            self.assertIn("--fail-on-insecure-dest", err)
+
     def test_restore_allowed_root_refuses_outside_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1465,6 +1478,9 @@ class CliTests(unittest.TestCase):
                 "--dry-run",
             )
             self.assertEqual(code, 0, err)
+            self.assertIn("warning:", err)
+            self.assertIn("insecure permissions", err)
+            self.assertIn("--fail-on-insecure-dest", err)
 
     @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
     def test_archive_backup_encrypt_and_restore_round_trip(self) -> None:

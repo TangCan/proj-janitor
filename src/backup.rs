@@ -16,8 +16,9 @@ use crate::{
         archive_path_matches, archive_space_insufficient, available_disk_bytes, copy_new_file,
         create_incremental_archive, create_private_dir, create_private_temp_dir,
         estimate_archive_stats, find_unsafe_archive_paths, format_insecure_dest_refusal,
-        format_space_refusal, format_unsafe_archive_refusal, insecure_dir_mode, portable_path_key,
-        remove_file_if_same, safe_windows_component, write_new_file,
+        format_insecure_dest_warning, format_space_refusal, format_unsafe_archive_refusal,
+        insecure_dir_mode, portable_path_key, remove_file_if_same, safe_windows_component,
+        write_new_file,
     },
     crypto::{
         OPENSSL_AES_256_CBC_PBKDF2, encrypted_sibling, openssl_encrypt_file,
@@ -204,8 +205,11 @@ pub(crate) fn backup_cmd(
     if dest.exists() && !dest.is_dir() {
         anyhow::bail!("destination is not a directory: {}", dest.display())
     }
-    if fail_on_insecure_dest && let Some(mode) = insecure_dir_mode(&dest)? {
-        anyhow::bail!("{}", format_insecure_dest_refusal(&dest, mode));
+    if let Some(mode) = insecure_dir_mode(&dest)? {
+        if fail_on_insecure_dest {
+            anyhow::bail!("{}", format_insecure_dest_refusal(&dest, mode));
+        }
+        eprintln!("{}", format_insecure_dest_warning(&dest, mode));
     }
     let encrypt_passphrase_file = encrypt_passphrase_file
         .filter(|path| !path.as_os_str().is_empty())

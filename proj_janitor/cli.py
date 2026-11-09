@@ -15,6 +15,7 @@ from proj_janitor.backup import (
     estimate_archive_stats,
     find_unsafe_archive_paths,
     format_insecure_dest_refusal,
+    format_insecure_dest_warning,
     format_space_refusal,
     format_unsafe_archive_refusal,
     insecure_dir_mode,
@@ -59,6 +60,7 @@ from proj_janitor.restore import (
     refuse_outside_allowed_roots,
     verify_manifest,
     warn_git_without_remote_check,
+    warn_insecure_restore_parents,
     warn_original_location_restore,
 )
 from proj_janitor.retention import (
@@ -992,14 +994,18 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    if fail_on_insecure_dest:
-        insecure = insecure_dir_mode(backup_dest)
-        if insecure is not None:
+    insecure = insecure_dir_mode(backup_dest)
+    if insecure is not None:
+        if fail_on_insecure_dest:
             print(
                 format_insecure_dest_refusal(backup_dest, insecure),
                 file=sys.stderr,
             )
             return 1
+        print(
+            format_insecure_dest_warning(backup_dest, insecure),
+            file=sys.stderr,
+        )
     if encrypt_passphrase_file is not None:
         try:
             validate_passphrase_file(encrypt_passphrase_file)
@@ -1309,6 +1315,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         )
         if fail_on_insecure_dest:
             refuse_insecure_restore_parents(plans, args.dest)
+        else:
+            warn_insecure_restore_parents(plans, args.dest)
         if allowed_roots:
             refuse_outside_allowed_roots(plans, allowed_roots)
     except RestoreError as exc:

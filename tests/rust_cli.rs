@@ -2751,6 +2751,28 @@ fn backup_fail_on_insecure_dest_refuses_open_directory() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("insecure permissions"), "{stderr}");
     assert!(stderr.contains("0755"), "{stderr}");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let warned_stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(warned_stderr.contains("warning:"), "{warned_stderr}");
+    assert!(
+        warned_stderr.contains("insecure permissions"),
+        "{warned_stderr}"
+    );
+    assert!(
+        warned_stderr.contains("--fail-on-insecure-dest"),
+        "{warned_stderr}"
+    );
 }
 
 #[cfg(unix)]
@@ -2924,6 +2946,16 @@ fn restore_fail_on_insecure_dest_refuses_open_directory() {
         allowed.status.success(),
         "{}",
         String::from_utf8_lossy(&allowed.stderr)
+    );
+    let allowed_stderr = String::from_utf8_lossy(&allowed.stderr);
+    assert!(allowed_stderr.contains("warning:"), "{allowed_stderr}");
+    assert!(
+        allowed_stderr.contains("insecure permissions"),
+        "{allowed_stderr}"
+    );
+    assert!(
+        allowed_stderr.contains("--fail-on-insecure-dest"),
+        "{allowed_stderr}"
     );
 }
 
@@ -3265,7 +3297,7 @@ fn verify_and_restore_warn_when_git_records_skip_remote_check() {
             "schema_version": 2,
             "created_at": "2026-11-09T00:00:00Z",
             "tool": "proj-janitor",
-            "version": "0.7.45",
+            "version": "0.7.46",
             "include_artifacts": false,
             "always_archive": false,
             "records": [{

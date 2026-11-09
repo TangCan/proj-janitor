@@ -23,6 +23,7 @@ from proj_janitor.backup import (
     _portable_path_key,
     ensure_private_dir,
     format_insecure_restore_dest_refusal,
+    format_insecure_restore_dest_warning,
     format_unsafe_archive_path,
     insecure_dir_mode,
     register_archive_path,
@@ -43,11 +44,11 @@ class RestoreError(RuntimeError):
     pass
 
 
-def refuse_insecure_restore_parents(
+def find_insecure_restore_parents(
     plans: Iterable[RestorePlan],
     dest: Path | None,
-) -> None:
-    """Raise RestoreError when a restore parent is group/other-accessible (Unix)."""
+) -> list[tuple[Path, int]]:
+    """Return existing restore parents that are group/other-accessible (Unix)."""
     candidates: set[Path] = set()
     if dest is not None:
         candidates.add(Path(dest).expanduser())
@@ -56,22 +57,46 @@ def refuse_insecure_restore_parents(
             if plan.skip:
                 continue
             candidates.add(plan.target.parent)
+    found: list[tuple[Path, int]] = []
     for candidate in sorted(candidates, key=lambda path: str(path)):
         probe = candidate
         while True:
             insecure = insecure_dir_mode(probe)
             if insecure is not None:
-                raise RestoreError(
-                    format_insecure_restore_dest_refusal(probe, insecure).removeprefix(
-                        "error: "
-                    )
-                )
+                found.append((probe, insecure))
+                break
             if probe.exists():
                 break
             parent = probe.parent
             if parent == probe:
                 break
             probe = parent
+    return found
+
+
+def refuse_insecure_restore_parents(
+    plans: Iterable[RestorePlan],
+    dest: Path | None,
+) -> None:
+    """Raise RestoreError when a restore parent is group/other-accessible (Unix)."""
+    for probe, insecure in find_insecure_restore_parents(plans, dest):
+        raise RestoreError(
+            format_insecure_restore_dest_refusal(probe, insecure).removeprefix(
+                "error: "
+            )
+        )
+
+
+def warn_insecure_restore_parents(
+    plans: Iterable[RestorePlan],
+    dest: Path | None,
+) -> None:
+    """Emit stderr hints for group/other-accessible restore parents (R-05)."""
+    for probe, insecure in find_insecure_restore_parents(plans, dest):
+        print(
+            format_insecure_restore_dest_warning(probe, insecure),
+            file=sys.stderr,
+        )
 
 
 def format_outside_allowed_roots_refusal(path: Path) -> str:

@@ -664,7 +664,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
 | `--check-remote` | 否 | `[restore].check_remote` | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14）。与 `--no-require-dest` 互斥。 |
-| `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。与 `--no-fail-on-insecure-dest` 互斥。 |
+| `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 

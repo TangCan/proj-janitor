@@ -1199,10 +1199,28 @@ pub(crate) fn format_insecure_dest_refusal(path: &Path, mode: u32) -> String {
     )
 }
 
+pub(crate) fn format_insecure_dest_warning(path: &Path, mode: u32) -> String {
+    format!(
+        "warning: backup dest has insecure permissions {:04o} (group/other access); \
+         pass --fail-on-insecure-dest to refuse: {}",
+        mode,
+        path.display()
+    )
+}
+
 pub(crate) fn format_insecure_restore_dest_refusal(path: &Path, mode: u32) -> String {
     format!(
         "error: restore path has insecure permissions {:04o} (group/other access); \
          use chmod 700 or pass --no-fail-on-insecure-dest: {}",
+        mode,
+        path.display()
+    )
+}
+
+pub(crate) fn format_insecure_restore_dest_warning(path: &Path, mode: u32) -> String {
+    format!(
+        "warning: restore path has insecure permissions {:04o} (group/other access); \
+         pass --fail-on-insecure-dest to refuse: {}",
         mode,
         path.display()
     )

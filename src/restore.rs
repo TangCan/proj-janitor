@@ -25,9 +25,10 @@ use crate::{
     Manifest, Record,
     archive::{
         create_private_temp_dir, ensure_private_dir, extract_archive, extract_archive_with_hash,
-        extract_incremental_delta, format_insecure_restore_dest_refusal, insecure_dir_mode,
-        portable_path_key, publish_restored_tree, remove_deleted_paths, safe_windows_component,
-        sha256, sha256_with_progress,
+        extract_incremental_delta, format_insecure_restore_dest_refusal,
+        format_insecure_restore_dest_warning, insecure_dir_mode, portable_path_key,
+        publish_restored_tree, remove_deleted_paths, safe_windows_component, sha256,
+        sha256_with_progress,
     },
     crypto::{
         archive_is_encrypted, cleanup_decrypt_temp, openssl_decrypt_to_temp,
@@ -38,10 +39,10 @@ use crate::{
     resolve_for_creation,
 };
 
-fn refuse_insecure_restore_parents(
+fn find_insecure_restore_parents(
     dest: Option<&Path>,
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<(PathBuf, u32)>> {
     let mut candidates: BTreeSet<PathBuf> = BTreeSet::new();
     if let Some(dest) = dest {
         candidates.insert(dest.to_path_buf());
@@ -55,11 +56,13 @@ fn refuse_insecure_restore_parents(
             }
         }
     }
+    let mut found = Vec::new();
     for candidate in candidates {
         let mut probe = candidate;
         loop {
             if let Some(mode) = insecure_dir_mode(&probe)? {
-                anyhow::bail!("{}", format_insecure_restore_dest_refusal(&probe, mode));
+                found.push((probe, mode));
+                break;
             }
             if probe.exists() {
                 break;
@@ -70,6 +73,29 @@ fn refuse_insecure_restore_parents(
             };
             probe = parent;
         }
+    }
+    Ok(found)
+}
+
+fn refuse_insecure_restore_parents(
+    dest: Option<&Path>,
+    plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
+) -> anyhow::Result<()> {
+    if let Some((probe, mode)) = find_insecure_restore_parents(dest, plans)?
+        .into_iter()
+        .next()
+    {
+        anyhow::bail!("{}", format_insecure_restore_dest_refusal(&probe, mode));
+    }
+    Ok(())
+}
+
+fn warn_insecure_restore_parents(
+    dest: Option<&Path>,
+    plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
+) -> anyhow::Result<()> {
+    for (probe, mode) in find_insecure_restore_parents(dest, plans)? {
+        eprintln!("{}", format_insecure_restore_dest_warning(&probe, mode));
     }
     Ok(())
 }
@@ -1263,6 +1289,8 @@ pub(crate) fn restore_cmd(
     }
     if fail_on_insecure_dest {
         refuse_insecure_restore_parents(dest.as_deref(), &plans)?;
+    } else {
+        warn_insecure_restore_parents(dest.as_deref(), &plans)?;
     }
     refuse_outside_allowed_roots(&plans, allowed_roots)?;
     if !check_remote {
