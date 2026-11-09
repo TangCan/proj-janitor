@@ -2286,6 +2286,49 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(
                 json.loads(out)["projects"][0]["status"], "metadata-only"
             )
+            self.assertIn("was not remote-checked", err)
+            self.assertIn("--check-remote", err)
+
+    def test_verify_and_restore_warn_when_git_records_skip_remote_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+            restored = root / "restored"
+
+            code, out, err = run_cli("verify", str(manifest), "--json")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(
+                json.loads(out)["projects"][0]["status"], "metadata-only"
+            )
+            self.assertIn(
+                "warning: 1 git-only record was not remote-checked", err
+            )
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: 1 git-only record was not remote-checked", err
+            )
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+                "--check-remote",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("were not remote-checked", err)
 
     def test_verify_check_remote_exits_one_for_unreachable_remote(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

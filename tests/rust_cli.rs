@@ -3229,6 +3229,103 @@ fn verify_check_remote_defaults_from_config_and_cli_overrides() {
     );
     let disabled_json: serde_json::Value = serde_json::from_slice(&disabled.stdout).unwrap();
     assert_eq!(disabled_json["projects"][0]["status"], "metadata-only");
+    let disabled_stderr = String::from_utf8_lossy(&disabled.stderr);
+    assert!(
+        disabled_stderr.contains("not remote-checked"),
+        "{disabled_stderr}"
+    );
+}
+
+#[test]
+fn verify_and_restore_warn_when_git_records_skip_remote_check() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.44",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--json"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(verify.status.success());
+    let verify_err = String::from_utf8_lossy(&verify.stderr);
+    assert!(
+        verify_err.contains("warning: 1 git-only record was not remote-checked"),
+        "{verify_err}"
+    );
+
+    let restored = temp.0.join("restored");
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(dry.status.success());
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(
+        dry_err.contains("warning: 1 git-only record was not remote-checked"),
+        "{dry_err}"
+    );
+
+    let checked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--check-remote", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(checked.status.success());
+    let checked_err = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        !checked_err.contains("was not remote-checked"),
+        "{checked_err}"
+    );
 }
 
 #[test]

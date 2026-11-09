@@ -1334,9 +1334,9 @@ Git-only 记录的 `projects[].status` 在含 `submodules` 且任一子模块远
 | 原始位置恢复需要确认 | 非交互脚本或 `--json` 未给 `--yes` 时返回 `2` | 交互终端输入 `y`，或在可信脚本中显式加 `--yes`。 |
 | 原始位置不可并发/不可重复 | 目标已存在即拒绝，不会合并或覆盖 | 先确认目标已移走；需要保留旧目录时使用 `--dest` 恢复到新位置。 |
 | `restore` 多项目不回滚 | 中途失败会留下已恢复项目 | 逐个项目恢复，或失败后人工清理已完成目标。 |
-| `restore` 不预检远程提交 | 远程删除/强推后 Git 恢复可能失败 | 恢复前先运行 `verify --check-remote`，或直接加 `restore --check-remote` 让恢复在写入前内置预检；重要项目保留归档。 |
+| `restore` 不预检远程提交 | 远程删除/强推后 Git 恢复可能失败 | 恢复前先运行 `verify --check-remote`，或直接加 `restore --check-remote` 让恢复在写入前内置预检；未开预检时 stderr 会提示 Git-only 未 remote-check（CR-143）；重要项目保留归档。 |
 | Git 恢复为 detached HEAD | 不自动恢复原分支 | 恢复后按需创建分支：`git switch -c main`。 |
-| `verify` 对 Git 策略默认只检查 manifest 元数据 | 不确认远程仓库或提交仍可访问 | 默认保持离线；需要确认远程可用性时显式加 `--check-remote`，该选项只做引用列表查询，不下载对象。 |
+| `verify` 对 Git 策略默认只检查 manifest 元数据 | 不确认远程仓库或提交仍可访问 | 默认保持离线；含 Git-only 记录时 stderr 提示未做远端预检（CR-143）；需要确认远程可用性时显式加 `--check-remote`，该选项只做引用列表查询，不下载对象。 |
 | `verify --check-remote` 只匹配引用指向 | `remote-moved` 不等于提交已丢失；`remote-verified` 也不证明对象完整可拉取 | 结合 `remote.reason`/`refs` 判断，必要时实际恢复或 `git fetch` 目标提交验证。 |
 | 归档包含 `.git` | 体积较大，可能包含敏感历史或内嵌 PAT | 使用 `--include-artifacts` 前评估；不要把归档视为最小化备份；PAT 归档按敏感数据处理。 |
 | Git URL-only 仅本地证据 | 不保证远端实际可克隆 | 恢复前联网验证；重要项目使用 `--always-archive`。 |

@@ -81,6 +81,22 @@ def format_outside_allowed_roots_refusal(path: Path) -> str:
     )
 
 
+def format_git_without_remote_check_warning(count: int) -> str:
+    noun = "record" if count == 1 else "records"
+    verb = "was" if count == 1 else "were"
+    return (
+        f"warning: {count} git-only {noun} {verb} not remote-checked; "
+        "pass --check-remote to probe remotes"
+    )
+
+
+def warn_git_without_remote_check(count: int) -> None:
+    """Emit a stderr hint when git-only records skip remote probing (R-02)."""
+    if count <= 0:
+        return
+    print(format_git_without_remote_check_warning(count), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

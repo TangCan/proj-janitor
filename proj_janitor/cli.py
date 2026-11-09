@@ -58,6 +58,7 @@ from proj_janitor.restore import (
     refuse_insecure_restore_parents,
     refuse_outside_allowed_roots,
     verify_manifest,
+    warn_git_without_remote_check,
 )
 from proj_janitor.retention import (
     RetentionError,
@@ -1313,6 +1314,11 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    if not check_remote:
+        warn_git_without_remote_check(
+            sum(1 for plan in plans if plan.strategy == "git" and not plan.skip)
+        )
+
     in_place = args.dest is None
     mode = "original" if in_place else "dest"
     overwrites = [plan for plan in plans if plan.overwrite]
@@ -1476,6 +1482,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    if not check_remote:
+        warn_git_without_remote_check(
+            sum(1 for result in results if result.get("strategy") == "git")
+        )
 
     if args.json:
         payload = {

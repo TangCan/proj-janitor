@@ -78,6 +78,18 @@ fn path_under_allowed_root(target: &Path, root: &Path) -> bool {
     target == root || target.starts_with(root)
 }
 
+fn warn_git_without_remote_check(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "record" } else { "records" };
+    let verb = if count == 1 { "was" } else { "were" };
+    eprintln!(
+        "warning: {count} git-only {noun} {verb} not remote-checked; \
+         pass --check-remote to probe remotes"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -399,6 +411,14 @@ pub(crate) fn verify_cmd(
             }
             other => anyhow::bail!("unsupported backup strategy: {other}"),
         }
+    }
+    if !check_remote {
+        warn_git_without_remote_check(
+            results
+                .iter()
+                .filter(|result| result.strategy == "git")
+                .count(),
+        );
     }
     if json {
         let entries: Vec<_> = results.iter().map(VerifyResult::json).collect();
@@ -1234,6 +1254,14 @@ pub(crate) fn restore_cmd(
         refuse_insecure_restore_parents(dest.as_deref(), &plans)?;
     }
     refuse_outside_allowed_roots(&plans, allowed_roots)?;
+    if !check_remote {
+        warn_git_without_remote_check(
+            plans
+                .iter()
+                .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")
+                .count(),
+        );
+    }
     if dry {
         if json {
             let vals: Vec<_> = plans
