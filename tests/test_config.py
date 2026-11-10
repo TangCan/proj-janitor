@@ -380,10 +380,16 @@ class ConfigTests(unittest.TestCase):
             root = Path(tmp)
             path = init_config(root)
             self.assertEqual(path, root / CONFIG_NAME)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("Security recommendations", text)
+            self.assertIn("check_remote = true", text)
+            self.assertIn("require_dest = true", text)
             config = load_config(path)
             assert config is not None
             self.assertIsNone(config.backup.dest)
             self.assertFalse(config.backup.progress)
+            self.assertFalse(config.verify.check_remote)
+            self.assertFalse(config.restore.require_dest)
             with self.assertRaisesRegex(ConfigError, "config already exists"):
                 init_config(root)
             overwritten = init_config(root, force=True)
