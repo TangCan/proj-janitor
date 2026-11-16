@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::archive::{create_private_temp_dir, sha256};
+use crate::project::git_compatible_path;
 
 /// Manifest / CLI identifier for OpenSSL AES-256-CBC with PBKDF2.
 pub(crate) const OPENSSL_AES_256_CBC_PBKDF2: &str = "openssl-aes-256-cbc-pbkdf2";
@@ -82,6 +83,10 @@ pub(crate) fn openssl_encrypt_file(
     if let Some(name) = progress_label {
         eprintln!("progress: {name}: encrypting with openssl");
     }
+    // OpenSSL's CRT fopen does not accept Windows verbatim `\\?\` paths.
+    let input = git_compatible_path(input);
+    let output = git_compatible_path(output);
+    let passphrase_file = git_compatible_path(passphrase_file);
     let pass_arg = format!("file:{}", passphrase_file.display());
     let status = Command::new("openssl")
         .args([
@@ -93,13 +98,13 @@ pub(crate) fn openssl_encrypt_file(
             &pass_arg,
             "-in",
         ])
-        .arg(input)
+        .arg(&input)
         .arg("-out")
-        .arg(output)
+        .arg(&output)
         .status()
         .context("failed to run openssl enc")?;
     if !status.success() {
-        let _ = fs::remove_file(output);
+        let _ = fs::remove_file(&output);
         anyhow::bail!("openssl encryption failed for {}", input.display());
     }
     if let Some(name) = progress_label {
@@ -108,8 +113,8 @@ pub(crate) fn openssl_encrypt_file(
             .unwrap_or_else(|| "0s".into());
         eprintln!("progress: {name}: openssl encrypt done ({elapsed})");
     }
-    let meta = fs::metadata(output)?;
-    let digest = sha256(output)?;
+    let meta = fs::metadata(&output)?;
+    let digest = sha256(&output)?;
     Ok((digest, meta.len()))
 }
 
@@ -134,6 +139,9 @@ pub(crate) fn openssl_decrypt_to_temp(
     if let Some(name) = progress_label {
         eprintln!("progress: {name}: decrypting with openssl");
     }
+    let input = git_compatible_path(input);
+    let passphrase_file = git_compatible_path(passphrase_file);
+    let output_for_openssl = git_compatible_path(&output);
     let pass_arg = format!("file:{}", passphrase_file.display());
     let status = Command::new("openssl")
         .args([
@@ -145,9 +153,9 @@ pub(crate) fn openssl_decrypt_to_temp(
             &pass_arg,
             "-in",
         ])
-        .arg(input)
+        .arg(&input)
         .arg("-out")
-        .arg(&output)
+        .arg(&output_for_openssl)
         .status()
         .context("failed to run openssl enc -d")?;
     if !status.success() {

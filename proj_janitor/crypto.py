@@ -47,6 +47,16 @@ def validate_passphrase_file(path: Path) -> None:
             )
 
 
+def openssl_compatible_path(path: Path) -> Path:
+    """Strip Windows verbatim ``\\\\?\\`` prefixes for OpenSSL CRT fopen."""
+    value = os.fspath(path)
+    if value.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + value[8:])
+    if value.startswith("\\\\?\\"):
+        return Path(value[4:])
+    return path
+
+
 def openssl_encrypt_file(
     input_path: Path,
     output_path: Path,
@@ -68,7 +78,10 @@ def openssl_encrypt_file(
             f"progress: {progress_label}: encrypting with openssl",
             file=sys.stderr,
         )
-    pass_arg = f"file:{passphrase_file.expanduser()}"
+    openssl_input = openssl_compatible_path(input_path)
+    openssl_output = openssl_compatible_path(output_path)
+    openssl_pass = openssl_compatible_path(passphrase_file.expanduser())
+    pass_arg = f"file:{openssl_pass}"
     completed = subprocess.run(
         [
             "openssl",
@@ -79,9 +92,9 @@ def openssl_encrypt_file(
             "-pass",
             pass_arg,
             "-in",
-            str(input_path),
+            str(openssl_input),
             "-out",
-            str(output_path),
+            str(openssl_output),
         ],
         check=False,
         capture_output=True,
@@ -129,7 +142,10 @@ def openssl_decrypt_to_temp(
             f"progress: {progress_label}: decrypting with openssl",
             file=sys.stderr,
         )
-    pass_arg = f"file:{passphrase_file.expanduser()}"
+    openssl_input = openssl_compatible_path(input_path)
+    openssl_pass = openssl_compatible_path(passphrase_file.expanduser())
+    openssl_output = openssl_compatible_path(output)
+    pass_arg = f"file:{openssl_pass}"
     completed = subprocess.run(
         [
             "openssl",
@@ -140,9 +156,9 @@ def openssl_decrypt_to_temp(
             "-pass",
             pass_arg,
             "-in",
-            str(input_path),
+            str(openssl_input),
             "-out",
-            str(output),
+            str(openssl_output),
         ],
         check=False,
         capture_output=True,
