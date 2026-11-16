@@ -121,10 +121,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
 
     def test_package_version_matches_pyproject(self) -> None:
-        import tomllib
         from pathlib import Path
 
-        manifest = tomllib.loads(
+        try:
+            import tomllib as toml_mod
+        except ModuleNotFoundError:  # Python 3.10
+            import tomli as toml_mod  # type: ignore[no-redef]
+
+        manifest = toml_mod.loads(
             Path(__file__).resolve().parents[1].joinpath("pyproject.toml").read_text(
                 encoding="utf-8"
             )

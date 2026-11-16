@@ -1,13 +1,12 @@
 [package]
 name = "proj-janitor"
-version = "0.7.49"
+version = "0.7.50"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Tang Can <tang_can@qq.com>"]
 description = "Scan, back up, restore, prune, and clean old projects safely"
 readme = "README.md"
 license = "MIT"
-homepage = "https://github.com/TangCan/proj-janitor"
 repository = "https://github.com/TangCan/proj-janitor"
 documentation = "https://docs.rs/proj-janitor"
 include = ["Cargo.toml", "Cargo.lock", "LICENSE", "README.md", "src/**", "tests/rust_cli.rs"]
