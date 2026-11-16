@@ -41,6 +41,16 @@ class SecretPathTests(unittest.TestCase):
         self.assertIn("demo", message)
         self.assertIn(".env", message)
         self.assertIn("not encrypted", message)
+        self.assertIn("--encrypt-passphrase-file", message)
+        self.assertIn("--exclude-secrets", message)
+        self.assertIn("--fail-on-secrets", message)
+
+    def test_warning_message_when_encrypting(self) -> None:
+        message = format_secret_warning(
+            "demo", [".env"], encrypting=True
+        )
+        self.assertIn("will encrypt with --encrypt-passphrase-file", message)
+        self.assertNotIn("not encrypted", message)
 
     def test_refusal_message_mentions_fail_on_secrets(self) -> None:
         message = format_secret_refusal("demo", [".env", "id_rsa"])

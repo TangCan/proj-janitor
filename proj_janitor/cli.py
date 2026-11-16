@@ -1126,7 +1126,11 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         blocked = True
                     else:
                         print(
-                            format_secret_warning(plan.project.name, secrets),
+                            format_secret_warning(
+                                plan.project.name,
+                                secrets,
+                                encrypting=encrypt_passphrase_file is not None,
+                            ),
                             file=sys.stderr,
                         )
                 unsafe_paths = find_unsafe_archive_paths(

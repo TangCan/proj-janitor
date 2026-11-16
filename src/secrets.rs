@@ -57,13 +57,19 @@ pub(crate) fn find_possible_secret_paths(
     Ok(hits)
 }
 
-pub(crate) fn format_secret_warning(project: &str, secrets: &[String]) -> String {
-    let shown = &secrets[..secrets.len().min(MAX_REPORTED)];
-    let mut list = shown.join(", ");
-    if secrets.len() > MAX_REPORTED {
-        list.push_str(&format!(" (+{} more)", secrets.len() - MAX_REPORTED));
+pub(crate) fn format_secret_warning(project: &str, secrets: &[String], encrypting: bool) -> String {
+    let list = format_secret_list(secrets);
+    if encrypting {
+        return format!(
+            "warning: {project}: archive may include secrets ({list}); \
+             will encrypt with --encrypt-passphrase-file"
+        );
     }
-    format!("warning: {project}: archive may include secrets ({list}); archives are not encrypted")
+    format!(
+        "warning: {project}: archive may include secrets ({list}); \
+         archives are not encrypted; consider --encrypt-passphrase-file, \
+         --exclude-secrets, or --fail-on-secrets"
+    )
 }
 
 fn format_secret_list(secrets: &[String]) -> String {
@@ -165,6 +171,21 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn secret_warning_suggests_remediation_or_encryption() {
+        let plain = format_secret_warning("demo", &[".env".into()], false);
+        assert!(plain.contains("not encrypted"), "{plain}");
+        assert!(plain.contains("--encrypt-passphrase-file"), "{plain}");
+        assert!(plain.contains("--exclude-secrets"), "{plain}");
+        assert!(plain.contains("--fail-on-secrets"), "{plain}");
+        let encrypted = format_secret_warning("demo", &[".env".into()], true);
+        assert!(
+            encrypted.contains("will encrypt with --encrypt-passphrase-file"),
+            "{encrypted}"
+        );
+        assert!(!encrypted.contains("not encrypted"), "{encrypted}");
     }
 
     #[test]

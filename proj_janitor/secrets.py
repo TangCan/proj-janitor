@@ -118,10 +118,22 @@ def _format_secret_list(secrets: list[str]) -> str:
     return listing
 
 
-def format_secret_warning(project: str, secrets: list[str]) -> str:
+def format_secret_warning(
+    project: str,
+    secrets: list[str],
+    *,
+    encrypting: bool = False,
+) -> str:
+    listing = _format_secret_list(secrets)
+    if encrypting:
+        return (
+            f"warning: {project}: archive may include secrets ({listing}); "
+            "will encrypt with --encrypt-passphrase-file"
+        )
     return (
-        f"warning: {project}: archive may include secrets "
-        f"({_format_secret_list(secrets)}); archives are not encrypted"
+        f"warning: {project}: archive may include secrets ({listing}); "
+        "archives are not encrypted; consider --encrypt-passphrase-file, "
+        "--exclude-secrets, or --fail-on-secrets"
     )
 
 

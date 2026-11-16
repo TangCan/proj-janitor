@@ -438,7 +438,14 @@ pub(crate) fn backup_cmd(
                         eprintln!("{}", format_secret_refusal(&p.name, &secrets));
                         failed = true;
                     } else {
-                        eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                        eprintln!(
+                            "{}",
+                            format_secret_warning(
+                                &p.name,
+                                &secrets,
+                                encrypt_passphrase_file.is_some(),
+                            )
+                        );
                     }
                 }
                 if let Ok(unsafe_paths) = find_unsafe_archive_paths(
@@ -587,7 +594,14 @@ pub(crate) fn backup_cmd(
                     if exclude_secrets {
                         eprintln!("{}", format_secret_exclusion(&p.name, &secrets));
                     } else {
-                        eprintln!("{}", format_secret_warning(&p.name, &secrets));
+                        eprintln!(
+                            "{}",
+                            format_secret_warning(
+                                &p.name,
+                                &secrets,
+                                encrypt_passphrase_file.is_some(),
+                            )
+                        );
                     }
                 }
                 let (hash, bytes, identity, inventory, incremental) = {

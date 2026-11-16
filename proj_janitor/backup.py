@@ -413,7 +413,11 @@ def _backup_one(
                 )
             else:
                 print(
-                    format_secret_warning(plan.project.name, secrets),
+                    format_secret_warning(
+                        plan.project.name,
+                        secrets,
+                        encrypting=encrypt_passphrase_file is not None,
+                    ),
                     file=sys.stderr,
                 )
         archive_dir = manifest_path.parent

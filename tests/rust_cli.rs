@@ -2716,6 +2716,9 @@ fn archive_backup_warns_about_possible_secrets() {
     assert!(stderr.contains("archive may include secrets"), "{stderr}");
     assert!(stderr.contains(".env"), "{stderr}");
     assert!(stderr.contains("not encrypted"), "{stderr}");
+    assert!(stderr.contains("--encrypt-passphrase-file"), "{stderr}");
+    assert!(stderr.contains("--exclude-secrets"), "{stderr}");
+    assert!(stderr.contains("--fail-on-secrets"), "{stderr}");
 }
 
 #[cfg(unix)]
@@ -3297,7 +3300,7 @@ fn verify_and_restore_warn_when_git_records_skip_remote_check() {
             "schema_version": 2,
             "created_at": "2026-11-09T00:00:00Z",
             "tool": "proj-janitor",
-            "version": "0.7.48",
+            "version": "0.7.49",
             "include_artifacts": false,
             "always_archive": false,
             "records": [{

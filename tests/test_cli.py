@@ -1320,6 +1320,9 @@ class CliTests(unittest.TestCase):
             self.assertIn("archive may include secrets", err)
             self.assertIn(".env", err)
             self.assertIn("not encrypted", err)
+            self.assertIn("--encrypt-passphrase-file", err)
+            self.assertIn("--exclude-secrets", err)
+            self.assertIn("--fail-on-secrets", err)
             self.assertTrue(list((dest / "app").glob("manifest-*.json")))
 
     @unittest.skipUnless(os.name == "posix", "Unix permission check")
