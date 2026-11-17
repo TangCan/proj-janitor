@@ -2164,6 +2164,11 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
         ("trailing-space.tar.gz", "demo/file "),
         ("reserved-com1.tar.gz", "demo/COM1.txt"),
         ("reserved-lpt1.tar.gz", "demo/LPT1.txt"),
+        ("reserved-aux.tar.gz", "demo/AUX.txt"),
+        ("reserved-prn.tar.gz", "demo/PRN.txt"),
+        ("reserved-nul.tar.gz", "demo/NUL.txt"),
+        ("reserved-com2.tar.gz", "demo/COM2.txt"),
+        ("reserved-lpt2.tar.gz", "demo/LPT2.txt"),
     ] {
         let archive = raw_test_archive(&temp, name, member, None);
         let target = temp.0.join(format!("restored-{name}/demo"));

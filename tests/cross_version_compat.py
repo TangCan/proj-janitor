@@ -510,6 +510,15 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
 
+    def _build_reserved_file(member: str):
+        def build(archive: tarfile.TarFile) -> None:
+            payload = b"x"
+            info = tarfile.TarInfo(member)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+
+        return build
+
     for kind, build, reasons in (
         ("fifo", build_fifo, ("unsupported entry type", "special file")),
         ("absolute-symlink", build_absolute_symlink, ("symlink escapes project",)),
@@ -519,6 +528,11 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         ("trailing-space", build_trailing_space, ("unsafe archive path", "not Windows-portable")),
         ("reserved-com1", build_reserved_com1, ("unsafe archive path", "not Windows-portable")),
         ("reserved-lpt1", build_reserved_lpt1, ("unsafe archive path", "not Windows-portable")),
+        ("reserved-aux", _build_reserved_file("demo/AUX.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-prn", _build_reserved_file("demo/PRN.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-nul", _build_reserved_file("demo/NUL.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-com2", _build_reserved_file("demo/COM2.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-lpt2", _build_reserved_file("demo/LPT2.txt"), ("unsafe archive path", "not Windows-portable")),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
