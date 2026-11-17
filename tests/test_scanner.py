@@ -122,12 +122,14 @@ class ScannerTests(unittest.TestCase):
                 (directory / "file.txt").write_text("x", encoding="utf-8")
             (root / "alpha" / "pyproject.toml").write_text("", encoding="utf-8")
 
-            projects = discover_projects(root, include_unmarked=True)
+            # Default: only marked children.
+            projects = discover_projects(root)
+            self.assertEqual({project.name for project in projects}, {"alpha"})
 
-            self.assertEqual(
-                {project.name for project in projects},
-                {"alpha", "beta"},
-            )
+            # include_unmarked: treat the unmarked parent itself as the project.
+            projects = discover_projects(root, include_unmarked=True)
+            self.assertEqual([project.path for project in projects], [root.resolve()])
+            self.assertEqual(projects[0].name, root.name)
 
     def test_root_can_be_a_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

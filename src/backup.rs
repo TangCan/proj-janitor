@@ -184,6 +184,7 @@ pub(crate) fn backup_cmd(
     keep: Option<usize>,
     yes: bool,
     dry: bool,
+    include_unmarked: bool,
     include_artifacts: bool,
     always: bool,
     exclude_git_metadata: bool,
@@ -221,7 +222,7 @@ pub(crate) fn backup_cmd(
     let mut seen = HashSet::new();
     let mut failed = false;
     for root in roots {
-        match discover(root, false) {
+        match discover(root, include_unmarked) {
             Ok(ps) => {
                 for p in ps {
                     if seen.insert(p.path.clone()) {

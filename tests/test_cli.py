@@ -118,6 +118,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("backup root directory", help_text)
         self.assertIn("print per-project and archive packing progress", help_text)
         self.assertIn("encrypt archive/bundle payloads", help_text)
+        self.assertIn("unmarked root directory", help_text)
         self.assertEqual(stderr.getvalue(), "")
 
     def test_package_version_matches_pyproject(self) -> None:
@@ -224,6 +225,52 @@ class CliTests(unittest.TestCase):
             self.assertIn("app", out)
             self.assertIn("warning: app: git state unknown", err)
             self.assertIn("unknown", out)
+
+    def test_backup_include_unmarked_treats_parent_as_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "twinvm"
+            child = parent / "gr-cvm"
+            child.mkdir(parents=True)
+            (child / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+            (child / "src").mkdir()
+            (child / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(parent),
+                "--backup-dest",
+                str(dest),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("gr-cvm", out)
+            self.assertNotIn("/twinvm/", out.replace(str(dest), ""))
+
+            code, out, err = run_cli(
+                "backup",
+                str(parent),
+                "--backup-dest",
+                str(dest),
+                "--include-unmarked",
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("twinvm", out)
+            self.assertIn("[archive]", out)
+
+            code, out, err = run_cli(
+                "scan",
+                str(parent),
+                "--include-unmarked",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertEqual(len(payload), 1)
+            self.assertEqual(payload[0]["name"], "twinvm")
 
     def test_backup_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -352,6 +352,66 @@ fn backup_help_hides_backup_dest_environment_value() {
 }
 
 #[test]
+fn backup_include_unmarked_treats_parent_as_project() {
+    let temp = TestDir::new();
+    let parent = temp.0.join("twinvm");
+    let child = parent.join("gr-cvm");
+    fs::create_dir_all(child.join("src")).unwrap();
+    fs::write(child.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    fs::write(child.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    let default = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg(&parent)
+        .output()
+        .unwrap();
+    assert!(
+        default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    let default_out = String::from_utf8_lossy(&default.stdout);
+    assert!(default_out.contains("gr-cvm"), "{default_out}");
+
+    let unmarked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--include-unmarked",
+            "--always-archive",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&parent)
+        .output()
+        .unwrap();
+    assert!(
+        unmarked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unmarked.stderr)
+    );
+    let unmarked_out = String::from_utf8_lossy(&unmarked.stdout);
+    assert!(unmarked_out.contains("twinvm"), "{unmarked_out}");
+    assert!(unmarked_out.contains("[archive]"), "{unmarked_out}");
+
+    let scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["scan", "--include-unmarked", "--json"])
+        .arg(&parent)
+        .output()
+        .unwrap();
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
+    assert_eq!(payload.as_array().unwrap().len(), 1);
+    assert_eq!(payload[0]["name"], "twinvm");
+}
+
+#[test]
 fn backup_help_describes_options() {
     let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["backup", "--help"])
@@ -362,6 +422,10 @@ fn backup_help_describes_options() {
     assert!(
         help.contains("Backup root directory"),
         "missing --backup-dest help: {help}"
+    );
+    assert!(
+        help.contains("include-unmarked") || help.contains("--all"),
+        "missing --include-unmarked/--all help: {help}"
     );
     assert!(
         help.contains("Print per-project and packing progress"),

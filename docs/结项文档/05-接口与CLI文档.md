@@ -207,7 +207,7 @@ projjan 0.1.0
 ### 5.1 语法
 
 ```text
-projjan scan ROOT [ROOT ...] [--all] [--json]
+projjan scan ROOT [ROOT ...] [--all | --include-unmarked] [--json]
 ```
 
 `ROOT` 可以是一个或多个目录。命令只读，不创建、修改或删除文件。
@@ -217,7 +217,7 @@ projjan scan ROOT [ROOT ...] [--all] [--json]
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `ROOT...` | 是 | 无 | 一个或多个扫描根路径；支持 `~` 展开。 |
-| `--all` | 否 | 关闭 | 当根目录本身不是项目时，把没有已知项目标记的直接子目录也纳入扫描。 |
+| `--all` / `--include-unmarked` | 否 | 关闭 | 当根目录本身无项目标记时，把该根目录本身当作一个项目扫描（非空；CR-158）。 |
 | `--json` | 否 | 关闭 | 以 JSON 数组输出；错误仍写入标准错误。 |
 
 ### 5.3 项目发现语义
@@ -226,9 +226,9 @@ projjan scan ROOT [ROOT ...] [--all] [--json]
 
 1. 根路径展开 `~` 后必须存在且为目录，否则抛出根路径错误。
 2. 如果根目录自身包含任一项目标记，则只扫描根目录自身，不再扫描其子目录。
-3. 否则只检查根目录的直接子目录，不递归发现嵌套项目。
-4. 直接子目录必须同时满足：是目录、不是符号链接、名称不以 `.` 开头、非空。
-5. 默认只保留包含至少一个项目标记的子目录；`--all` 放宽“包含项目标记”这一条，但仍跳过隐藏目录、符号链接和空目录。
+3. 如果根目录无项目标记且启用 `--include-unmarked` / `--all`，则把该非空根目录本身当作一个项目返回（用于容器目录）。
+4. 否则只检查根目录的直接子目录，不递归发现嵌套项目。
+5. 直接子目录必须同时满足：是目录、不是符号链接、名称不以 `.` 开头、非空，且包含至少一个项目标记。
 6. 多个根路径按命令行顺序处理；每个根内部按名称排序；CLI 按解析后的项目路径去重，保留首次出现的项目。
 7. 项目路径在 `scan_project()` 中解析为绝对路径，项目名为路径最后一段。
 
@@ -359,6 +359,7 @@ projjan scan ~/projects ~/archive --json
 ```text
 projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
                  [--yes] [--dry-run]
+                 [--include-unmarked | --all]
                  [--include-artifacts] [--always-archive]
                  [--exclude-git-metadata] [--incremental]
                  [--fail-on-secrets | --no-fail-on-secrets]
@@ -373,7 +374,8 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 
 | 参数 | 必填 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同，但不启用“未标记目录”。 |
+| `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `scan` 相同。 |
+| `--include-unmarked` / `--all` | 否 | 关闭 | 无项目标记的 ROOT 本身作为项目备份（非空；CR-158）。常与 `--always-archive` 合用。 |
 | `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` → `[backup].dest` | 备份根目录；三者均未提供时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
 | `--config PATH` | 否 | 自动发现 `.proj-janitor.toml` | 显式指定配置文件；未指定时从当前目录向上逐级查找。 |
 | `--keep N` | 否 | `[backup].keep` | 成功备份后每个项目保留的最近 manifest 数（含本次）；不传且配置未设置则不保留。必须 ≥ 1。 |

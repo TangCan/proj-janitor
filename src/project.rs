@@ -75,6 +75,12 @@ pub(crate) fn list_candidates(root: &Path, all: bool) -> anyhow::Result<Vec<Path
     if is_project(&root) {
         return Ok(vec![root]);
     }
+    // With `all` / --include-unmarked, treat the unmarked root itself as a
+    // project unit (e.g. back up a container directory that only holds nested repos).
+    if all {
+        let non_empty = fs::read_dir(&root)?.next().is_some();
+        return Ok(if non_empty { vec![root] } else { Vec::new() });
+    }
     let mut v = Vec::new();
     for e in fs::read_dir(&root)? {
         let e = e?;
@@ -83,7 +89,7 @@ pub(crate) fn list_candidates(root: &Path, all: bool) -> anyhow::Result<Vec<Path
         if p.is_dir()
             && !p.is_symlink()
             && !n.to_string_lossy().starts_with('.')
-            && (all || is_project(&p))
+            && is_project(&p)
             && fs::read_dir(&p)?.next().is_some()
         {
             v.push(p);

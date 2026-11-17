@@ -128,8 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scan.add_argument(
         "--all",
+        "--include-unmarked",
         action="store_true",
-        help="include directories without a known project marker",
+        dest="include_unmarked",
+        help=(
+            "treat an unmarked root directory itself as a project "
+            "(do not only scan marked children)"
+        ),
     )
     scan.add_argument(
         "--config",
@@ -182,6 +187,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="show the plan without writing archives",
+    )
+    backup.add_argument(
+        "--all",
+        "--include-unmarked",
+        action="store_true",
+        dest="include_unmarked",
+        help=(
+            "treat an unmarked root directory itself as a project "
+            "(do not only back up marked children)"
+        ),
     )
     backup.add_argument(
         "--include-artifacts",
@@ -865,7 +880,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     failures = 0
     for root in args.roots:
         try:
-            found = list_project_paths(root, args.all)
+            found = list_project_paths(root, args.include_unmarked)
         except (OSError, NotADirectoryError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             failures += 1
@@ -957,7 +972,9 @@ def _retain_after_backup(backup_root: Path, keep: int, yes: bool) -> int:
 
 
 def _cmd_backup(args: argparse.Namespace) -> int:
-    projects, failures = _collect_projects(args.roots, include_unmarked=False)
+    projects, failures = _collect_projects(
+        args.roots, include_unmarked=args.include_unmarked
+    )
     if not projects:
         print("No projects found.", file=sys.stderr)
         return 1

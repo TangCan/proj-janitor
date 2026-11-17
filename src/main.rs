@@ -86,8 +86,8 @@ enum Action {
         /// Project roots or parent directories to scan
         #[arg(required = true)]
         roots: Vec<PathBuf>,
-        /// Include directories without a known project marker
-        #[arg(long)]
+        /// Treat an unmarked root directory itself as a project (do not only scan marked children)
+        #[arg(long = "all", alias = "include-unmarked")]
         all: bool,
         /// Print per-project scan progress with elapsed time
         #[arg(long, conflicts_with = "no_progress")]
@@ -122,6 +122,9 @@ enum Action {
         /// Show the plan without writing archives
         #[arg(long)]
         dry_run: bool,
+        /// Treat an unmarked root directory itself as a project (do not only back up marked children)
+        #[arg(long = "all", alias = "include-unmarked")]
+        include_unmarked: bool,
         /// Archive build artifacts and dependency caches too
         #[arg(long)]
         include_artifacts: bool,
@@ -553,6 +556,7 @@ fn run() -> anyhow::Result<()> {
             keep,
             yes,
             dry_run,
+            include_unmarked,
             include_artifacts,
             always_archive,
             exclude_git_metadata,
@@ -639,6 +643,7 @@ fn run() -> anyhow::Result<()> {
                 keep,
                 yes,
                 dry_run,
+                include_unmarked,
                 include_artifacts,
                 always_archive,
                 exclude_git_metadata,

@@ -34,13 +34,19 @@ def list_project_paths(
 
     if is_project(root):
         return [root]
+    # With include_unmarked, treat the given unmarked root itself as a project
+    # unit (e.g. backup a container directory that only holds nested repos).
+    if include_unmarked:
+        if any(root.iterdir()):
+            return [root]
+        return []
     return sorted(
         child
         for child in root.iterdir()
         if child.is_dir()
         and not child.is_symlink()
         and not child.name.startswith(".")
-        and (include_unmarked or is_project(child))
+        and is_project(child)
         and any(child.iterdir())
     )
 
