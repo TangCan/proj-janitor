@@ -4498,6 +4498,8 @@ fn init_writes_starter_config() {
     assert!(text.contains("check_remote = true"), "{text}");
     assert!(text.contains("require_dest = true"), "{text}");
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
+    assert!(text.contains("keep_replaced = true"), "{text}");
+    assert!(text.contains("rollback_on_error = true"), "{text}");
 
     let again = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["init", "--dir"])
@@ -4709,6 +4711,11 @@ fn restore_continue_on_error_restores_remaining_projects() {
     assert!(stderr.contains("error: second:"), "{stderr}");
     assert!(stderr.contains("progress: failed 2/3: second"), "{stderr}");
     assert!(
+        stderr.contains("warning: --continue-on-error will leave successful restores"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("pass --rollback-on-error"), "{stderr}");
+    assert!(
         stderr.contains("progress: done, restored 2, skipped 0, failed 1 ("),
         "{stderr}"
     );
@@ -4810,6 +4817,10 @@ fn restore_rollback_on_error_removes_partial_successes() {
         vec!["third", "first"]
     );
     assert!(stderr.contains("rolled back:"), "{stderr}");
+    assert!(
+        !stderr.contains("will leave successful restores"),
+        "{stderr}"
+    );
     assert!(!out.join("first").exists());
     assert!(!out.join("second").exists());
     assert!(!out.join("third").exists());

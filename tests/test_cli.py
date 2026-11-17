@@ -761,6 +761,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertIn("error: second:", err)
             self.assertIn("progress: failed 2/3: second", err)
+            self.assertIn(
+                "warning: --continue-on-error will leave successful restores",
+                err,
+            )
+            self.assertIn("pass --rollback-on-error", err)
             self.assertRegex(
                 err, r"progress: done, restored 2, skipped 0, failed 1 \(\d+s\)"
             )
@@ -768,6 +773,41 @@ class CliTests(unittest.TestCase):
             self.assertTrue((restored / "first").exists())
             self.assertFalse((restored / "second").exists())
             self.assertTrue((restored / "third").exists())
+
+    def test_restore_continue_with_rollback_skips_continue_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, first_record = archive_backup(root / "a", "first")
+            manifest = write_manifest(root / "manifest.json", [first_record])
+            restored = root / "restored"
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--continue-on-error",
+                "--rollback-on-error",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("will leave successful restores", err)
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--continue-on-error",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: --continue-on-error will leave successful restores",
+                err,
+            )
 
     def test_restore_rollback_on_error_removes_partial_successes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -808,6 +848,7 @@ class CliTests(unittest.TestCase):
                 ["third", "first"],
             )
             self.assertIn("rolled back:", err)
+            self.assertNotIn("will leave successful restores", err)
             self.assertFalse((restored / "first").exists())
             self.assertFalse((restored / "second").exists())
             self.assertFalse((restored / "third").exists())
@@ -1798,6 +1839,8 @@ class CliTests(unittest.TestCase):
             self.assertIn("require_dest = true", text)
             self.assertIn("fail_on_insecure_dest = true", text)
             self.assertIn("checkout_branch = true", text)
+            self.assertIn("keep_replaced = true", text)
+            self.assertIn("rollback_on_error = true", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
             self.assertEqual(code, 1, out)

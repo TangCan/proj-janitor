@@ -167,6 +167,18 @@ def warn_force_overwrite_deletes(count: int) -> None:
     print(format_force_overwrite_deletes_warning(count), file=sys.stderr)
 
 
+def format_continue_without_rollback_warning() -> str:
+    return (
+        "warning: --continue-on-error will leave successful restores in place "
+        "if a later project fails; pass --rollback-on-error to undo them"
+    )
+
+
+def warn_continue_without_rollback() -> None:
+    """Emit a stderr hint when continue-on-error skips rollback (CR-157)."""
+    print(format_continue_without_rollback_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

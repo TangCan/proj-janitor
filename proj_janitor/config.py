@@ -126,6 +126,8 @@ INIT_CONFIG_TEMPLATE = """\
 # - [backup]/[restore].fail_on_insecure_dest = true — refuse group/other-accessible dirs on Unix (R-05)
 # - [backup].fail_on_secrets / exclude_secrets / encrypt_passphrase_file — handle secrets (R-05)
 # - [restore].checkout_branch = true — Git-only restore checks out manifest branch (else detached HEAD)
+# - [restore].keep_replaced = true — with force, rename aside instead of deleting replaced targets
+# - [restore].rollback_on_error = true — with continue-on-error, undo successful restores on failure
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 
 [backup]

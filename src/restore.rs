@@ -149,6 +149,13 @@ fn warn_force_overwrite_deletes(count: usize) {
     );
 }
 
+fn warn_continue_without_rollback() {
+    eprintln!(
+        "warning: --continue-on-error will leave successful restores in place \
+         if a later project fails; pass --rollback-on-error to undo them"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1342,6 +1349,9 @@ pub(crate) fn restore_cmd(
                 .filter(|(_, _, _, overwrite, skip)| *overwrite && !*skip)
                 .count(),
         );
+    }
+    if continue_on_error && !rollback_on_error {
+        warn_continue_without_rollback();
     }
     if dry {
         if json {

@@ -669,6 +669,8 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
 | `--force` | 否 | `[restore].force` | 暂存成功后替换已存在目标目录（需 `--yes`）。未开 `--keep-replaced` 时 stderr 提示将永久删除（CR-156）。 |
 | `--keep-replaced` | 否 | `[restore].keep_replaced` | 配合 `--force`：将被替换目录重命名旁侧而非删除。 |
+| `--continue-on-error` | 否 | `[restore].continue_on_error` | 单个项目失败后继续其余项目（仍非零退出）。未开 `--rollback-on-error` 时 stderr 提示成功项不会撤销（CR-157）。 |
+| `--rollback-on-error` | 否 | `[restore].rollback_on_error` | 失败后撤销本批已恢复目标（含 `--keep-replaced` 旁侧目录还原）。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
