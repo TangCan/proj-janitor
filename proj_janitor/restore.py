@@ -137,6 +137,21 @@ def warn_original_location_restore(count: int) -> None:
     print(format_original_location_restore_warning(count), file=sys.stderr)
 
 
+def format_git_detached_head_warning(count: int) -> str:
+    noun = "record" if count == 1 else "records"
+    return (
+        f"warning: {count} git-only {noun} will restore as detached HEAD; "
+        "pass --checkout-branch to check out the manifest branch"
+    )
+
+
+def warn_git_detached_head_restore(count: int) -> None:
+    """Emit a stderr hint when Git-only restores keep detached HEAD (CR-154)."""
+    if count <= 0:
+        return
+    print(format_git_detached_head_warning(count), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

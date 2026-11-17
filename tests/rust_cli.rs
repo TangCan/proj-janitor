@@ -3272,6 +3272,87 @@ fn verify_check_remote_defaults_from_config_and_cli_overrides() {
 }
 
 #[test]
+fn restore_warns_when_git_records_keep_detached_head() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.53",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let restored = temp.0.join("restored");
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(dry.status.success());
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(
+        dry_err.contains("warning: 1 git-only record will restore as detached HEAD"),
+        "{dry_err}"
+    );
+    assert!(dry_err.contains("pass --checkout-branch"), "{dry_err}");
+
+    let checked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--checkout-branch", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(checked.status.success());
+    let checked_err = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        !checked_err.contains("will restore as detached HEAD"),
+        "{checked_err}"
+    );
+}
+
+#[test]
 fn verify_and_restore_warn_when_git_records_skip_remote_check() {
     let temp = TestDir::new();
     let project = temp.project();

@@ -127,6 +127,17 @@ fn warn_original_location_restore(count: usize) {
     );
 }
 
+fn warn_git_detached_head_restore(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "record" } else { "records" };
+    eprintln!(
+        "warning: {count} git-only {noun} will restore as detached HEAD; \
+         pass --checkout-branch to check out the manifest branch"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1296,6 +1307,14 @@ pub(crate) fn restore_cmd(
     refuse_outside_allowed_roots(&plans, allowed_roots)?;
     if !check_remote {
         warn_git_without_remote_check(
+            plans
+                .iter()
+                .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")
+                .count(),
+        );
+    }
+    if !checkout_branch {
+        warn_git_detached_head_restore(
             plans
                 .iter()
                 .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")

@@ -59,6 +59,7 @@ from proj_janitor.restore import (
     refuse_insecure_restore_parents,
     refuse_outside_allowed_roots,
     verify_manifest,
+    warn_git_detached_head_restore,
     warn_git_without_remote_check,
     warn_insecure_restore_parents,
     warn_original_location_restore,
@@ -1354,6 +1355,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
     if not check_remote:
         warn_git_without_remote_check(
+            sum(1 for plan in plans if plan.strategy == "git" and not plan.skip)
+        )
+    if not checkout_branch:
+        warn_git_detached_head_restore(
             sum(1 for plan in plans if plan.strategy == "git" and not plan.skip)
         )
 

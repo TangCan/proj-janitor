@@ -687,7 +687,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 10. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 11. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
 12. `--check-remote` 时（仅 `git` 策略；`archive`/`git_bundle` 忽略该选项），在每个 Git-only 计划进入恢复前先执行一次 `git ls-remote`（单条最长 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表、不下载对象；URL 含用户名/口令/query/fragment 时为 `remote-skipped` 不联网。对记录的子模块（`submodules` 字段），对每个子模块的 URL+固定提交同样执行一次预检（含凭据脱敏）。任一记录或子模块 `remote-unreachable` 时整批不开始，报 `cannot restore <项目>: remote <脱敏URL> is unreachable (<原因>)`（子模块则为 `cannot restore <项目>: submodule <path> remote <脱敏URL> is unreachable (<原因>)`）并返回退出码 `1`。该预检发生在 SHA-256 校验与确认之后、创建任何目标目录之前。
-13. Git-only 恢复后默认是 detached HEAD；加 `--checkout-branch`（或配置 `[restore].checkout_branch`）时按 manifest 分支检出。默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
+13. Git-only 恢复后默认是 detached HEAD；未启用 `--checkout-branch` 时 stderr 提示（CR-154）。加 `--checkout-branch`（或配置 `[restore].checkout_branch`）时按 manifest 分支检出。默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
 14. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
 ### 8.3 输出
