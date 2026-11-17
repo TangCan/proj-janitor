@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Measure Python and Rust line-coverage baselines for proj-janitor (CR-130 / V-01).
-# Not wired as a CI gate: run locally or during maintenance reviews.
+# Measure Python and Rust line-coverage baselines for proj-janitor (CR-130 / CR-153 / V-01).
+# No coverage threshold. CI runs this on ubuntu as a continue-on-error job
+# (see .github/workflows/ci.yml coverage); local maintenance reviews can reuse it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -365,7 +365,7 @@ python3 -m unittest discover -s tests -v
 ./scripts/measure_coverage.sh
 ```
 
-2026-11-09 本地快照约：Python `proj_janitor` 83% 行；Rust `src` 约 84% 行（详见 `docs/结项文档/06-测试报告与缺陷清单.md` 第 12.42 节）。
+CI 在 Ubuntu 上以同脚本做非门禁复测（`continue-on-error`，artifact `coverage-summary`；CR-153）。2026-11-09 本地快照约：Python `proj_janitor` 83% 行；Rust `src` 约 84% 行（详见 `docs/结项文档/06-测试报告与缺陷清单.md` 第 12.42 节）。
 
 ## 许可证
 
