@@ -948,13 +948,17 @@ fn run() -> anyhow::Result<()> {
 }
 
 fn scan_cmd(roots: &[PathBuf], all: bool, progress: bool, json: bool) -> anyhow::Result<()> {
-    use project::{inspect, list_candidates};
+    use project::{inspect, is_project, list_candidates, warn_unmarked_root_child_discovery};
     let mut candidates = Vec::new();
     let mut seen_paths = HashSet::new();
     let mut failed = false;
     for root in roots {
         match list_candidates(root, all) {
             Ok(paths) => {
+                let expanded = expand(root);
+                if !all && !paths.is_empty() && expanded.is_dir() && !is_project(&expanded) {
+                    warn_unmarked_root_child_discovery(&expanded, paths.len());
+                }
                 for path in paths {
                     if seen_paths.insert(path.clone()) {
                         candidates.push(path);

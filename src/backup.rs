@@ -224,6 +224,14 @@ pub(crate) fn backup_cmd(
     for root in roots {
         match discover(root, include_unmarked) {
             Ok(ps) => {
+                let expanded = crate::expand(root);
+                if !include_unmarked
+                    && !ps.is_empty()
+                    && expanded.is_dir()
+                    && !crate::project::is_project(&expanded)
+                {
+                    crate::project::warn_unmarked_root_child_discovery(&expanded, ps.len());
+                }
                 for p in ps {
                     if seen.insert(p.path.clone()) {
                         projects.push(p)

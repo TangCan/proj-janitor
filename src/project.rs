@@ -65,9 +65,29 @@ pub(crate) struct Submodule {
     pub(crate) path: PathBuf,
     pub(crate) url: String,
 }
-fn is_project(path: &Path) -> bool {
+pub(crate) fn is_project(path: &Path) -> bool {
     MARKERS.iter().any(|m| path.join(m).exists())
 }
+
+pub(crate) fn warn_unmarked_root_child_discovery(root: &Path, child_count: usize) {
+    if child_count == 0 {
+        return;
+    }
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_else(|| root.to_string_lossy());
+    let noun = if child_count == 1 {
+        "child project"
+    } else {
+        "child projects"
+    };
+    eprintln!(
+        "warning: {name} has no project markers; discovered {child_count} marked {noun}. \
+         Pass --include-unmarked to use the root directory itself"
+    );
+}
+
 pub(crate) fn list_candidates(root: &Path, all: bool) -> anyhow::Result<Vec<PathBuf>> {
     let root = crate::expand(root);
     anyhow::ensure!(root.exists(), "root does not exist: {}", root.display());

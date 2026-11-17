@@ -247,6 +247,11 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("gr-cvm", out)
             self.assertNotIn("/twinvm/", out.replace(str(dest), ""))
+            self.assertIn(
+                "warning: twinvm has no project markers; discovered 1 marked child project",
+                err,
+            )
+            self.assertIn("Pass --include-unmarked", err)
 
             code, out, err = run_cli(
                 "backup",
@@ -260,6 +265,17 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("twinvm", out)
             self.assertIn("[archive]", out)
+            self.assertNotIn("has no project markers", err)
+
+            code, out, err = run_cli("scan", str(parent), "--json")
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: twinvm has no project markers; discovered 1 marked child project",
+                err,
+            )
+            payload = json.loads(out)
+            self.assertEqual(len(payload), 1)
+            self.assertEqual(payload[0]["name"], "gr-cvm")
 
             code, out, err = run_cli(
                 "scan",
@@ -268,6 +284,7 @@ class CliTests(unittest.TestCase):
                 "--json",
             )
             self.assertEqual(code, 0, err)
+            self.assertNotIn("has no project markers", err)
             payload = json.loads(out)
             self.assertEqual(len(payload), 1)
             self.assertEqual(payload[0]["name"], "twinvm")
@@ -1888,6 +1905,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("checkout_branch = true", text)
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
+            self.assertIn("--include-unmarked", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
             self.assertEqual(code, 1, out)

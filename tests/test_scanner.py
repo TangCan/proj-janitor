@@ -131,6 +131,21 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual([project.path for project in projects], [root.resolve()])
             self.assertEqual(projects[0].name, root.name)
 
+    def test_format_unmarked_root_child_discovery_warning(self) -> None:
+        from proj_janitor.scanner import format_unmarked_root_child_discovery_warning
+
+        root = Path("/tmp/twinvm")
+        self.assertEqual(
+            format_unmarked_root_child_discovery_warning(root, 1),
+            "warning: twinvm has no project markers; discovered 1 marked child project. "
+            "Pass --include-unmarked to use the root directory itself",
+        )
+        self.assertEqual(
+            format_unmarked_root_child_discovery_warning(root, 2),
+            "warning: twinvm has no project markers; discovered 2 marked child projects. "
+            "Pass --include-unmarked to use the root directory itself",
+        )
+
     def test_root_can_be_a_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

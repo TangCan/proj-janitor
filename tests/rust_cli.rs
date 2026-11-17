@@ -373,7 +373,17 @@ fn backup_include_unmarked_treats_parent_as_project() {
         String::from_utf8_lossy(&default.stderr)
     );
     let default_out = String::from_utf8_lossy(&default.stdout);
+    let default_err = String::from_utf8_lossy(&default.stderr);
     assert!(default_out.contains("gr-cvm"), "{default_out}");
+    assert!(
+        default_err
+            .contains("warning: twinvm has no project markers; discovered 1 marked child project"),
+        "{default_err}"
+    );
+    assert!(
+        default_err.contains("Pass --include-unmarked"),
+        "{default_err}"
+    );
 
     let unmarked = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args([
@@ -393,8 +403,34 @@ fn backup_include_unmarked_treats_parent_as_project() {
         String::from_utf8_lossy(&unmarked.stderr)
     );
     let unmarked_out = String::from_utf8_lossy(&unmarked.stdout);
+    let unmarked_err = String::from_utf8_lossy(&unmarked.stderr);
     assert!(unmarked_out.contains("twinvm"), "{unmarked_out}");
     assert!(unmarked_out.contains("[archive]"), "{unmarked_out}");
+    assert!(
+        !unmarked_err.contains("has no project markers"),
+        "{unmarked_err}"
+    );
+
+    let scan_default = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["scan", "--json"])
+        .arg(&parent)
+        .output()
+        .unwrap();
+    assert!(
+        scan_default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan_default.stderr)
+    );
+    let scan_default_err = String::from_utf8_lossy(&scan_default.stderr);
+    assert!(
+        scan_default_err
+            .contains("warning: twinvm has no project markers; discovered 1 marked child project"),
+        "{scan_default_err}"
+    );
+    let scan_default_payload: serde_json::Value =
+        serde_json::from_slice(&scan_default.stdout).unwrap();
+    assert_eq!(scan_default_payload.as_array().unwrap().len(), 1);
+    assert_eq!(scan_default_payload[0]["name"], "gr-cvm");
 
     let scan = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["scan", "--include-unmarked", "--json"])
@@ -406,6 +442,8 @@ fn backup_include_unmarked_treats_parent_as_project() {
         "{}",
         String::from_utf8_lossy(&scan.stderr)
     );
+    let scan_err = String::from_utf8_lossy(&scan.stderr);
+    assert!(!scan_err.contains("has no project markers"), "{scan_err}");
     let payload: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
     assert_eq!(payload.as_array().unwrap().len(), 1);
     assert_eq!(payload[0]["name"], "twinvm");

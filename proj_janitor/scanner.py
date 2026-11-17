@@ -4,6 +4,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,24 @@ from proj_janitor.models import GitRecovery, GitState, Project, human_size
 
 def is_project(path: Path) -> bool:
     return any((path / marker).exists() for marker in PROJECT_MARKERS)
+
+
+def format_unmarked_root_child_discovery_warning(root: Path, child_count: int) -> str:
+    noun = "child project" if child_count == 1 else "child projects"
+    return (
+        f"warning: {root.name} has no project markers; discovered {child_count} "
+        f"marked {noun}. Pass --include-unmarked to use the root directory itself"
+    )
+
+
+def warn_unmarked_root_child_discovery(root: Path, child_count: int) -> None:
+    """Emit a stderr hint when an unmarked root is used only as a search parent (CR-159)."""
+    if child_count <= 0:
+        return
+    print(
+        format_unmarked_root_child_discovery_warning(root, child_count),
+        file=sys.stderr,
+    )
 
 
 def list_project_paths(

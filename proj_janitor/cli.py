@@ -76,8 +76,10 @@ from proj_janitor.scanner import (
     discover_projects,
     format_git_unknown_warnings,
     format_projects,
+    is_project,
     list_project_paths,
     scan_project,
+    warn_unmarked_root_child_discovery,
 )
 
 
@@ -885,6 +887,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             failures += 1
             continue
+        expanded = root.expanduser()
+        if (
+            not args.include_unmarked
+            and found
+            and expanded.is_dir()
+            and not is_project(expanded)
+        ):
+            warn_unmarked_root_child_discovery(expanded, len(found))
         for path in found:
             resolved = path.resolve()
             if resolved in seen:
@@ -1999,6 +2009,14 @@ def _collect_projects(
             print(f"error: {exc}", file=sys.stderr)
             failures += 1
             continue
+        expanded = root.expanduser()
+        if (
+            not include_unmarked
+            and found
+            and expanded.is_dir()
+            and not is_project(expanded)
+        ):
+            warn_unmarked_root_child_discovery(expanded, len(found))
         for project in found:
             if project.path in seen:
                 continue
