@@ -152,6 +152,21 @@ def warn_git_detached_head_restore(count: int) -> None:
     print(format_git_detached_head_warning(count), file=sys.stderr)
 
 
+def format_force_overwrite_deletes_warning(count: int) -> str:
+    noun = "target" if count == 1 else "targets"
+    return (
+        f"warning: --force will permanently delete {count} existing {noun}; "
+        "pass --keep-replaced to rename aside instead"
+    )
+
+
+def warn_force_overwrite_deletes(count: int) -> None:
+    """Emit a stderr hint when --force will remove existing targets (CR-156)."""
+    if count <= 0:
+        return
+    print(format_force_overwrite_deletes_warning(count), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

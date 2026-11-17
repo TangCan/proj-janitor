@@ -857,6 +857,11 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             payload = json.loads(out_text)
             self.assertTrue(payload["projects"][0]["overwrite"])
+            self.assertIn(
+                "warning: --force will permanently delete 1 existing target",
+                err,
+            )
+            self.assertIn("pass --keep-replaced", err)
 
             code, _out, err = run_cli(
                 "restore",
@@ -867,8 +872,46 @@ class CliTests(unittest.TestCase):
                 "--yes",
             )
             self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: --force will permanently delete 1 existing target",
+                err,
+            )
             self.assertFalse((first / "stale.txt").exists())
             self.assertTrue((first / "main.py").is_file() or (first / "src" / "main.py").is_file())
+
+    def test_restore_force_keep_replaced_skips_delete_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            dest = root / "backups"
+            code, _out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+            )
+            self.assertEqual(code, 0, err)
+            manifests = sorted((dest / project.name).glob("manifest-*.json"))
+            self.assertEqual(len(manifests), 1)
+
+            out = root / "restored"
+            first = out / project.name
+            first.mkdir(parents=True)
+            (first / "stale.txt").write_text("old\n", encoding="utf-8")
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifests[0]),
+                "--dest",
+                str(out),
+                "--force",
+                "--keep-replaced",
+                "--yes",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("will permanently delete", err)
 
     def test_restore_keep_replaced_renames_old_target_aside(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

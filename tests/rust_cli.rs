@@ -4873,6 +4873,12 @@ fn restore_force_replaces_existing_target_with_yes() {
     );
     let dry_json: serde_json::Value = serde_json::from_slice(&dry.stdout).unwrap();
     assert_eq!(dry_json["projects"][0]["overwrite"], true);
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(
+        dry_err.contains("warning: --force will permanently delete 1 existing target"),
+        "{dry_err}"
+    );
+    assert!(dry_err.contains("pass --keep-replaced"), "{dry_err}");
 
     let forced = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["restore", "--dest"])
@@ -4886,11 +4892,64 @@ fn restore_force_replaces_existing_target_with_yes() {
         "{}",
         String::from_utf8_lossy(&forced.stderr)
     );
+    let forced_err = String::from_utf8_lossy(&forced.stderr);
+    assert!(
+        forced_err.contains("warning: --force will permanently delete 1 existing target"),
+        "{forced_err}"
+    );
     assert!(!target.join("stale.txt").exists());
     assert_eq!(
         fs::read_to_string(target.join("ok.txt")).unwrap(),
         "fresh\n"
     );
+}
+
+#[test]
+fn restore_force_keep_replaced_skips_delete_warning() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "fresh\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let project_dir = dest.join(project.file_name().unwrap());
+    let manifest = fs::read_dir(&project_dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let out = temp.0.join("restored");
+    let target = out.join(project.file_name().unwrap());
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("stale.txt"), "old\n").unwrap();
+
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&out)
+        .args(["--force", "--keep-replaced", "--yes", "--dry-run"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let dry_err = String::from_utf8_lossy(&dry.stderr);
+    assert!(!dry_err.contains("will permanently delete"), "{dry_err}");
 }
 
 #[test]
@@ -4942,6 +5001,7 @@ fn restore_keep_replaced_renames_old_target_aside() {
         stderr.contains("replaced previous target aside:"),
         "{stderr}"
     );
+    assert!(!stderr.contains("will permanently delete"), "{stderr}");
     let json: serde_json::Value = serde_json::from_slice(&forced.stdout).unwrap();
     let aside = PathBuf::from(json["projects"][0]["replaced_aside"].as_str().unwrap());
     assert!(aside.is_dir());

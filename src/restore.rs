@@ -138,6 +138,17 @@ fn warn_git_detached_head_restore(count: usize) {
     );
 }
 
+fn warn_force_overwrite_deletes(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "target" } else { "targets" };
+    eprintln!(
+        "warning: --force will permanently delete {count} existing {noun}; \
+         pass --keep-replaced to rename aside instead"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1323,6 +1334,14 @@ pub(crate) fn restore_cmd(
     }
     if dest.is_none() {
         warn_original_location_restore(plans.iter().filter(|(_, _, _, _, skip)| !*skip).count());
+    }
+    if force && !keep_replaced {
+        warn_force_overwrite_deletes(
+            plans
+                .iter()
+                .filter(|(_, _, _, overwrite, skip)| *overwrite && !*skip)
+                .count(),
+        );
     }
     if dry {
         if json {

@@ -785,6 +785,34 @@ class RestoreTests(unittest.TestCase):
                 "unsafe archive path",
                 "LPT2.txt",
             ),
+            (
+                "reserved-conin.tar.gz",
+                "app/CONIN$.txt",
+                None,
+                "unsafe archive path",
+                "CONIN$.txt",
+            ),
+            (
+                "reserved-conout.tar.gz",
+                "app/CONOUT$.txt",
+                None,
+                "unsafe archive path",
+                "CONOUT$.txt",
+            ),
+            (
+                "reserved-com3.tar.gz",
+                "app/COM3.txt",
+                None,
+                "unsafe archive path",
+                "COM3.txt",
+            ),
+            (
+                "reserved-lpt3.tar.gz",
+                "app/LPT3.txt",
+                None,
+                "unsafe archive path",
+                "LPT3.txt",
+            ),
         )
         for archive_name, member_name, link_target, pattern, leaf in cases:
             with self.subTest(archive=archive_name):

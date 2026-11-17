@@ -59,6 +59,7 @@ from proj_janitor.restore import (
     refuse_insecure_restore_parents,
     refuse_outside_allowed_roots,
     verify_manifest,
+    warn_force_overwrite_deletes,
     warn_git_detached_head_restore,
     warn_git_without_remote_check,
     warn_insecure_restore_parents,
@@ -1367,6 +1368,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         warn_original_location_restore(sum(1 for plan in plans if not plan.skip))
     mode = "original" if in_place else "dest"
     overwrites = [plan for plan in plans if plan.overwrite]
+    if force and not keep_replaced:
+        warn_force_overwrite_deletes(len(overwrites))
 
     if args.dry_run:
         if args.json:

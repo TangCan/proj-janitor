@@ -667,6 +667,8 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |
 | `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
+| `--force` | 否 | `[restore].force` | 暂存成功后替换已存在目标目录（需 `--yes`）。未开 `--keep-replaced` 时 stderr 提示将永久删除（CR-156）。 |
+| `--keep-replaced` | 否 | `[restore].keep_replaced` | 配合 `--force`：将被替换目录重命名旁侧而非删除。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
