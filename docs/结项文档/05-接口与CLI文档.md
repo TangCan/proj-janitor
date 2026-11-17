@@ -666,6 +666,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14）。与 `--no-require-dest` 互斥。 |
 | `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |
+| `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
 | `--json` | 否 | 关闭 | 输出纯 JSON，不混入人类提示文本。 |
 
 ### 8.2 行为
@@ -680,13 +681,13 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 4. 指定 `--dest` 时，目标固定为 `--dest/<项目名>/`；`--dest` 已存在但不是目录时拒绝。
 5. 同一批恢复中目标路径重复或在大小写转换/Unicode NFC 规范化后冲突时拒绝，避免跨平台覆盖或中途失败。
 6. 预检所有目标路径后才会开始恢复；任一目标已存在或是符号链接时整批不开始。
-7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用 Git 临时配置环境从原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；执行 `git checkout --detach <commit>` 并验证 HEAD，最后移动到目标目录。旧版 Git 不支持该环境配置时，只有不含敏感信息的 URL 才回退到命令参数传递。
+7. `git` 策略：校验远程 URL 形式和 7～64 位十六进制提交号；初始化临时仓库，将脱敏 URL 配置为 origin；使用 Git 临时配置环境从原始 URL fetch heads/tags 并禁写 `FETCH_HEAD`；默认执行 `git checkout --detach <commit>` 并验证 HEAD；若启用 `--checkout-branch` / `[restore].checkout_branch` 且 manifest 含 `branch`，则改为 `git checkout -B <branch> <commit>`（缺分支时警告并回退 detached），最后移动到目标目录。旧版 Git 不支持该环境配置时，只有不含敏感信息的 URL 才回退到命令参数传递。
 8. `git_bundle` 策略：校验 bundle SHA-256、结构、分支和提交；将 bundle 复制到私有临时目录后 fetch 本地 heads/tags，检出记录的分支与提交并核对 HEAD，最后发布到目标路径。不会写入 remote URL。
 9. `archive` 策略：默认按 manifest 中的 SHA-256 校验归档；校验通过后解压到临时目录，要求顶层目录名等于项目名，拒绝绝对路径、重复成员、未知成员类型、反斜杠成员名、Windows 保留设备名/非法字符/尾随点空格、含冒号的成员路径/链接目标、POSIX/Windows 分隔符下的 `..`、大小写或 Unicode 规范化后重合的归档路径、硬链接、特殊文件和越界符号链接，再移动到目标目录。
 10. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 11. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
 12. `--check-remote` 时（仅 `git` 策略；`archive`/`git_bundle` 忽略该选项），在每个 Git-only 计划进入恢复前先执行一次 `git ls-remote`（单条最长 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表、不下载对象；URL 含用户名/口令/query/fragment 时为 `remote-skipped` 不联网。对记录的子模块（`submodules` 字段），对每个子模块的 URL+固定提交同样执行一次预检（含凭据脱敏）。任一记录或子模块 `remote-unreachable` 时整批不开始，报 `cannot restore <项目>: remote <脱敏URL> is unreachable (<原因>)`（子模块则为 `cannot restore <项目>: submodule <path> remote <脱敏URL> is unreachable (<原因>)`）并返回退出码 `1`。该预检发生在 SHA-256 校验与确认之后、创建任何目标目录之前。
-13. Git-only 恢复后是 detached HEAD，不自动创建或切换分支；默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
+13. Git-only 恢复后默认是 detached HEAD；加 `--checkout-branch`（或配置 `[restore].checkout_branch`）时按 manifest 分支检出。默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
 14. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
 ### 8.3 输出

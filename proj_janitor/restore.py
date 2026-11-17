@@ -188,6 +188,7 @@ def restore_from_manifest(
     rollback_on_error: bool = False,
     continue_on_error: bool = False,
     skip_existing: bool = False,
+    checkout_branch: bool = False,
     progress: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
@@ -209,6 +210,7 @@ def restore_from_manifest(
         keep_replaced=keep_replaced,
         rollback_on_error=rollback_on_error,
         continue_on_error=continue_on_error,
+        checkout_branch=checkout_branch,
         progress=progress,
     )
     if verify:
@@ -233,6 +235,7 @@ def execute_restore(
     keep_replaced: bool = False,
     rollback_on_error: bool = False,
     continue_on_error: bool = False,
+    checkout_branch: bool = False,
     progress: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
@@ -374,6 +377,7 @@ def execute_restore(
                     decrypt_passphrase_file=decrypt_passphrase_file,
                     force=force,
                     keep_replaced=keep_replaced,
+                    checkout_branch=checkout_branch,
                     progress_label=plan.project if progress else None,
                 )
             )
@@ -523,12 +527,19 @@ def plan_restore(
                 raise RestoreError(
                     f"invalid commit for {project}: {commit!r}"
                 )
+            branch_value = record.get("branch")
+            branch = (
+                branch_value.strip()
+                if isinstance(branch_value, str) and branch_value.strip()
+                else None
+            )
             plans.append(
                 RestorePlan(
                     project=project,
                     strategy="git",
                     target=target,
                     remote_url=remote_url,
+                    branch=branch,
                     commit=commit,
                     in_place=dest is None,
                     submodules=(
@@ -1326,11 +1337,16 @@ def _restore_one(
     decrypt_passphrase_file: Path | None = None,
     force: bool = False,
     keep_replaced: bool = False,
+    checkout_branch: bool = False,
     progress_label: str | None = None,
 ) -> RestoreResult:
     if plan.strategy == "git":
         aside = _restore_git(
-            plan, force=force, keep_replaced=keep_replaced, progress=progress_label is not None
+            plan,
+            force=force,
+            keep_replaced=keep_replaced,
+            checkout_branch=checkout_branch,
+            progress=progress_label is not None,
         )
     elif plan.strategy == "git_bundle":
         aside = _restore_git_bundle(
@@ -1511,6 +1527,7 @@ def _restore_git(
     *,
     force: bool = False,
     keep_replaced: bool = False,
+    checkout_branch: bool = False,
     progress: bool = False,
 ) -> Path | None:
     if plan.remote_url is None or plan.commit is None:
@@ -1599,10 +1616,32 @@ def _restore_git(
             ["-C", str(repo), "config", "--local", "--remove-section", f"remote.{fetch_remote}"]
         )
         _run_git(["-C", str(repo), "remote", "add", "origin", safe_remote])
-        _run_git(
-            ["-C", str(repo), "checkout", "--detach", plan.commit],
-            extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
-        )
+        branch = plan.branch.strip() if isinstance(plan.branch, str) else ""
+        if checkout_branch and branch:
+            checked = _run_git(
+                ["-C", str(repo), "check-ref-format", "--branch", branch],
+                check=False,
+            )
+            if checked.returncode:
+                raise RestoreError(
+                    f"invalid branch in Git restore manifest for {plan.project}: "
+                    f"{_git_failure_detail(checked)}"
+                )
+            _run_git(
+                ["-C", str(repo), "checkout", "--force", "-B", branch, plan.commit],
+                extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
+            )
+        else:
+            if checkout_branch and not branch:
+                print(
+                    f"warning: {plan.project}: --checkout-branch requested but "
+                    "manifest has no branch; restoring detached HEAD",
+                    file=sys.stderr,
+                )
+            _run_git(
+                ["-C", str(repo), "checkout", "--detach", plan.commit],
+                extra_env={"GIT_LFS_SKIP_SMUDGE": "1"},
+            )
         head = _run_git(["-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
         if not head.lower().startswith(plan.commit.lower()):
             raise RestoreError(

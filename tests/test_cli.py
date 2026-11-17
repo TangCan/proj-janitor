@@ -1754,6 +1754,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("check_remote = true", text)
             self.assertIn("require_dest = true", text)
             self.assertIn("fail_on_insecure_dest = true", text)
+            self.assertIn("checkout_branch = true", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
             self.assertEqual(code, 1, out)

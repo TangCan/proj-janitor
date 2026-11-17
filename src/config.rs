@@ -143,6 +143,9 @@ pub(crate) struct RestoreConfig {
     /// Skip projects whose restore target directory already exists.
     #[serde(default)]
     pub(crate) skip_existing: bool,
+    /// Check out the manifest branch for Git-only restores (default: detached HEAD).
+    #[serde(default)]
+    pub(crate) checkout_branch: bool,
     /// Emit per-project restore progress on stderr.
     #[serde(default)]
     pub(crate) progress: bool,
@@ -450,6 +453,15 @@ mod tests {
         let path = write_config(temp.0.as_path(), "[restore]\nskip_existing = true\n");
         let config = discover_config(Some(&path)).unwrap().unwrap();
         assert!(config.restore.skip_existing);
+        assert!(!config.restore.checkout_branch);
+    }
+
+    #[test]
+    fn explicit_path_loads_restore_checkout_branch() {
+        let temp = TempDir::new();
+        let path = write_config(temp.0.as_path(), "[restore]\ncheckout_branch = true\n");
+        let config = discover_config(Some(&path)).unwrap().unwrap();
+        assert!(config.restore.checkout_branch);
         assert!(!config.restore.progress);
     }
 

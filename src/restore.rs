@@ -1151,6 +1151,7 @@ pub(crate) fn restore_cmd(
     rollback_on_error: bool,
     continue_on_error: bool,
     skip_existing: bool,
+    checkout_branch: bool,
     progress: bool,
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
@@ -1621,13 +1622,20 @@ pub(crate) fn restore_cmd(
                         .commit
                         .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("missing commit"))?;
+                    let branch = r
+                        .branch
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty());
                     restore_git(
                         url,
                         commit,
+                        branch,
                         target,
                         &r.project,
                         force,
                         keep_replaced,
+                        checkout_branch,
                         progress,
                     )
                 }
@@ -2170,13 +2178,16 @@ fn restore_encrypted_or_plain_archive(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn restore_git(
     url: &str,
     commit: &str,
+    branch: Option<&str>,
     target: &Path,
     project: &str,
     force: bool,
     keep_replaced: bool,
+    checkout_branch: bool,
     progress: bool,
 ) -> anyhow::Result<Option<PathBuf>> {
     if !force {
@@ -2311,12 +2322,39 @@ fn restore_git(
             format!("cannot configure restored remote for {project}"),
         )?;
         let mut checkout = Command::new("git");
-        checkout
-            .arg("-C")
-            .arg(&repo)
-            .args(["checkout", "--detach", commit])
-            .env("GIT_LFS_SKIP_SMUDGE", "1")
-            .stdout(Stdio::null());
+        checkout.arg("-C").arg(&repo);
+        if checkout_branch {
+            if let Some(branch) = branch {
+                let mut check_ref = Command::new("git");
+                check_ref
+                    .arg("-C")
+                    .arg(&repo)
+                    .args(["check-ref-format", "--branch", branch])
+                    .stdout(Stdio::null());
+                ensure_git(
+                    run_git_with_timeout(&mut check_ref, project, "check-ref-format")?,
+                    format!("invalid branch in Git restore manifest for {project}"),
+                )?;
+                checkout
+                    .args(["checkout", "--force", "-B", branch, commit])
+                    .env("GIT_LFS_SKIP_SMUDGE", "1")
+                    .stdout(Stdio::null());
+            } else {
+                eprintln!(
+                    "warning: {project}: --checkout-branch requested but \
+                     manifest has no branch; restoring detached HEAD"
+                );
+                checkout
+                    .args(["checkout", "--detach", commit])
+                    .env("GIT_LFS_SKIP_SMUDGE", "1")
+                    .stdout(Stdio::null());
+            }
+        } else {
+            checkout
+                .args(["checkout", "--detach", commit])
+                .env("GIT_LFS_SKIP_SMUDGE", "1")
+                .stdout(Stdio::null());
+        }
         ensure_git(
             run_git_with_timeout(&mut checkout, project, "checkout")?,
             format!("git checkout failed for {project}"),

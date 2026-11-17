@@ -424,6 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
         rollback_on_error=None,
         continue_on_error=None,
         skip_existing=None,
+        checkout_branch=None,
         progress=None,
     )
     restore_remote = restore.add_mutually_exclusive_group()
@@ -616,6 +617,26 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "refuse existing restore targets even when "
             "[restore].skip_existing is true"
+        ),
+    )
+    restore_checkout = restore.add_mutually_exclusive_group()
+    restore_checkout.add_argument(
+        "--checkout-branch",
+        action="store_true",
+        dest="checkout_branch",
+        help=(
+            "for Git-only restores, check out the manifest branch at the recorded "
+            "commit instead of detached HEAD (overrides [restore].checkout_branch); "
+            "falls back to detached HEAD with a warning when branch is missing"
+        ),
+    )
+    restore_checkout.add_argument(
+        "--no-checkout-branch",
+        action="store_false",
+        dest="checkout_branch",
+        help=(
+            "keep Git-only restores as detached HEAD even when "
+            "[restore].checkout_branch is true"
         ),
     )
     restore_progress = restore.add_mutually_exclusive_group()
@@ -1282,6 +1303,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.skip_existing,
         config.restore.skip_existing if config else False,
     )
+    checkout_branch = resolve_tri_state(
+        args.checkout_branch,
+        config.restore.checkout_branch if config else False,
+    )
     progress = resolve_tri_state(
         args.progress,
         config.restore.progress if config else False,
@@ -1418,6 +1443,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             keep_replaced=keep_replaced,
             rollback_on_error=rollback_on_error,
             continue_on_error=continue_on_error,
+            checkout_branch=checkout_branch,
             progress=progress,
         )
     except PartialRestoreError as exc:

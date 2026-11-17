@@ -125,6 +125,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - [restore].allowed_roots = ["/safe/root"]  — whitelist restore target parents (R-14)
 # - [backup]/[restore].fail_on_insecure_dest = true — refuse group/other-accessible dirs on Unix (R-05)
 # - [backup].fail_on_secrets / exclude_secrets / encrypt_passphrase_file — handle secrets (R-05)
+# - [restore].checkout_branch = true — Git-only restore checks out manifest branch (else detached HEAD)
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 
 [backup]
@@ -167,6 +168,7 @@ INIT_CONFIG_TEMPLATE = """\
 # rollback_on_error = false
 # continue_on_error = false
 # skip_existing = false
+# checkout_branch = false
 # progress = true
 # decrypt_passphrase_file = "/path/to/passphrase"
 """
@@ -290,6 +292,7 @@ class RestoreConfig:
         "rollback_on_error",
         "continue_on_error",
         "skip_existing",
+        "checkout_branch",
         "progress",
     )
 
@@ -307,6 +310,7 @@ class RestoreConfig:
         rollback_on_error: bool = False,
         continue_on_error: bool = False,
         skip_existing: bool = False,
+        checkout_branch: bool = False,
         progress: bool = False,
     ) -> None:
         self.check_remote = check_remote
@@ -321,6 +325,7 @@ class RestoreConfig:
         self.rollback_on_error = rollback_on_error
         self.continue_on_error = continue_on_error
         self.skip_existing = skip_existing
+        self.checkout_branch = checkout_branch
         self.progress = progress
 
 
@@ -589,6 +594,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "rollback_on_error",
         "continue_on_error",
         "skip_existing",
+        "checkout_branch",
         "progress",
     }
     if set(restore_data) - allowed_restore:
@@ -655,6 +661,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["skip_existing"], "[restore].skip_existing"
         )
         if "skip_existing" in restore_data
+        else False,
+        checkout_branch=_parse_bool(
+            restore_data["checkout_branch"], "[restore].checkout_branch"
+        )
+        if "checkout_branch" in restore_data
         else False,
         progress=_parse_bool(restore_data["progress"], "[restore].progress")
         if "progress" in restore_data

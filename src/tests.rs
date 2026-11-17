@@ -1776,6 +1776,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -1806,6 +1807,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -1838,6 +1840,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -1887,6 +1890,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         true, // --continue-on-error
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -2026,6 +2030,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -2239,6 +2244,7 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             false,
             false,
             false,
+            false, // checkout_branch
             false,
             None,
             false,
@@ -2314,6 +2320,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             false,
             false,
             false,
+            false, // checkout_branch
             false,
             None,
             false,
@@ -2728,6 +2735,7 @@ fn restore_check_remote_blocks_unreachable_remote() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -2798,6 +2806,7 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         false,
         false,
         false,
+        false, // checkout_branch
         false,
         None,
         false,
@@ -2812,6 +2821,90 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         .unwrap();
     assert!(head.status.success());
     assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), commit);
+}
+
+#[test]
+fn restore_git_checkout_branch_creates_named_branch() {
+    let temp = TestDir::new();
+    let Some((project, remote, commit)) = pushed_remote_fixture(&temp) else {
+        eprintln!("git unavailable; skipping restore checkout-branch fixture");
+        return;
+    };
+    let manifest_path = temp.0.join("manifest.json");
+    let manifest = Manifest {
+        schema_version: 2,
+        created_at: "2026-11-17T00:00:00+00:00".into(),
+        tool: "proj-janitor".into(),
+        version: "0.7.53".into(),
+        include_artifacts: false,
+        always_archive: false,
+        exclude_git_metadata: false,
+        records: vec![Record {
+            project: "demo".into(),
+            source: project.to_string_lossy().into_owned(),
+            archive: None,
+            archive_bytes: 0,
+            source_bytes: 0,
+            sha256: None,
+            strategy: "git".into(),
+            remote: Some("origin".into()),
+            remote_url: Some(remote.to_string_lossy().into_owned()),
+            branch: Some("main".into()),
+            commit: Some(commit.clone()),
+            upstream: Some("origin/main".into()),
+            verified: Some("local-ref".into()),
+            inventory: None,
+            incremental: None,
+            submodules: None,
+            lfs_objects: None,
+            encryption: None,
+            fallback_reason: None,
+        }],
+    };
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let dest = temp.0.join("restored");
+
+    restore_cmd(
+        &manifest_path,
+        Some(dest.clone()),
+        &[],
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        &[],
+        false,
+        false,
+        false,
+        false,
+        false,
+        true, // checkout_branch
+        false,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(dest.join("demo"))
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), commit);
+    let branch = Command::new("git")
+        .arg("-C")
+        .arg(dest.join("demo"))
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(branch.status.success());
+    assert_eq!(String::from_utf8(branch.stdout).unwrap().trim(), "main");
 }
 
 #[test]

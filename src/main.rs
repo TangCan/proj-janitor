@@ -320,6 +320,12 @@ enum Action {
         /// Refuse existing restore targets even when [restore].skip_existing is true
         #[arg(long = "no-skip-existing", conflicts_with = "skip_existing")]
         no_skip_existing: bool,
+        /// Check out the manifest branch for Git-only restores instead of detached HEAD
+        #[arg(long, conflicts_with = "no_checkout_branch")]
+        checkout_branch: bool,
+        /// Keep Git-only restores as detached HEAD even when [restore].checkout_branch is true
+        #[arg(long = "no-checkout-branch", conflicts_with = "checkout_branch")]
+        no_checkout_branch: bool,
         /// Print per-project restore progress with elapsed time (hashing, probes, archive, git, LFS, submodules)
         #[arg(long, conflicts_with = "no_progress")]
         progress: bool,
@@ -725,6 +731,8 @@ fn run() -> anyhow::Result<()> {
             no_continue_on_error,
             skip_existing,
             no_skip_existing,
+            checkout_branch,
+            no_checkout_branch,
             progress,
             no_progress,
             decrypt_passphrase_file,
@@ -820,6 +828,14 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.restore.skip_existing)
                     .unwrap_or(false),
             );
+            let checkout_branch = resolve_tri_state(
+                checkout_branch,
+                no_checkout_branch,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.checkout_branch)
+                    .unwrap_or(false),
+            );
             let progress = resolve_tri_state(
                 progress,
                 no_progress,
@@ -855,6 +871,7 @@ fn run() -> anyhow::Result<()> {
                 rollback_on_error,
                 continue_on_error,
                 skip_existing,
+                checkout_branch,
                 progress,
                 decrypt_passphrase_file,
                 json,

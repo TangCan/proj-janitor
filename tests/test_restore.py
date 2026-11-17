@@ -1600,6 +1600,65 @@ class GitRestoreTests(unittest.TestCase):
                 "HEAD",
             )
 
+    def test_restore_git_checkout_branch_creates_named_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git",
+                        "remote_url": str(remote),
+                        "branch": "main",
+                        "commit": head,
+                    }
+                ],
+            )
+            restored = root / "restored"
+            _, _ = restore_from_manifest(manifest, restored, checkout_branch=True)
+            target = restored / "app"
+            self.assertEqual(git(target, "rev-parse", "HEAD"), head)
+            self.assertEqual(
+                git(target, "rev-parse", "--abbrev-ref", "HEAD"),
+                "main",
+            )
+
+    def test_restore_git_checkout_branch_warns_without_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_manifest(
+                root / "manifest.json",
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git",
+                        "remote_url": str(remote),
+                        "commit": head,
+                    }
+                ],
+            )
+            restored = root / "restored"
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                _, _ = restore_from_manifest(
+                    manifest, restored, checkout_branch=True
+                )
+            err = stderr.getvalue()
+            self.assertIn("--checkout-branch requested", err)
+            self.assertIn("no branch", err)
+            target = restored / "app"
+            self.assertEqual(
+                git(target, "rev-parse", "--abbrev-ref", "HEAD"),
+                "HEAD",
+            )
+
     def test_restore_git_cleans_up_failed_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
