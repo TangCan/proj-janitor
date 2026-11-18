@@ -2194,6 +2194,16 @@ fn restore_rejects_parent_traversal_and_escaping_symlink_archives() {
         ("reserved-lpt3.tar.gz", "demo/LPT3.txt"),
         ("reserved-com4.tar.gz", "demo/COM4.txt"),
         ("reserved-lpt4.tar.gz", "demo/LPT4.txt"),
+        ("reserved-com5.tar.gz", "demo/COM5.txt"),
+        ("reserved-lpt5.tar.gz", "demo/LPT5.txt"),
+        ("reserved-com6.tar.gz", "demo/COM6.txt"),
+        ("reserved-lpt6.tar.gz", "demo/LPT6.txt"),
+        ("reserved-com7.tar.gz", "demo/COM7.txt"),
+        ("reserved-lpt7.tar.gz", "demo/LPT7.txt"),
+        ("reserved-com8.tar.gz", "demo/COM8.txt"),
+        ("reserved-lpt8.tar.gz", "demo/LPT8.txt"),
+        ("reserved-com9.tar.gz", "demo/COM9.txt"),
+        ("reserved-lpt9.tar.gz", "demo/LPT9.txt"),
     ] {
         let archive = raw_test_archive(&temp, name, member, None);
         let target = temp.0.join(format!("restored-{name}/demo"));

@@ -827,6 +827,26 @@ class RestoreTests(unittest.TestCase):
                 "unsafe archive path",
                 "LPT4.txt",
             ),
+            *(
+                case
+                for n in range(5, 10)
+                for case in (
+                    (
+                        f"reserved-com{n}.tar.gz",
+                        f"app/COM{n}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"COM{n}.txt",
+                    ),
+                    (
+                        f"reserved-lpt{n}.tar.gz",
+                        f"app/LPT{n}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"LPT{n}.txt",
+                    ),
+                )
+            ),
         )
         for archive_name, member_name, link_target, pattern, leaf in cases:
             with self.subTest(archive=archive_name):
