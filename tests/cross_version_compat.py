@@ -537,6 +537,8 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         ("reserved-conout", _build_reserved_file("demo/CONOUT$.txt"), ("unsafe archive path", "not Windows-portable")),
         ("reserved-com3", _build_reserved_file("demo/COM3.txt"), ("unsafe archive path", "not Windows-portable")),
         ("reserved-lpt3", _build_reserved_file("demo/LPT3.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-com4", _build_reserved_file("demo/COM4.txt"), ("unsafe archive path", "not Windows-portable")),
+        ("reserved-lpt4", _build_reserved_file("demo/LPT4.txt"), ("unsafe archive path", "not Windows-portable")),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
