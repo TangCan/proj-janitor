@@ -42,6 +42,7 @@ from proj_janitor.cleaner import (
     build_cleanup_plan,
     format_cleanup_plan,
     format_rules,
+    warn_clean_apply_deletes,
 )
 from proj_janitor.models import (
     CleanupAction,
@@ -72,6 +73,7 @@ from proj_janitor.retention import (
     RetentionPlan,
     apply_retention_plan,
     build_retention_plan,
+    warn_prune_apply_deletes,
 )
 from proj_janitor.scanner import (
     discover_projects,
@@ -1767,6 +1769,7 @@ def _cmd_prune(args: argparse.Namespace) -> int:
         else:
             print("Nothing to prune.")
         return 0
+    warn_prune_apply_deletes(len(files))
     if args.json and not args.yes:
         print("error: --yes is required for prune --apply with --json", file=sys.stderr)
         return 2
@@ -1969,6 +1972,7 @@ def _cmd_clean(args: argparse.Namespace) -> int:
     if not actions:
         return 1 if failures else 0
 
+    warn_clean_apply_deletes(len(actions))
     if not args.yes:
         if not sys.stdin.isatty():
             print(

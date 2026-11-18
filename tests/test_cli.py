@@ -1256,12 +1256,21 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = make_project(Path(tmp))
 
-            code, out, _ = run_cli("clean", tmp, "--apply", "--yes")
+            code, out, err = run_cli("clean", tmp, "--apply", "--yes")
 
             self.assertEqual(code, 0)
             self.assertIn("Removed 1 item", out)
+            self.assertIn(
+                "warning: clean --apply will permanently delete 1 item",
+                err,
+            )
+            self.assertIn("omit --apply to preview only", err)
             self.assertFalse((project / "node_modules").exists())
             self.assertTrue((project / "main.py").exists())
+
+            code, out, err = run_cli("clean", tmp)
+            self.assertEqual(code, 0)
+            self.assertNotIn("permanently delete", err)
 
     def test_clean_progress_reports_planning_and_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1907,6 +1916,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("rollback_on_error = true", text)
             self.assertIn("--include-unmarked", text)
             self.assertIn("--always-archive", text)
+            self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
             self.assertEqual(code, 1, out)

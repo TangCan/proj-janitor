@@ -10,6 +10,17 @@ use walkdir::WalkDir;
 
 use crate::{RULES, human, project::discover};
 
+pub(crate) fn warn_clean_apply_deletes(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "item" } else { "items" };
+    eprintln!(
+        "warning: clean --apply will permanently delete {count} {noun}; \
+         omit --apply to preview only"
+    );
+}
+
 pub(crate) fn clean_cmd(
     roots: &[PathBuf],
     selected: &[String],
@@ -228,6 +239,7 @@ pub(crate) fn clean_cmd(
             Ok(())
         };
     }
+    warn_clean_apply_deletes(actions.len());
     if !yes {
         if !io::stdin().is_terminal() {
             anyhow::bail!("refusing to delete without --yes in a non-interactive session")

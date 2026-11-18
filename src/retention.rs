@@ -45,6 +45,17 @@ pub(crate) struct PruneResult {
     pub(crate) errors: Vec<String>,
 }
 
+pub(crate) fn warn_prune_apply_deletes(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "file" } else { "files" };
+    eprintln!(
+        "warning: prune --apply will permanently delete {count} {noun}; \
+         omit --apply to preview only"
+    );
+}
+
 pub(crate) fn prune_cmd(
     backup_root: &Path,
     keep: usize,
@@ -117,6 +128,7 @@ pub(crate) fn prune_cmd(
         }
         return Ok(());
     }
+    warn_prune_apply_deletes(files.len());
     if json {
         anyhow::ensure!(yes, "--yes is required for prune --apply with --json");
     } else {

@@ -18,6 +18,22 @@ from proj_janitor.config import (
 from proj_janitor.models import CleanupAction, format_elapsed, human_size
 from proj_janitor.scanner import measure_tree
 
+
+def format_clean_apply_deletes_warning(count: int) -> str:
+    noun = "item" if count == 1 else "items"
+    return (
+        f"warning: clean --apply will permanently delete {count} {noun}; "
+        "omit --apply to preview only"
+    )
+
+
+def warn_clean_apply_deletes(count: int) -> None:
+    """Emit a stderr hint when clean --apply will delete items (CR-161)."""
+    if count <= 0:
+        return
+    print(format_clean_apply_deletes_warning(count), file=sys.stderr)
+
+
 _DIR_FLAGS = (
     os.O_RDONLY
     | getattr(os, "O_DIRECTORY", 0)

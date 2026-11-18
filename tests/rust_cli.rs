@@ -1115,6 +1115,14 @@ fn clean_progress_reports_planning_and_deletion() {
     );
     let applied_err = String::from_utf8_lossy(&applied.stderr);
     assert!(
+        applied_err.contains("warning: clean --apply will permanently delete"),
+        "{applied_err}"
+    );
+    assert!(
+        applied_err.contains("omit --apply to preview only"),
+        "{applied_err}"
+    );
+    assert!(
         applied_err.contains("progress: deleting 1/"),
         "{applied_err}"
     );
@@ -1886,6 +1894,11 @@ fn prune_progress_reports_deletion() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning: prune --apply will permanently delete"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("omit --apply to preview only"), "{stderr}");
     assert!(stderr.contains("progress: pruning "), "{stderr}");
     assert!(stderr.contains("progress: deleting 1/"), "{stderr}");
     assert!(stderr.contains("progress: done, deleted "), "{stderr}");

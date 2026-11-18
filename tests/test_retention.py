@@ -108,7 +108,8 @@ class RetentionTests(unittest.TestCase):
             self.assertTrue(old_manifest.exists())
 
             stdout = io.StringIO()
-            with redirect_stdout(stdout):
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
                 self.assertEqual(
                     main(["prune", str(root), "--keep", "1", "--apply", "--yes", "--json"]),
                     0,
@@ -116,6 +117,11 @@ class RetentionTests(unittest.TestCase):
             result = json.loads(stdout.getvalue())
             self.assertFalse(result["dry_run"])
             self.assertEqual(len(result["deleted"]), 2)
+            self.assertIn(
+                "warning: prune --apply will permanently delete 2 files",
+                stderr.getvalue(),
+            )
+            self.assertIn("omit --apply to preview only", stderr.getvalue())
             self.assertFalse(old_manifest.exists())
             self.assertFalse((directory / old_archive).exists())
             self.assertTrue(latest.exists())

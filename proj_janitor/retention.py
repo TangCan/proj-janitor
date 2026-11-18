@@ -20,6 +20,21 @@ class RetentionError(ValueError):
     pass
 
 
+def format_prune_apply_deletes_warning(count: int) -> str:
+    noun = "file" if count == 1 else "files"
+    return (
+        f"warning: prune --apply will permanently delete {count} {noun}; "
+        "omit --apply to preview only"
+    )
+
+
+def warn_prune_apply_deletes(count: int) -> None:
+    """Emit a stderr hint when prune --apply will delete backups (CR-161)."""
+    if count <= 0:
+        return
+    print(format_prune_apply_deletes_warning(count), file=sys.stderr)
+
+
 @dataclass(frozen=True)
 class PlannedFile:
     project: str

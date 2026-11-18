@@ -506,7 +506,7 @@ projjan clean ROOT [ROOT ...] [--rules RULES] [--apply] [--yes]
 | --- | --- | --- | --- |
 | `ROOT...` | 是 | 无 | 一个或多个项目根路径；发现规则与 `backup` 相同。 |
 | `--rules RULES` | 否 | 全部规则 | 逗号分隔的规则名；空项被忽略，全部为空时报错。 |
-| `--apply` | 否 | 关闭 | 真正删除计划项；未提供时仅 dry-run。 |
+| `--apply` | 否 | 关闭 | 真正删除计划项；未提供时仅 dry-run。启用且有待删项时 stderr 提示永久删除（CR-161）。 |
 | `--yes` | 否 | 关闭 | 跳过交互确认；仍需要 `--apply`。 |
 | `--json` | 否 | 关闭 | 输出计划 JSON。注意其与 dry-run/确认文本混用。 |
 | `--list-rules` | 否 | 关闭 | 打印规则及模式后退出 `0`。 |
@@ -1473,7 +1473,7 @@ projjan prune BACKUP_ROOT [--keep N] [--config PATH] [--apply] [--yes] [--json]
 | `BACKUP_ROOT` | 是 | 由 `backup` 生成的备份根目录。 |
 | `--keep N` | 条件必填 | 每个项目目录至少保留 N 份最新清单；N 必须大于等于 1。未传时使用配置文件 `[prune].keep`。 |
 | `--config PATH` | 否 | 显式指定配置文件；未指定时从当前目录向上逐级查找 `.proj-janitor.toml`。 |
-| `--apply` | 否 | 实际删除预览中的过期清单和它们引用的 artifact；不指定时始终只预览。 |
+| `--apply` | 否 | 实际删除预览中的过期清单和它们引用的 artifact；不指定时始终只预览。启用且有待删项时 stderr 提示永久删除（CR-161）。 |
 | `--yes` | 否 | 跳过交互确认；非交互执行和 JSON apply 必须显式指定。 |
 | `--json` | 否 | 输出纯 JSON 计划或删除结果。 |
 
