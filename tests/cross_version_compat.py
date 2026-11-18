@@ -555,6 +555,22 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
                 ),
             )
         ),
+        *(
+            case
+            for digit, mark in (("1", "¹"), ("2", "²"), ("3", "³"))
+            for case in (
+                (
+                    f"reserved-com{digit}-sup",
+                    _build_reserved_file(f"demo/COM{mark}.txt"),
+                    ("unsafe archive path", "not Windows-portable"),
+                ),
+                (
+                    f"reserved-lpt{digit}-sup",
+                    _build_reserved_file(f"demo/LPT{mark}.txt"),
+                    ("unsafe archive path", "not Windows-portable"),
+                ),
+            )
+        ),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
