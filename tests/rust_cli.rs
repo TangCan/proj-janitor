@@ -352,6 +352,83 @@ fn backup_help_hides_backup_dest_environment_value() {
 }
 
 #[test]
+fn backup_warns_when_using_git_only_metadata() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("app-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    git(
+        &project,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/app.git",
+        ],
+    );
+    let dest = temp.0.join("backups");
+
+    let default = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    let default_out = String::from_utf8_lossy(&default.stdout);
+    let default_err = String::from_utf8_lossy(&default.stderr);
+    assert!(default_out.contains("[git] app:"), "{default_out}");
+    assert!(
+        default_err.contains("warning: 1 project will use git-only metadata (no local archive)"),
+        "{default_err}"
+    );
+    assert!(
+        default_err.contains("pass --always-archive"),
+        "{default_err}"
+    );
+
+    let archived = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        archived.status.success(),
+        "{}",
+        String::from_utf8_lossy(&archived.stderr)
+    );
+    let archived_out = String::from_utf8_lossy(&archived.stdout);
+    let archived_err = String::from_utf8_lossy(&archived.stderr);
+    assert!(archived_out.contains("[archive] app:"), "{archived_out}");
+    assert!(
+        !archived_err.contains("git-only metadata"),
+        "{archived_err}"
+    );
+}
+
+#[test]
 fn backup_include_unmarked_treats_parent_as_project() {
     let temp = TestDir::new();
     let parent = temp.0.join("twinvm");

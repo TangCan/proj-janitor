@@ -11,7 +11,11 @@ from pathlib import Path
 from unittest import mock
 
 from proj_janitor import backup as backup_module
-from proj_janitor.backup import run_backup, sha256_file
+from proj_janitor.backup import (
+    format_git_only_backup_warning,
+    run_backup,
+    sha256_file,
+)
 from proj_janitor.scanner import scan_project
 from tests.support import GIT_AVAILABLE, git, make_pushed_repo
 
@@ -30,6 +34,18 @@ def make_project(root: Path, name: str = "app") -> Path:
 
 
 class BackupTests(unittest.TestCase):
+    def test_format_git_only_backup_warning(self) -> None:
+        self.assertEqual(
+            format_git_only_backup_warning(1),
+            "warning: 1 project will use git-only metadata (no local archive); "
+            "pass --always-archive for a local copy",
+        )
+        self.assertEqual(
+            format_git_only_backup_warning(2),
+            "warning: 2 projects will use git-only metadata (no local archive); "
+            "pass --always-archive for a local copy",
+        )
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")
     def test_backup_rejects_a_non_utf8_project_path_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

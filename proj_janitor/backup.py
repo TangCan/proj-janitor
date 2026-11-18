@@ -78,6 +78,21 @@ def _is_blocked_backup_reason(reason: str | None) -> bool:
     return reason is not None and reason.startswith(_BLOCKED_BACKUP_REASONS)
 
 
+def format_git_only_backup_warning(count: int) -> str:
+    noun = "project" if count == 1 else "projects"
+    return (
+        f"warning: {count} {noun} will use git-only metadata (no local archive); "
+        "pass --always-archive for a local copy"
+    )
+
+
+def warn_git_only_backup(count: int) -> None:
+    """Emit a stderr hint when backup selects git-only URL metadata (CR-160)."""
+    if count <= 0:
+        return
+    print(format_git_only_backup_warning(count), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -200,6 +215,7 @@ def run_backup(
         always_archive=always_archive,
         exclude_git_metadata=exclude_git_metadata,
     )
+    warn_git_only_backup(sum(1 for plan in plans if plan.strategy == "git"))
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

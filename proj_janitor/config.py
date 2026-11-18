@@ -129,6 +129,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - [restore].keep_replaced = true — with force, rename aside instead of deleting replaced targets
 # - [restore].rollback_on_error = true — with continue-on-error, undo successful restores on failure
 # - backup/scan: unmarked ROOT finds one-level marked children by default; pass --include-unmarked for the parent
+# - backup: important projects should use --always-archive (git-only records are remote metadata only)
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 
 [backup]

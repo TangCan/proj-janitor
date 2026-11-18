@@ -36,6 +36,17 @@ use crate::{
     },
 };
 
+pub(crate) fn warn_git_only_backup(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "project" } else { "projects" };
+    eprintln!(
+        "warning: {count} {noun} will use git-only metadata (no local archive); \
+         pass --always-archive for a local copy"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -294,6 +305,13 @@ pub(crate) fn backup_cmd(
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
     let total = projects.len();
     let progress_started = progress.then(std::time::Instant::now);
+    if !always && !include_artifacts {
+        let git_only = projects
+            .iter()
+            .filter(|project| inspect_recovery(project).is_ok())
+            .count();
+        warn_git_only_backup(git_only);
+    }
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

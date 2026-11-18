@@ -1906,6 +1906,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
             self.assertIn("--include-unmarked", text)
+            self.assertIn("--always-archive", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
             self.assertEqual(code, 1, out)
@@ -2338,7 +2339,7 @@ class GitCliTests(unittest.TestCase):
             make_pushed_repo(root)
             dest = root / "backups"
 
-            code, out, _ = run_cli(
+            code, out, err = run_cli(
                 "backup",
                 str(root),
                 "--backup-dest",
@@ -2350,6 +2351,11 @@ class GitCliTests(unittest.TestCase):
             self.assertIn("Dry run", out)
             self.assertIn("[git] app:", out)
             self.assertIn("https://github.com/acme/app.git", out)
+            self.assertIn(
+                "warning: 1 project will use git-only metadata (no local archive)",
+                err,
+            )
+            self.assertIn("pass --always-archive", err)
             self.assertFalse(dest.exists())
 
     def test_backup_dry_run_redacts_credentials(self) -> None:
@@ -2385,7 +2391,7 @@ class GitCliTests(unittest.TestCase):
             dest = root / "backups"
             head = git(project, "rev-parse", "HEAD")
 
-            code, out, _ = run_cli(
+            code, out, err = run_cli(
                 "backup",
                 str(root),
                 "--backup-dest",
@@ -2395,6 +2401,10 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("[git] app:", out)
             self.assertNotIn("[archive]", out)
+            self.assertIn(
+                "warning: 1 project will use git-only metadata (no local archive)",
+                err,
+            )
 
             manifest_path = next(dest.glob("*/manifest-*.json"))
             manifest = json.loads(
@@ -2414,7 +2424,7 @@ class GitCliTests(unittest.TestCase):
             make_pushed_repo(root)
             dest = root / "backups"
 
-            code, out, _ = run_cli(
+            code, out, err = run_cli(
                 "backup",
                 str(root),
                 "--backup-dest",
@@ -2424,6 +2434,7 @@ class GitCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertIn("[archive] app:", out)
+            self.assertNotIn("git-only metadata", err)
 
             manifest_path = next(dest.glob("*/manifest-*.json"))
             manifest = json.loads(

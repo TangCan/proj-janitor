@@ -384,7 +384,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 | `--yes` | 否 | 关闭 | `--keep` 生效时跳过交互确认；非交互执行且未加 `--yes` 时只打印保留计划、不删除。 |
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest（`--keep` 不生效）。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
-| `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。 |
+| `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。未启用且选用 git-only 时 stderr 提示无本地归档（CR-160）。 |
 | `--exclude-git-metadata` | 否 | 关闭 | Rust 0.2.6 起支持；仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。Python 0.1.0 尚不支持。 |
 | `--incremental` | 否 | `[backup].incremental` | archive 策略生成差异快照；默认关闭。完整快照归档全部文件并记录 `inventory`；差异快照仅归档相对上一次快照变更/新增的文件与符号链接，并记录 `incremental.base` 与 `deleted`。`git`/`git_bundle` 策略不受影响。 |
 | `--fail-on-secrets` | 否 | `[backup].fail_on_secrets` | 检测到常见敏感路径时拒绝 archive 备份（不写归档/manifest，非零退出）。默认关闭时仅 stderr 告警（CR-099）。与 `--no-fail-on-secrets` 互斥。 |
@@ -408,7 +408,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 
 - `--include-artifacts` 和 `--always-archive` 都会跳过 Git 可恢复性检查。此时归档记录不会携带 `remote`、`remote_url`、`branch`、`commit`、`upstream` 或 `verified`。
 - `--exclude-git-metadata` 不改变源项目；归档中的 `.git` 目录或文件会被跳过；archive 策略启用此选项时，manifest 顶层记录 `exclude_git_metadata: true`，即使源项目没有 `.git`。需要保留 Git 历史时不要启用此项。
-- 该选项不强制 archive 策略；若最终选择 Git URL-only，则不会生成本地归档。
+- 该选项不强制 archive 策略；若最终选择 Git URL-only，则不会生成本地归档；此时 stderr 提示可改用 `--always-archive`（CR-160）。
 - Git 策略记录本地 Git 引用证据（`verified: "local-ref"`）；存在本地 tag 时会联网查询远程 tag，但不抓取远程提交，也不证明远端仍存在该提交。
 - Git bundle 记录本地分支、tag 和这些 refs 可达的提交历史，不保存 remote 配置、reflog、stash 或悬空对象；恢复后检出记录的分支/提交且不配置 remote。为避免凭据落入备份，若 Git-only 可恢复性检查发现敏感远程/配置，bundle 也不会覆盖该阻止结果。
 - HTTPS GitHub URL 可内嵌 PAT；`remote_url` 在写入记录、manifest 和 CLI 输出前会去除用户名、密码/token、查询字符串和片段。
