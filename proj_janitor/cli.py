@@ -21,6 +21,7 @@ from proj_janitor.backup import (
     insecure_dir_mode,
     prepare_backup,
     run_backup,
+    warn_exclude_git_metadata,
     warn_git_only_backup,
 )
 from proj_janitor.crypto import validate_passphrase_file
@@ -1080,6 +1081,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         warn_git_only_backup(sum(1 for plan in plans if plan.strategy == "git"))
+        warn_exclude_git_metadata(args.exclude_git_metadata)
         if progress:
             print(
                 f"progress: would backup {len(plans)} project(s)",

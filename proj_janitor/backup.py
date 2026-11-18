@@ -93,6 +93,20 @@ def warn_git_only_backup(count: int) -> None:
     print(format_git_only_backup_warning(count), file=sys.stderr)
 
 
+def format_exclude_git_metadata_warning() -> str:
+    return (
+        "warning: --exclude-git-metadata omits .git from archives; "
+        "restore will have no Git history, branches, tags, or remotes"
+    )
+
+
+def warn_exclude_git_metadata(enabled: bool) -> None:
+    """Emit a stderr hint when archive backups omit .git (CR-164)."""
+    if not enabled:
+        return
+    print(format_exclude_git_metadata_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -216,6 +230,7 @@ def run_backup(
         exclude_git_metadata=exclude_git_metadata,
     )
     warn_git_only_backup(sum(1 for plan in plans if plan.strategy == "git"))
+    warn_exclude_git_metadata(exclude_git_metadata)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

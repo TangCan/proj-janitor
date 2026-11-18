@@ -47,6 +47,16 @@ pub(crate) fn warn_git_only_backup(count: usize) {
     );
 }
 
+pub(crate) fn warn_exclude_git_metadata(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --exclude-git-metadata omits .git from archives; \
+         restore will have no Git history, branches, tags, or remotes"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -312,6 +322,7 @@ pub(crate) fn backup_cmd(
             .count();
         warn_git_only_backup(git_only);
     }
+    warn_exclude_git_metadata(exclude_git_metadata);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

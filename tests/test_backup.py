@@ -12,6 +12,7 @@ from unittest import mock
 
 from proj_janitor import backup as backup_module
 from proj_janitor.backup import (
+    format_exclude_git_metadata_warning,
     format_git_only_backup_warning,
     run_backup,
     sha256_file,
@@ -44,6 +45,13 @@ class BackupTests(unittest.TestCase):
             format_git_only_backup_warning(2),
             "warning: 2 projects will use git-only metadata (no local archive); "
             "pass --always-archive for a local copy",
+        )
+
+    def test_format_exclude_git_metadata_warning(self) -> None:
+        self.assertEqual(
+            format_exclude_git_metadata_warning(),
+            "warning: --exclude-git-metadata omits .git from archives; "
+            "restore will have no Git history, branches, tags, or remotes",
         )
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")

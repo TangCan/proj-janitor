@@ -130,6 +130,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - [restore].rollback_on_error = true — with continue-on-error, undo successful restores on failure
 # - backup/scan: unmarked ROOT finds one-level marked children by default; pass --include-unmarked for the parent
 # - backup: important projects should use --always-archive (git-only records are remote metadata only)
+# - backup: --exclude-git-metadata omits .git from archives (worktree only on restore)
 # - clean/prune: default is dry-run; --apply permanently deletes selected items
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 
