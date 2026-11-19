@@ -14,6 +14,7 @@ from proj_janitor import backup as backup_module
 from proj_janitor.backup import (
     format_exclude_git_metadata_warning,
     format_git_only_backup_warning,
+    format_include_artifacts_backup_warning,
     format_incremental_backup_warning,
     run_backup,
     sha256_file,
@@ -60,6 +61,13 @@ class BackupTests(unittest.TestCase):
             format_incremental_backup_warning(),
             "warning: --incremental creates delta snapshots that need their base chain "
             "to restore; keep the whole chain when pruning",
+        )
+
+    def test_format_include_artifacts_backup_warning(self) -> None:
+        self.assertEqual(
+            format_include_artifacts_backup_warning(),
+            "warning: --include-artifacts archives build caches and dependency trees; "
+            "backups may be much larger",
         )
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")

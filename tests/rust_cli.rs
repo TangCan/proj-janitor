@@ -352,6 +352,65 @@ fn backup_help_hides_backup_dest_environment_value() {
 }
 
 #[test]
+fn backup_warns_when_including_artifacts() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let included = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--include-artifacts",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        included.status.success(),
+        "{}",
+        String::from_utf8_lossy(&included.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&included.stdout);
+    let stderr = String::from_utf8_lossy(&included.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --include-artifacts archives build caches and dependency trees"
+        ),
+        "{stderr}"
+    );
+    assert!(stderr.contains("backups may be much larger"), "{stderr}");
+    assert!(!dest.exists());
+
+    let archived = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        archived.status.success(),
+        "{}",
+        String::from_utf8_lossy(&archived.stderr)
+    );
+    let archived_err = String::from_utf8_lossy(&archived.stderr);
+    assert!(
+        !archived_err.contains("--include-artifacts archives build caches"),
+        "{archived_err}"
+    );
+}
+
+#[test]
 fn backup_warns_when_using_incremental() {
     let temp = TestDir::new();
     let project = temp.0.join("app");
@@ -4820,6 +4879,7 @@ fn init_writes_starter_config() {
     assert!(text.contains("--no-verify"), "{text}");
     assert!(text.contains("--exclude-git-metadata"), "{text}");
     assert!(text.contains("--incremental"), "{text}");
+    assert!(text.contains("--include-artifacts"), "{text}");
 
     let again = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["init", "--dir"])

@@ -383,7 +383,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 | `--keep N` | 否 | `[backup].keep` | 成功备份后每个项目保留的最近 manifest 数（含本次）；不传且配置未设置则不保留。必须 ≥ 1。 |
 | `--yes` | 否 | 关闭 | `--keep` 生效时跳过交互确认；非交互执行且未加 `--yes` 时只打印保留计划、不删除。 |
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest（`--keep` 不生效）。 |
-| `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。 |
+| `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。启用时 stderr 提示归档可能显著变大（CR-169）。 |
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。未启用且选用 git-only 时 stderr 提示无本地归档（CR-160）。 |
 | `--exclude-git-metadata` | 否 | 关闭 | 仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。启用时 stderr 提示该后果（CR-164）。 |
 | `--incremental` | 否 | `[backup].incremental` | archive 策略生成差异快照；默认关闭。完整快照归档全部文件并记录 `inventory`；差异快照仅归档相对上一次快照变更/新增的文件与符号链接，并记录 `incremental.base` 与 `deleted`。启用时 stderr 提示恢复依赖整条基线链（CR-166）。`git`/`git_bundle` 策略不受影响。 |

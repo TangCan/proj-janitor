@@ -67,6 +67,16 @@ pub(crate) fn warn_incremental_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_include_artifacts_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --include-artifacts archives build caches and dependency trees; \
+         backups may be much larger"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -334,6 +344,7 @@ pub(crate) fn backup_cmd(
     }
     warn_exclude_git_metadata(exclude_git_metadata);
     warn_incremental_backup(incremental);
+    warn_include_artifacts_backup(include_artifacts);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

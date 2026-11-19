@@ -1959,6 +1959,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("--always-archive", text)
             self.assertIn("--exclude-git-metadata", text)
             self.assertIn("--incremental", text)
+            self.assertIn("--include-artifacts", text)
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
@@ -2573,6 +2574,41 @@ class GitCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("--incremental creates delta snapshots", err)
+
+    def test_backup_warns_when_including_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--include-artifacts",
+                "--dry-run",
+            )
+
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: --include-artifacts archives build caches and dependency trees",
+                err,
+            )
+            self.assertIn("backups may be much larger", err)
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("--include-artifacts archives build caches", err)
 
     def test_verify_check_remote_reports_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

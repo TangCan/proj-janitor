@@ -121,6 +121,20 @@ def warn_incremental_backup(enabled: bool) -> None:
     print(format_incremental_backup_warning(), file=sys.stderr)
 
 
+def format_include_artifacts_backup_warning() -> str:
+    return (
+        "warning: --include-artifacts archives build caches and dependency trees; "
+        "backups may be much larger"
+    )
+
+
+def warn_include_artifacts_backup(enabled: bool) -> None:
+    """Emit a stderr hint when backup includes build artifacts (CR-169)."""
+    if not enabled:
+        return
+    print(format_include_artifacts_backup_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -246,6 +260,7 @@ def run_backup(
     warn_git_only_backup(sum(1 for plan in plans if plan.strategy == "git"))
     warn_exclude_git_metadata(exclude_git_metadata)
     warn_incremental_backup(incremental)
+    warn_include_artifacts_backup(include_artifacts)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")
