@@ -107,6 +107,20 @@ def warn_exclude_git_metadata(enabled: bool) -> None:
     print(format_exclude_git_metadata_warning(), file=sys.stderr)
 
 
+def format_incremental_backup_warning() -> str:
+    return (
+        "warning: --incremental creates delta snapshots that need their base chain "
+        "to restore; keep the whole chain when pruning"
+    )
+
+
+def warn_incremental_backup(enabled: bool) -> None:
+    """Emit a stderr hint when backup writes incremental deltas (CR-166)."""
+    if not enabled:
+        return
+    print(format_incremental_backup_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -231,6 +245,7 @@ def run_backup(
     )
     warn_git_only_backup(sum(1 for plan in plans if plan.strategy == "git"))
     warn_exclude_git_metadata(exclude_git_metadata)
+    warn_incremental_backup(incremental)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

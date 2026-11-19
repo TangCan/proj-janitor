@@ -14,6 +14,7 @@ from proj_janitor import backup as backup_module
 from proj_janitor.backup import (
     format_exclude_git_metadata_warning,
     format_git_only_backup_warning,
+    format_incremental_backup_warning,
     run_backup,
     sha256_file,
 )
@@ -52,6 +53,13 @@ class BackupTests(unittest.TestCase):
             format_exclude_git_metadata_warning(),
             "warning: --exclude-git-metadata omits .git from archives; "
             "restore will have no Git history, branches, tags, or remotes",
+        )
+
+    def test_format_incremental_backup_warning(self) -> None:
+        self.assertEqual(
+            format_incremental_backup_warning(),
+            "warning: --incremental creates delta snapshots that need their base chain "
+            "to restore; keep the whole chain when pruning",
         )
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")

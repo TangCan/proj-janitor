@@ -57,6 +57,16 @@ pub(crate) fn warn_exclude_git_metadata(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_incremental_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --incremental creates delta snapshots that need their base chain \
+         to restore; keep the whole chain when pruning"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -323,6 +333,7 @@ pub(crate) fn backup_cmd(
         warn_git_only_backup(git_only);
     }
     warn_exclude_git_metadata(exclude_git_metadata);
+    warn_incremental_backup(incremental);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

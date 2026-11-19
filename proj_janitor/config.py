@@ -131,6 +131,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup/scan: unmarked ROOT finds one-level marked children by default; pass --include-unmarked for the parent
 # - backup: important projects should use --always-archive (git-only records are remote metadata only)
 # - backup: --exclude-git-metadata omits .git from archives (worktree only on restore)
+# - backup: --incremental deltas need the whole base chain to restore (prune keeps ancestors)
 # - clean/prune: default is dry-run; --apply permanently deletes selected items
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 

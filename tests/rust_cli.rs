@@ -352,6 +352,69 @@ fn backup_help_hides_backup_dest_environment_value() {
 }
 
 #[test]
+fn backup_warns_when_using_incremental() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let incremental = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--incremental",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        incremental.status.success(),
+        "{}",
+        String::from_utf8_lossy(&incremental.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&incremental.stdout);
+    let stderr = String::from_utf8_lossy(&incremental.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --incremental creates delta snapshots that need their base chain"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("keep the whole chain when pruning"),
+        "{stderr}"
+    );
+    assert!(!dest.exists());
+
+    let archived = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        archived.status.success(),
+        "{}",
+        String::from_utf8_lossy(&archived.stderr)
+    );
+    let archived_err = String::from_utf8_lossy(&archived.stderr);
+    assert!(
+        !archived_err.contains("--incremental creates delta snapshots"),
+        "{archived_err}"
+    );
+}
+
+#[test]
 fn backup_warns_when_excluding_git_metadata() {
     let temp = TestDir::new();
     let project = temp.0.join("app");
@@ -4754,6 +4817,7 @@ fn init_writes_starter_config() {
     assert!(text.contains("keep_replaced = true"), "{text}");
     assert!(text.contains("rollback_on_error = true"), "{text}");
     assert!(text.contains("--exclude-git-metadata"), "{text}");
+    assert!(text.contains("--incremental"), "{text}");
 
     let again = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["init", "--dir"])
