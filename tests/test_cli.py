@@ -790,6 +790,41 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1, out + err)
             self.assertIn("cannot be combined", err)
 
+    def test_restore_warns_when_no_verify(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--no-verify",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --no-verify skips archive/bundle SHA-256 checks",
+                err,
+            )
+            self.assertIn("trusted manifests and archives", err)
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("--no-verify skips archive/bundle SHA-256", err)
+
     def test_restore_continue_on_error_restores_remaining_projects(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1919,6 +1954,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
             self.assertIn("--skip-existing", text)
+            self.assertIn("--no-verify", text)
             self.assertIn("--include-unmarked", text)
             self.assertIn("--always-archive", text)
             self.assertIn("--exclude-git-metadata", text)

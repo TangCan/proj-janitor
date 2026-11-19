@@ -4817,6 +4817,7 @@ fn init_writes_starter_config() {
     assert!(text.contains("keep_replaced = true"), "{text}");
     assert!(text.contains("rollback_on_error = true"), "{text}");
     assert!(text.contains("--skip-existing"), "{text}");
+    assert!(text.contains("--no-verify"), "{text}");
     assert!(text.contains("--exclude-git-metadata"), "{text}");
     assert!(text.contains("--incremental"), "{text}");
 
@@ -4840,6 +4841,78 @@ fn init_writes_starter_config() {
         forced.status.success(),
         "{}",
         String::from_utf8_lossy(&forced.stderr)
+    );
+}
+
+#[test]
+fn restore_warns_when_no_verify() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&restored)
+        .args(["--no-verify", "--dry-run"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains("warning: --no-verify skips archive/bundle SHA-256 checks"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("trusted manifests and archives"),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let verified = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&restored)
+        .arg("--dry-run")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    let verified_err = String::from_utf8_lossy(&verified.stderr);
+    assert!(
+        !verified_err.contains("--no-verify skips archive/bundle SHA-256"),
+        "{verified_err}"
     );
 }
 

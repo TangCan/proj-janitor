@@ -26,6 +26,7 @@ from proj_janitor.restore import (
     PartialRestoreError,
     RestoreError,
     execute_restore,
+    format_no_verify_restore_warning,
     format_skip_existing_restore_warning,
     plan_restore,
     restore_from_manifest,
@@ -90,6 +91,13 @@ class RestoreTests(unittest.TestCase):
             format_skip_existing_restore_warning(2),
             "warning: 2 existing targets will be left unchanged "
             "(--skip-existing); omit that flag or remove the target to restore",
+        )
+
+    def test_format_no_verify_restore_warning(self) -> None:
+        self.assertEqual(
+            format_no_verify_restore_warning(),
+            "warning: --no-verify skips archive/bundle SHA-256 checks; "
+            "only use with trusted manifests and archives",
         )
 
     def test_verify_manifest_checks_archive_without_restoring(self) -> None:

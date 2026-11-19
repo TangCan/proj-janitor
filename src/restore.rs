@@ -167,6 +167,16 @@ fn warn_skip_existing_restore(count: usize) {
     );
 }
 
+fn warn_no_verify_restore(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --no-verify skips archive/bundle SHA-256 checks; \
+         only use with trusted manifests and archives"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1365,6 +1375,7 @@ pub(crate) fn restore_cmd(
         warn_continue_without_rollback();
     }
     warn_skip_existing_restore(plans.iter().filter(|(_, _, _, _, skip)| *skip).count());
+    warn_no_verify_restore(no_verify);
     if dry {
         if json {
             let vals: Vec<_> = plans

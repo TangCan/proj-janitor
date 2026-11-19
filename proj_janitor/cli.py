@@ -68,6 +68,7 @@ from proj_janitor.restore import (
     warn_git_detached_head_restore,
     warn_git_without_remote_check,
     warn_insecure_restore_parents,
+    warn_no_verify_restore,
     warn_original_location_restore,
     warn_skip_existing_restore,
 )
@@ -1410,6 +1411,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     if continue_on_error and not rollback_on_error:
         warn_continue_without_rollback()
     warn_skip_existing_restore(sum(1 for plan in plans if plan.skip))
+    warn_no_verify_restore(args.no_verify)
 
     if args.dry_run:
         if args.json:

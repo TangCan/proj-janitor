@@ -664,7 +664,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--dest DIR` | 否 | 原始位置 | 恢复父目录；指定后恢复到 `DIR/<项目名>/`。省略时恢复到每条记录的 `source`。支持 `~` 展开。 |
 | `--project NAME` | 否 | 全部记录 | 只恢复指定项目；可重复指定。 |
 | `--dry-run` | 否 | 关闭 | 只校验并展示计划，不创建恢复目录。 |
-| `--no-verify` | 否 | 关闭 | 跳过归档 SHA-256 校验；不推荐用于不可信归档。 |
+| `--no-verify` | 否 | 关闭 | 跳过归档/bundle SHA-256 校验；启用时 stderr 提示仅用于可信输入（CR-168）。不推荐用于不可信归档。 |
 | `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
 | `--check-remote` | 否 | `[restore].check_remote` | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14）。与 `--no-require-dest` 互斥。 |

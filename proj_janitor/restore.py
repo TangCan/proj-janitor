@@ -194,6 +194,20 @@ def warn_skip_existing_restore(count: int) -> None:
     print(format_skip_existing_restore_warning(count), file=sys.stderr)
 
 
+def format_no_verify_restore_warning() -> str:
+    return (
+        "warning: --no-verify skips archive/bundle SHA-256 checks; "
+        "only use with trusted manifests and archives"
+    )
+
+
+def warn_no_verify_restore(enabled: bool) -> None:
+    """Emit a stderr hint when restore skips integrity checks (CR-168)."""
+    if not enabled:
+        return
+    print(format_no_verify_restore_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],
