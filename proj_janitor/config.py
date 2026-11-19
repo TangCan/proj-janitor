@@ -135,6 +135,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup: --exclude-git-metadata omits .git from archives (worktree only on restore)
 # - backup: --incremental deltas need the whole base chain to restore (prune keeps ancestors)
 # - backup: --include-artifacts packs build caches/deps (archives can be much larger)
+# - backup: encrypted archives need the same passphrase for restore/verify
 # - clean/prune: default is dry-run; --apply permanently deletes selected items
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 

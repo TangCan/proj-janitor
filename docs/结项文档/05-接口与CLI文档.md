@@ -90,7 +90,7 @@ exclude_secrets = false     # 为 true 时 archive 省略敏感路径；可用 -
 progress = false            # 为 true 时 stderr 输出打包进度；dry-run 下估算排除后文件数/体积；可用 --progress / --no-progress 覆盖
 check_space = false         # 为 true 时按未压缩估算拒绝空间不足的 archive 备份；可用 --check-space / --no-check-space 覆盖
 fail_on_insecure_dest = false  # 为 true 时拒绝 group/other 可访问的备份目录（Unix）；可用 --fail-on-insecure-dest / --no-fail-on-insecure-dest 覆盖
-encrypt_passphrase_file = ""  # 若设置，用 openssl 加密 archive/bundle；可用 --encrypt-passphrase-file / --no-encrypt 覆盖
+encrypt_passphrase_file = ""  # 若设置，用 openssl 加密 archive/bundle；可用 --encrypt-passphrase-file / --no-encrypt 覆盖；启用时 stderr 提示需保留同一 passphrase 以便 restore/verify（CR-170）
 
 [prune]
 keep = 3                 # 未传 --keep 时使用

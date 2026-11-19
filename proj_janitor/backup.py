@@ -135,6 +135,20 @@ def warn_include_artifacts_backup(enabled: bool) -> None:
     print(format_include_artifacts_backup_warning(), file=sys.stderr)
 
 
+def format_encrypt_backup_warning() -> str:
+    return (
+        "warning: encrypted backups require the same passphrase for restore/verify; "
+        "keep the passphrase file available and private"
+    )
+
+
+def warn_encrypt_backup(enabled: bool) -> None:
+    """Emit a stderr hint when backup encrypts archives (CR-170)."""
+    if not enabled:
+        return
+    print(format_encrypt_backup_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -261,6 +275,7 @@ def run_backup(
     warn_exclude_git_metadata(exclude_git_metadata)
     warn_incremental_backup(incremental)
     warn_include_artifacts_backup(include_artifacts)
+    warn_encrypt_backup(encrypt_passphrase_file is not None)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

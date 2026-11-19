@@ -77,6 +77,16 @@ pub(crate) fn warn_include_artifacts_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_encrypt_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: encrypted backups require the same passphrase for restore/verify; \
+         keep the passphrase file available and private"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -345,6 +355,7 @@ pub(crate) fn backup_cmd(
     warn_exclude_git_metadata(exclude_git_metadata);
     warn_incremental_backup(incremental);
     warn_include_artifacts_backup(include_artifacts);
+    warn_encrypt_backup(encrypt_passphrase_file.is_some());
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

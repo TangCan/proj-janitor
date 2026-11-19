@@ -1960,6 +1960,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("--exclude-git-metadata", text)
             self.assertIn("--incremental", text)
             self.assertIn("--include-artifacts", text)
+            self.assertIn("encrypted archives need the same passphrase", text)
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
@@ -2609,6 +2610,50 @@ class GitCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("--include-artifacts archives build caches", err)
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
+    def test_backup_warns_when_encrypting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+            passphrase = root / "pass.txt"
+            passphrase.write_text("test-passphrase\n", encoding="utf-8")
+            if os.name == "posix":
+                passphrase.chmod(0o600)
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--encrypt-passphrase-file",
+                str(passphrase),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: encrypted backups require the same passphrase for restore/verify",
+                err,
+            )
+            self.assertIn("keep the passphrase file available and private", err)
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn(
+                "encrypted backups require the same passphrase",
+                err,
+            )
 
     def test_verify_check_remote_reports_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
