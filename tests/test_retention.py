@@ -9,7 +9,12 @@ from pathlib import Path
 from unittest import mock
 
 from proj_janitor.cli import main
-from proj_janitor.retention import RetentionError, apply_retention_plan, build_retention_plan
+from proj_janitor.retention import (
+    RetentionError,
+    apply_retention_plan,
+    build_retention_plan,
+    format_backup_keep_deletes_warning,
+)
 
 
 def write_manifest(
@@ -35,6 +40,14 @@ def write_manifest(
 
 
 class RetentionTests(unittest.TestCase):
+    def test_format_backup_keep_deletes_warning(self) -> None:
+        self.assertEqual(
+            format_backup_keep_deletes_warning(1),
+            "warning: backup --keep will permanently delete 1 file; "
+            "raise --keep or omit it to retain more",
+        )
+        self.assertIn("2 files", format_backup_keep_deletes_warning(2))
+
     def test_plan_keeps_newest_and_only_deletes_manifest_referenced_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

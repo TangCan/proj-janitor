@@ -56,6 +56,17 @@ pub(crate) fn warn_prune_apply_deletes(count: usize) {
     );
 }
 
+pub(crate) fn warn_backup_keep_deletes(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "file" } else { "files" };
+    eprintln!(
+        "warning: backup --keep will permanently delete {count} {noun}; \
+         raise --keep or omit it to retain more"
+    );
+}
+
 pub(crate) fn prune_cmd(
     backup_root: &Path,
     keep: usize,
@@ -240,6 +251,7 @@ pub(crate) fn retain_after_backup(root: &Path, keep: usize, yes: bool) -> anyhow
             return Ok(());
         }
     }
+    warn_backup_keep_deletes(files.len());
     let result = apply_retention_plan(plan);
     println!("Deleted {} file(s).", result.deleted.len());
     for error in &result.errors {

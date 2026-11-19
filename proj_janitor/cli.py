@@ -79,6 +79,7 @@ from proj_janitor.retention import (
     RetentionPlan,
     apply_retention_plan,
     build_retention_plan,
+    warn_backup_keep_deletes,
     warn_prune_apply_deletes,
 )
 from proj_janitor.scanner import (
@@ -983,6 +984,7 @@ def _retain_after_backup(backup_root: Path, keep: int, yes: bool) -> int:
         if answer not in {"y", "yes"}:
             print("Retention skipped.")
             return 0
+    warn_backup_keep_deletes(len(files))
     result = apply_retention_plan(plan)
     print(f"Deleted {len(result.deleted)} file(s).")
     for err in result.errors:

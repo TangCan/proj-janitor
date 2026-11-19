@@ -35,6 +35,21 @@ def warn_prune_apply_deletes(count: int) -> None:
     print(format_prune_apply_deletes_warning(count), file=sys.stderr)
 
 
+def format_backup_keep_deletes_warning(count: int) -> str:
+    noun = "file" if count == 1 else "files"
+    return (
+        f"warning: backup --keep will permanently delete {count} {noun}; "
+        "raise --keep or omit it to retain more"
+    )
+
+
+def warn_backup_keep_deletes(count: int) -> None:
+    """Emit a stderr hint when backup --keep will delete old backups (CR-171)."""
+    if count <= 0:
+        return
+    print(format_backup_keep_deletes_warning(count), file=sys.stderr)
+
+
 @dataclass(frozen=True)
 class PlannedFile:
     project: str

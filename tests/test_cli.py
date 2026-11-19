@@ -351,6 +351,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertIn("Deleted ", out)
+            self.assertIn(
+                "warning: backup --keep will permanently delete",
+                err,
+            )
+            self.assertIn("raise --keep or omit it to retain more", err)
             self.assertEqual(
                 len(list((backup_dest / "app").glob("manifest-*.json"))), 2
             )
@@ -378,6 +383,7 @@ class CliTests(unittest.TestCase):
                 )
             self.assertEqual(code, 0, err)
             self.assertIn("Non-interactive; skipping retention", out)
+            self.assertNotIn("will permanently delete", err)
             self.assertEqual(
                 len(list((backup_dest / "app").glob("manifest-*.json"))), 4
             )
@@ -1961,6 +1967,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("--incremental", text)
             self.assertIn("--include-artifacts", text)
             self.assertIn("encrypted archives need the same passphrase", text)
+            self.assertIn("--keep permanently deletes older manifests", text)
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))

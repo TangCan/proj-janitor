@@ -380,7 +380,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 | `--include-unmarked` / `--all` | 否 | 关闭 | 无项目标记的 ROOT 本身作为项目备份（非空；CR-158）。常与 `--always-archive` 合用。默认未启用时，若仅发现带标记子项目，stderr 提示可改用本开关（CR-159）。 |
 | `--backup-dest DEST` | 条件必填 | `BACKUP_DEST` → `[backup].dest` | 备份根目录；三者均未提供时必须提供。不存在时在实际运行中创建。支持 `~` 展开。 |
 | `--config PATH` | 否 | 自动发现 `.proj-janitor.toml` | 显式指定配置文件；未指定时从当前目录向上逐级查找。 |
-| `--keep N` | 否 | `[backup].keep` | 成功备份后每个项目保留的最近 manifest 数（含本次）；不传且配置未设置则不保留。必须 ≥ 1。 |
+| `--keep N` | 否 | `[backup].keep` | 成功备份后每个项目保留的最近 manifest 数（含本次）；不传且配置未设置则不保留。必须 ≥ 1。实际删除旧备份前 stderr 提示将永久删除（CR-171）。 |
 | `--yes` | 否 | 关闭 | `--keep` 生效时跳过交互确认；非交互执行且未加 `--yes` 时只打印保留计划、不删除。 |
 | `--dry-run` | 否 | 关闭 | 只展示计划，不创建目录、归档或 manifest（`--keep` 不生效）。 |
 | `--include-artifacts` | 否 | 关闭 | 完整归档，不排除构建产物和依赖缓存；同时强制所有项目走归档策略。启用时 stderr 提示归档可能显著变大（CR-169）。 |

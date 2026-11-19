@@ -1570,7 +1570,28 @@ fn backup_with_keep_yes_retains_only_latest_manifests() {
     }
     let project_backup = backup_dest.join(project.file_name().unwrap());
     assert_eq!(manifest_count(&project_backup), 3);
-    backup_run(&project, &backup_dest, &["--keep", "2", "--yes"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("backup")
+        .arg(&project)
+        .arg("--backup-dest")
+        .arg(&backup_dest)
+        .args(["--keep", "2", "--yes"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning: backup --keep will permanently delete"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("raise --keep or omit it to retain more"),
+        "{stderr}"
+    );
     assert_eq!(
         manifest_count(&project_backup),
         2,
@@ -1606,6 +1627,11 @@ fn backup_with_keep_without_yes_skips_retention_noninteractively() {
         String::from_utf8_lossy(&output.stdout).contains("Non-interactive; skipping retention"),
         "expected a non-interactive skip message, got: {}",
         String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("will permanently delete"),
+        "skipping retention should not warn about deletion: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
         manifest_count(&project_backup),
@@ -4955,6 +4981,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("--include-artifacts"), "{text}");
     assert!(
         text.contains("encrypted archives need the same passphrase"),
+        "{text}"
+    );
+    assert!(
+        text.contains("--keep permanently deletes older manifests"),
         "{text}"
     );
 
