@@ -72,6 +72,7 @@ from proj_janitor.restore import (
     warn_insecure_restore_parents,
     warn_no_verify_restore,
     warn_original_location_restore,
+    warn_decrypt_restore,
     warn_skip_existing_restore,
 )
 from proj_janitor.retention import (
@@ -1418,6 +1419,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         warn_continue_without_rollback()
     warn_skip_existing_restore(sum(1 for plan in plans if plan.skip))
     warn_no_verify_restore(args.no_verify)
+    warn_decrypt_restore(decrypt_passphrase_file is not None)
 
     if args.dry_run:
         if args.json:

@@ -4987,6 +4987,10 @@ fn init_writes_starter_config() {
         text.contains("--keep permanently deletes older manifests"),
         "{text}"
     );
+    assert!(
+        text.contains("decrypting archives needs the matching backup passphrase"),
+        "{text}"
+    );
 
     let again = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["init", "--dir"])
@@ -5080,6 +5084,91 @@ fn restore_warns_when_no_verify() {
     assert!(
         !verified_err.contains("--no-verify skips archive/bundle SHA-256"),
         "{verified_err}"
+    );
+}
+
+#[test]
+fn restore_warns_when_decrypting() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let dest = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-") && n.ends_with(".json"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&passphrase, perms).unwrap();
+    }
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&restored)
+        .args(["--decrypt-passphrase-file"])
+        .arg(&passphrase)
+        .arg("--dry-run")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: decrypting archives requires the matching backup passphrase"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("keep the passphrase file private"),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dest"])
+        .arg(&restored)
+        .arg("--dry-run")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    let plain_err = String::from_utf8_lossy(&plain.stderr);
+    assert!(
+        !plain_err.contains("decrypting archives requires the matching backup passphrase"),
+        "{plain_err}"
     );
 }
 

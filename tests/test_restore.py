@@ -26,6 +26,7 @@ from proj_janitor.restore import (
     PartialRestoreError,
     RestoreError,
     execute_restore,
+    format_decrypt_restore_warning,
     format_no_verify_restore_warning,
     format_skip_existing_restore_warning,
     plan_restore,
@@ -98,6 +99,13 @@ class RestoreTests(unittest.TestCase):
             format_no_verify_restore_warning(),
             "warning: --no-verify skips archive/bundle SHA-256 checks; "
             "only use with trusted manifests and archives",
+        )
+
+    def test_format_decrypt_restore_warning(self) -> None:
+        self.assertEqual(
+            format_decrypt_restore_warning(),
+            "warning: decrypting archives requires the matching backup passphrase; "
+            "keep the passphrase file private",
         )
 
     def test_verify_manifest_checks_archive_without_restoring(self) -> None:

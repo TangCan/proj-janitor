@@ -208,6 +208,20 @@ def warn_no_verify_restore(enabled: bool) -> None:
     print(format_no_verify_restore_warning(), file=sys.stderr)
 
 
+def format_decrypt_restore_warning() -> str:
+    return (
+        "warning: decrypting archives requires the matching backup passphrase; "
+        "keep the passphrase file private"
+    )
+
+
+def warn_decrypt_restore(enabled: bool) -> None:
+    """Emit a stderr hint when restore decrypts encrypted archives (CR-172)."""
+    if not enabled:
+        return
+    print(format_decrypt_restore_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

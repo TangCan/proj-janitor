@@ -177,6 +177,16 @@ fn warn_no_verify_restore(enabled: bool) {
     );
 }
 
+fn warn_decrypt_restore(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: decrypting archives requires the matching backup passphrase; \
+         keep the passphrase file private"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1376,6 +1386,7 @@ pub(crate) fn restore_cmd(
     }
     warn_skip_existing_restore(plans.iter().filter(|(_, _, _, _, skip)| *skip).count());
     warn_no_verify_restore(no_verify);
+    warn_decrypt_restore(decrypt_passphrase_file.is_some());
     if dry {
         if json {
             let vals: Vec<_> = plans

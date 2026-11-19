@@ -831,6 +831,49 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, out + err)
             self.assertNotIn("--no-verify skips archive/bundle SHA-256", err)
 
+    def test_restore_warns_when_decrypting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+            passphrase = root / "pass.txt"
+            passphrase.write_text("test-passphrase\n", encoding="utf-8")
+            if os.name == "posix":
+                passphrase.chmod(0o600)
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--decrypt-passphrase-file",
+                str(passphrase),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: decrypting archives requires the matching backup passphrase",
+                err,
+            )
+            self.assertIn("keep the passphrase file private", err)
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn(
+                "decrypting archives requires the matching backup passphrase",
+                err,
+            )
+
     def test_restore_continue_on_error_restores_remaining_projects(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1968,6 +2011,9 @@ class CliTests(unittest.TestCase):
             self.assertIn("--include-artifacts", text)
             self.assertIn("encrypted archives need the same passphrase", text)
             self.assertIn("--keep permanently deletes older manifests", text)
+            self.assertIn(
+                "decrypting archives needs the matching backup passphrase", text
+            )
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
