@@ -770,6 +770,10 @@ class CliTests(unittest.TestCase):
             by_name = {p["project"]: p for p in payload["projects"]}
             self.assertTrue(by_name["first"]["skipped"])
             self.assertFalse(by_name["second"]["skipped"])
+            self.assertIn(
+                "warning: 1 existing target will be left unchanged (--skip-existing)",
+                err,
+            )
             self.assertEqual(
                 (existing / "keep.txt").read_text(encoding="utf-8"), "keep\n"
             )
@@ -1914,6 +1918,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("checkout_branch = true", text)
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
+            self.assertIn("--skip-existing", text)
             self.assertIn("--include-unmarked", text)
             self.assertIn("--always-archive", text)
             self.assertIn("--exclude-git-metadata", text)

@@ -128,6 +128,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - [restore].checkout_branch = true — Git-only restore checks out manifest branch (else detached HEAD)
 # - [restore].keep_replaced = true — with force, rename aside instead of deleting replaced targets
 # - [restore].rollback_on_error = true — with continue-on-error, undo successful restores on failure
+# - restore: --skip-existing leaves existing targets unchanged (no overwrite)
 # - backup/scan: unmarked ROOT finds one-level marked children by default; pass --include-unmarked for the parent
 # - backup: important projects should use --always-archive (git-only records are remote metadata only)
 # - backup: --exclude-git-metadata omits .git from archives (worktree only on restore)

@@ -156,6 +156,17 @@ fn warn_continue_without_rollback() {
     );
 }
 
+fn warn_skip_existing_restore(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "target" } else { "targets" };
+    eprintln!(
+        "warning: {count} existing {noun} will be left unchanged \
+         (--skip-existing); omit that flag or remove the target to restore"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1353,6 +1364,7 @@ pub(crate) fn restore_cmd(
     if continue_on_error && !rollback_on_error {
         warn_continue_without_rollback();
     }
+    warn_skip_existing_restore(plans.iter().filter(|(_, _, _, _, skip)| *skip).count());
     if dry {
         if json {
             let vals: Vec<_> = plans

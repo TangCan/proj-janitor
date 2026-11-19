@@ -672,6 +672,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |
 | `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
 | `--force` | 否 | `[restore].force` | 暂存成功后替换已存在目标目录（需 `--yes`）。未开 `--keep-replaced` 时 stderr 提示将永久删除（CR-156）。 |
+| `--skip-existing` | 否 | `[restore].skip_existing` | 目标目录已存在时跳过该项目（拒绝对称链接/非目录）；与 `--force` 互斥。实际跳过时 stderr 提示将保持不变（CR-167）。与 `--no-skip-existing` 互斥。 |
 | `--keep-replaced` | 否 | `[restore].keep_replaced` | 配合 `--force`：将被替换目录重命名旁侧而非删除。 |
 | `--continue-on-error` | 否 | `[restore].continue_on_error` | 单个项目失败后继续其余项目（仍非零退出）。未开 `--rollback-on-error` 时 stderr 提示成功项不会撤销（CR-157）。 |
 | `--rollback-on-error` | 否 | `[restore].rollback_on_error` | 失败后撤销本批已恢复目标（含 `--keep-replaced` 旁侧目录还原）。 |

@@ -26,6 +26,7 @@ from proj_janitor.restore import (
     PartialRestoreError,
     RestoreError,
     execute_restore,
+    format_skip_existing_restore_warning,
     plan_restore,
     restore_from_manifest,
     verify_manifest,
@@ -79,6 +80,18 @@ def archive_backup(root: Path, name: str = "app") -> tuple[Path, Path, dict]:
 
 
 class RestoreTests(unittest.TestCase):
+    def test_format_skip_existing_restore_warning(self) -> None:
+        self.assertEqual(
+            format_skip_existing_restore_warning(1),
+            "warning: 1 existing target will be left unchanged "
+            "(--skip-existing); omit that flag or remove the target to restore",
+        )
+        self.assertEqual(
+            format_skip_existing_restore_warning(2),
+            "warning: 2 existing targets will be left unchanged "
+            "(--skip-existing); omit that flag or remove the target to restore",
+        )
+
     def test_verify_manifest_checks_archive_without_restoring(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

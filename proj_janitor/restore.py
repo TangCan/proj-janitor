@@ -179,6 +179,21 @@ def warn_continue_without_rollback() -> None:
     print(format_continue_without_rollback_warning(), file=sys.stderr)
 
 
+def format_skip_existing_restore_warning(count: int) -> str:
+    noun = "target" if count == 1 else "targets"
+    return (
+        f"warning: {count} existing {noun} will be left unchanged "
+        "(--skip-existing); omit that flag or remove the target to restore"
+    )
+
+
+def warn_skip_existing_restore(count: int) -> None:
+    """Emit a stderr hint when --skip-existing leaves targets alone (CR-167)."""
+    if count <= 0:
+        return
+    print(format_skip_existing_restore_warning(count), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

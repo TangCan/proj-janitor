@@ -4816,6 +4816,7 @@ fn init_writes_starter_config() {
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
     assert!(text.contains("keep_replaced = true"), "{text}");
     assert!(text.contains("rollback_on_error = true"), "{text}");
+    assert!(text.contains("--skip-existing"), "{text}");
     assert!(text.contains("--exclude-git-metadata"), "{text}");
     assert!(text.contains("--incremental"), "{text}");
 
@@ -4916,6 +4917,13 @@ fn restore_skip_existing_leaves_target_and_restores_others() {
     let second = projects.iter().find(|p| p["project"] == "second").unwrap();
     assert_eq!(first["skipped"], true);
     assert_eq!(second["skipped"], false);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "warning: 1 existing target will be left unchanged (--skip-existing)"
+        ),
+        "{stderr}"
+    );
     assert_eq!(
         fs::read_to_string(existing.join("keep.txt")).unwrap(),
         "keep\n"
