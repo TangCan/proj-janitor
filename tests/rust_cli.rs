@@ -546,6 +546,136 @@ fn backup_warns_when_fail_on_insecure_dest() {
 }
 
 #[test]
+fn restore_warns_when_fail_on_remote_skipped() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--fail-on-remote-skipped", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-remote-skipped hard-fails when --check-remote skips \
+             a remote due to credentials/query/fragment in the URL"
+        ),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr).contains("hard-fails when --check-remote skips"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
+fn verify_warns_when_fail_on_remote_skipped() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--fail-on-remote-skipped"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-remote-skipped hard-fails when --check-remote skips \
+             a remote due to credentials/query/fragment in the URL"
+        ),
+        "{stderr}"
+    );
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr).contains("hard-fails when --check-remote skips"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
 fn restore_warns_when_fail_on_remote_moved() {
     let temp = TestDir::new();
     let project = temp.project();
@@ -3485,6 +3615,10 @@ fn verify_fail_on_remote_skipped_exits_one() {
     assert!(!blocked.status.success());
     let stdout = String::from_utf8_lossy(&blocked.stdout);
     let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains("warning: --fail-on-remote-skipped hard-fails when --check-remote skips"),
+        "{stderr}"
+    );
     assert!(stdout.contains("not contacted"), "{stdout}");
     assert!(stderr.contains("remotes were not checked"), "{stderr}");
     assert!(!stdout.contains("token"));
@@ -3550,6 +3684,10 @@ fn restore_fail_on_remote_skipped_blocks_before_write() {
         .unwrap();
     assert!(!blocked.status.success());
     let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains("warning: --fail-on-remote-skipped hard-fails when --check-remote skips"),
+        "{stderr}"
+    );
     assert!(stderr.contains("was not checked"), "{stderr}");
     assert!(!stderr.contains("token"));
     assert!(!restored.join("demo").exists());
@@ -5402,6 +5540,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("check_remote = true"), "{text}");
     assert!(
         text.contains("--fail-on-remote-moved hard-fails when check-remote finds no matching"),
+        "{text}"
+    );
+    assert!(
+        text.contains("--fail-on-remote-skipped hard-fails when check-remote skips credentialed"),
         "{text}"
     );
     assert!(text.contains("require_dest = true"), "{text}");

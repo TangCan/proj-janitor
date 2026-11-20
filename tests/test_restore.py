@@ -28,6 +28,7 @@ from proj_janitor.restore import (
     execute_restore,
     format_decrypt_restore_warning,
     format_fail_on_remote_moved_warning,
+    format_fail_on_remote_skipped_warning,
     format_keep_replaced_restore_warning,
     format_no_verify_restore_warning,
     format_rollback_on_error_warning,
@@ -116,6 +117,13 @@ class RestoreTests(unittest.TestCase):
             format_fail_on_remote_moved_warning(),
             "warning: --fail-on-remote-moved hard-fails when --check-remote finds "
             "no remote ref for the recorded commit",
+        )
+
+    def test_format_fail_on_remote_skipped_warning(self) -> None:
+        self.assertEqual(
+            format_fail_on_remote_skipped_warning(),
+            "warning: --fail-on-remote-skipped hard-fails when --check-remote skips "
+            "a remote due to credentials/query/fragment in the URL",
         )
 
     def test_format_keep_replaced_restore_warning(self) -> None:

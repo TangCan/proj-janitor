@@ -265,6 +265,20 @@ def warn_fail_on_remote_moved(enabled: bool) -> None:
     print(format_fail_on_remote_moved_warning(), file=sys.stderr)
 
 
+def format_fail_on_remote_skipped_warning() -> str:
+    return (
+        "warning: --fail-on-remote-skipped hard-fails when --check-remote skips "
+        "a remote due to credentials/query/fragment in the URL"
+    )
+
+
+def warn_fail_on_remote_skipped(enabled: bool) -> None:
+    """Emit a stderr hint when remote-skipped is treated as hard failure (CR-179)."""
+    if not enabled:
+        return
+    print(format_fail_on_remote_skipped_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

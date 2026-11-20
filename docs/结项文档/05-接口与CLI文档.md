@@ -98,10 +98,12 @@ keep = 3                 # 未传 --keep 时使用
 [verify]
 check_remote = false     # 为 true 时 verify 默认联网预检；可用 --no-check-remote 关闭
 fail_on_remote_moved = false  # 为 true 且 check_remote 时将 remote-moved 视为失败；启用时 stderr 提示硬拒绝意图（CR-178）
+fail_on_remote_skipped = false  # 为 true 且 check_remote 时将 remote-skipped 视为失败；启用时 stderr 提示硬拒绝意图（CR-179）
 
 [restore]
 check_remote = false     # 为 true 时 restore 默认联网预检；可用 --no-check-remote 关闭
 fail_on_remote_moved = false  # 为 true 且 check_remote 时将 remote-moved 视为失败；启用时 stderr 提示硬拒绝意图（CR-178）
+fail_on_remote_skipped = false  # 为 true 且 check_remote 时将 remote-skipped 视为失败；启用时 stderr 提示硬拒绝意图（CR-179）
 require_dest = false     # 为 true 时必须传 --dest，禁止按 manifest source 原位恢复；可用 --require-dest / --no-require-dest 覆盖
 fail_on_insecure_dest = false  # 为 true 时拒绝 group/other 可访问的恢复目标或父目录（Unix）；可用 --fail-on-insecure-dest / --no-fail-on-insecure-dest 覆盖；启用时 stderr 提示硬拒绝意图（CR-177）
 allowed_roots = []             # 非空时限制恢复目标必须落在这些根下；可用 --allowed-root（可重复）覆盖
@@ -670,6 +672,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--yes` | 否 | 关闭 | 原始位置恢复时跳过交互确认；非交互环境或 `--json` 的实际恢复必须显式提供。`--dest` 模式不使用该确认。 |
 | `--check-remote` | 否 | `[restore].check_remote` | 开始恢复前对 Git-only 记录执行一次 `git ls-remote` 远端引用预检（同 `verify --check-remote`），并对记录的子模块逐项预检；任一记录或子模块远端不可达时整批不开始并返回 `1`。不下载对象、不改动 manifest。 |
 | `--fail-on-remote-moved` | 否 | `[restore].fail_on_remote_moved` | 在 `--check-remote` 生效时，将 `remote-moved`（无远端引用指向记录提交）视为失败，写盘前整批中止（CR-137）。启用时 stderr 提示硬拒绝意图（CR-178）。与 `--no-fail-on-remote-moved` 互斥。 |
+| `--fail-on-remote-skipped` | 否 | `[restore].fail_on_remote_skipped` | 在 `--check-remote` 生效时，将 `remote-skipped`（URL 含凭据/query/fragment 未探测）视为失败，写盘前整批中止（CR-138）。启用时 stderr 提示硬拒绝意图（CR-179）。与 `--no-fail-on-remote-skipped` 互斥。 |
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14）。与 `--no-require-dest` 互斥。 |
 | `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。启用时 stderr 提示将硬拒绝此类目录（CR-177）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |

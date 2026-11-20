@@ -218,6 +218,16 @@ fn warn_fail_on_remote_moved(enabled: bool) {
     );
 }
 
+fn warn_fail_on_remote_skipped(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --fail-on-remote-skipped hard-fails when --check-remote skips \
+         a remote due to credentials/query/fragment in the URL"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -549,6 +559,7 @@ pub(crate) fn verify_cmd(
         );
     }
     warn_fail_on_remote_moved(fail_on_remote_moved);
+    warn_fail_on_remote_skipped(fail_on_remote_skipped);
     if json {
         let entries: Vec<_> = results.iter().map(VerifyResult::json).collect();
         println!(
@@ -1429,6 +1440,7 @@ pub(crate) fn restore_cmd(
     warn_decrypt_restore(decrypt_passphrase_file.is_some());
     crate::backup::warn_fail_on_insecure_dest(fail_on_insecure_dest);
     warn_fail_on_remote_moved(fail_on_remote_moved);
+    warn_fail_on_remote_skipped(fail_on_remote_skipped);
     if dry {
         if json {
             let vals: Vec<_> = plans

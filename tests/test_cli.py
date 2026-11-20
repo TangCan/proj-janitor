@@ -2046,6 +2046,10 @@ class CliTests(unittest.TestCase):
                 "--fail-on-remote-moved hard-fails when check-remote finds no matching",
                 text,
             )
+            self.assertIn(
+                "--fail-on-remote-skipped hard-fails when check-remote skips credentialed",
+                text,
+            )
             self.assertIn("require_dest = true", text)
             self.assertIn("fail_on_insecure_dest = true", text)
             self.assertIn(
@@ -2190,6 +2194,65 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("refuses destinations with group/other access", err)
+
+    def test_restore_warns_when_fail_on_remote_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--fail-on-remote-skipped",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --fail-on-remote-skipped hard-fails when --check-remote skips "
+                "a remote due to credentials/query/fragment in the URL",
+                err,
+            )
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("hard-fails when --check-remote skips", err)
+
+    def test_verify_warns_when_fail_on_remote_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+
+            code, out, err = run_cli(
+                "verify",
+                str(manifest),
+                "--fail-on-remote-skipped",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --fail-on-remote-skipped hard-fails when --check-remote skips "
+                "a remote due to credentials/query/fragment in the URL",
+                err,
+            )
+
+            code, out, err = run_cli("verify", str(manifest))
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("hard-fails when --check-remote skips", err)
 
     def test_restore_warns_when_fail_on_remote_moved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3311,6 +3374,10 @@ class GitCliTests(unittest.TestCase):
                 "--fail-on-remote-skipped",
             )
             self.assertEqual(code, 1, err)
+            self.assertIn(
+                "warning: --fail-on-remote-skipped hard-fails when --check-remote skips",
+                err,
+            )
             self.assertIn("not contacted", out)
             self.assertIn(
                 "error: one or more remotes were not checked "
@@ -3346,6 +3413,10 @@ class GitCliTests(unittest.TestCase):
                 "--fail-on-remote-skipped",
             )
             self.assertEqual(code, 1, err)
+            self.assertIn(
+                "warning: --fail-on-remote-skipped hard-fails when --check-remote skips",
+                err,
+            )
             self.assertIn("was not checked", err)
             self.assertNotIn("token", out + err)
             self.assertFalse((restored / "app").exists())
