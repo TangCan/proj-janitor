@@ -167,6 +167,21 @@ def warn_force_overwrite_deletes(count: int) -> None:
     print(format_force_overwrite_deletes_warning(count), file=sys.stderr)
 
 
+def format_keep_replaced_restore_warning(count: int) -> str:
+    noun = "target" if count == 1 else "targets"
+    return (
+        f"warning: --keep-replaced will rename {count} existing {noun} aside; "
+        "reclaim disk space later if the .replaced-* copies are unneeded"
+    )
+
+
+def warn_keep_replaced_restore(count: int) -> None:
+    """Emit a stderr hint when --keep-replaced renames targets aside (CR-173)."""
+    if count <= 0:
+        return
+    print(format_keep_replaced_restore_warning(count), file=sys.stderr)
+
+
 def format_continue_without_rollback_warning() -> str:
     return (
         "warning: --continue-on-error will leave successful restores in place "

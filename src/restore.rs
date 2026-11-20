@@ -149,6 +149,17 @@ fn warn_force_overwrite_deletes(count: usize) {
     );
 }
 
+fn warn_keep_replaced_restore(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "target" } else { "targets" };
+    eprintln!(
+        "warning: --keep-replaced will rename {count} existing {noun} aside; \
+         reclaim disk space later if the .replaced-* copies are unneeded"
+    );
+}
+
 fn warn_continue_without_rollback() {
     eprintln!(
         "warning: --continue-on-error will leave successful restores in place \
@@ -1375,6 +1386,13 @@ pub(crate) fn restore_cmd(
     }
     if force && !keep_replaced {
         warn_force_overwrite_deletes(
+            plans
+                .iter()
+                .filter(|(_, _, _, overwrite, skip)| *overwrite && !*skip)
+                .count(),
+        );
+    } else if force && keep_replaced {
+        warn_keep_replaced_restore(
             plans
                 .iter()
                 .filter(|(_, _, _, overwrite, skip)| *overwrite && !*skip)

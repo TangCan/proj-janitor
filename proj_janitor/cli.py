@@ -70,6 +70,7 @@ from proj_janitor.restore import (
     warn_git_detached_head_restore,
     warn_git_without_remote_check,
     warn_insecure_restore_parents,
+    warn_keep_replaced_restore,
     warn_no_verify_restore,
     warn_original_location_restore,
     warn_decrypt_restore,
@@ -1415,6 +1416,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     overwrites = [plan for plan in plans if plan.overwrite]
     if force and not keep_replaced:
         warn_force_overwrite_deletes(len(overwrites))
+    elif force and keep_replaced:
+        warn_keep_replaced_restore(len(overwrites))
     if continue_on_error and not rollback_on_error:
         warn_continue_without_rollback()
     warn_skip_existing_restore(sum(1 for plan in plans if plan.skip))

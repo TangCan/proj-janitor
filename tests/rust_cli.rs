@@ -4991,6 +4991,10 @@ fn init_writes_starter_config() {
         text.contains("decrypting archives needs the matching backup passphrase"),
         "{text}"
     );
+    assert!(
+        text.contains("--keep-replaced renames replaced targets aside"),
+        "{text}"
+    );
 
     let again = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["init", "--dir"])
@@ -5616,6 +5620,14 @@ fn restore_force_keep_replaced_skips_delete_warning() {
     );
     let dry_err = String::from_utf8_lossy(&dry.stderr);
     assert!(!dry_err.contains("will permanently delete"), "{dry_err}");
+    assert!(
+        dry_err.contains("warning: --keep-replaced will rename 1 existing target aside"),
+        "{dry_err}"
+    );
+    assert!(
+        dry_err.contains(".replaced-* copies are unneeded"),
+        "{dry_err}"
+    );
 }
 
 #[test]

@@ -27,6 +27,7 @@ from proj_janitor.restore import (
     RestoreError,
     execute_restore,
     format_decrypt_restore_warning,
+    format_keep_replaced_restore_warning,
     format_no_verify_restore_warning,
     format_skip_existing_restore_warning,
     plan_restore,
@@ -107,6 +108,14 @@ class RestoreTests(unittest.TestCase):
             "warning: decrypting archives requires the matching backup passphrase; "
             "keep the passphrase file private",
         )
+
+    def test_format_keep_replaced_restore_warning(self) -> None:
+        self.assertEqual(
+            format_keep_replaced_restore_warning(1),
+            "warning: --keep-replaced will rename 1 existing target aside; "
+            "reclaim disk space later if the .replaced-* copies are unneeded",
+        )
+        self.assertIn("2 existing targets", format_keep_replaced_restore_warning(2))
 
     def test_verify_manifest_checks_archive_without_restoring(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

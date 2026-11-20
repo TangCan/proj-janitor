@@ -1105,6 +1105,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("will permanently delete", err)
+            self.assertIn(
+                "warning: --keep-replaced will rename 1 existing target aside",
+                err,
+            )
+            self.assertIn(".replaced-* copies are unneeded", err)
 
     def test_restore_keep_replaced_renames_old_target_aside(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2014,6 +2019,7 @@ class CliTests(unittest.TestCase):
             self.assertIn(
                 "decrypting archives needs the matching backup passphrase", text
             )
+            self.assertIn("--keep-replaced renames replaced targets aside", text)
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
