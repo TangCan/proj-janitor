@@ -87,6 +87,16 @@ pub(crate) fn warn_encrypt_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_exclude_secrets_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --exclude-secrets omits common secret paths from archives; \
+         restored projects will not include those files"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -356,6 +366,7 @@ pub(crate) fn backup_cmd(
     warn_incremental_backup(incremental);
     warn_include_artifacts_backup(include_artifacts);
     warn_encrypt_backup(encrypt_passphrase_file.is_some());
+    warn_exclude_secrets_backup(exclude_secrets);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

@@ -137,6 +137,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup: --include-artifacts packs build caches/deps (archives can be much larger)
 # - backup: encrypted archives need the same passphrase for restore/verify
 # - backup: --keep permanently deletes older manifests/archives after a successful backup
+# - backup: --exclude-secrets omits secret paths from archives (restore will lack those files)
 # - restore: decrypting archives needs the matching backup passphrase (keep it private)
 # - restore: --keep-replaced renames replaced targets aside (reclaim .replaced-* disk later)
 # - restore: --rollback-on-error undoes successful restores if a later project fails

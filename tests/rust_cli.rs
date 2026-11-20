@@ -425,6 +425,70 @@ fn backup_warns_when_encrypting() {
 }
 
 #[test]
+fn backup_warns_when_excluding_secrets() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let excluded = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--exclude-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        excluded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&excluded.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&excluded.stdout);
+    let stderr = String::from_utf8_lossy(&excluded.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --exclude-secrets omits common secret paths from archives"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("restored projects will not include those files"),
+        "{stderr}"
+    );
+    assert!(!dest.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr)
+            .contains("omits common secret paths from archives"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
 fn backup_warns_when_including_artifacts() {
     let temp = TestDir::new();
     let project = temp.0.join("app");
@@ -3520,6 +3584,12 @@ fn archive_backup_exclude_secrets_omits_secret_paths() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --exclude-secrets omits common secret paths from archives"
+        ),
+        "{stderr}"
+    );
     assert!(stderr.contains("excluding secret paths"), "{stderr}");
     assert!(stderr.contains(".env"), "{stderr}");
     let archive = fs::read_dir(dest.join("demo"))
@@ -4985,6 +5055,10 @@ fn init_writes_starter_config() {
     );
     assert!(
         text.contains("--keep permanently deletes older manifests"),
+        "{text}"
+    );
+    assert!(
+        text.contains("--exclude-secrets omits secret paths from archives"),
         "{text}"
     );
     assert!(

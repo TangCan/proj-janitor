@@ -23,6 +23,7 @@ from proj_janitor.backup import (
     run_backup,
     warn_encrypt_backup,
     warn_exclude_git_metadata,
+    warn_exclude_secrets_backup,
     warn_git_only_backup,
     warn_include_artifacts_backup,
     warn_incremental_backup,
@@ -1095,6 +1096,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         warn_incremental_backup(incremental)
         warn_include_artifacts_backup(args.include_artifacts)
         warn_encrypt_backup(encrypt_passphrase_file is not None)
+        warn_exclude_secrets_backup(exclude_secrets)
         if progress:
             print(
                 f"progress: would backup {len(plans)} project(s)",
