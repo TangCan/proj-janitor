@@ -251,6 +251,20 @@ def warn_decrypt_restore(enabled: bool) -> None:
     print(format_decrypt_restore_warning(), file=sys.stderr)
 
 
+def format_fail_on_remote_moved_warning() -> str:
+    return (
+        "warning: --fail-on-remote-moved hard-fails when --check-remote finds "
+        "no remote ref for the recorded commit"
+    )
+
+
+def warn_fail_on_remote_moved(enabled: bool) -> None:
+    """Emit a stderr hint when remote-moved is treated as hard failure (CR-178)."""
+    if not enabled:
+        return
+    print(format_fail_on_remote_moved_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

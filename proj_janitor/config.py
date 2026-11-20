@@ -121,6 +121,7 @@ INIT_CONFIG_TEMPLATE = """\
 #
 # Security recommendations (still opt-in; defaults stay permissive):
 # - [verify]/[restore].check_remote = true  — probe Git-only remotes before trusting metadata (R-02)
+# - verify/restore: --fail-on-remote-moved hard-fails when check-remote finds no matching remote ref
 # - [restore].require_dest = true             — refuse in-place restore from manifest source (R-14)
 # - [restore].allowed_roots = ["/safe/root"]  — whitelist restore target parents (R-14)
 # - [backup]/[restore].fail_on_insecure_dest = true — refuse group/other-accessible dirs on Unix (R-05)

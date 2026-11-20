@@ -27,6 +27,7 @@ from proj_janitor.restore import (
     RestoreError,
     execute_restore,
     format_decrypt_restore_warning,
+    format_fail_on_remote_moved_warning,
     format_keep_replaced_restore_warning,
     format_no_verify_restore_warning,
     format_rollback_on_error_warning,
@@ -108,6 +109,13 @@ class RestoreTests(unittest.TestCase):
             format_decrypt_restore_warning(),
             "warning: decrypting archives requires the matching backup passphrase; "
             "keep the passphrase file private",
+        )
+
+    def test_format_fail_on_remote_moved_warning(self) -> None:
+        self.assertEqual(
+            format_fail_on_remote_moved_warning(),
+            "warning: --fail-on-remote-moved hard-fails when --check-remote finds "
+            "no remote ref for the recorded commit",
         )
 
     def test_format_keep_replaced_restore_warning(self) -> None:

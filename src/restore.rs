@@ -208,6 +208,16 @@ fn warn_decrypt_restore(enabled: bool) {
     );
 }
 
+fn warn_fail_on_remote_moved(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --fail-on-remote-moved hard-fails when --check-remote finds \
+         no remote ref for the recorded commit"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -538,6 +548,7 @@ pub(crate) fn verify_cmd(
                 .count(),
         );
     }
+    warn_fail_on_remote_moved(fail_on_remote_moved);
     if json {
         let entries: Vec<_> = results.iter().map(VerifyResult::json).collect();
         println!(
@@ -1417,6 +1428,7 @@ pub(crate) fn restore_cmd(
     warn_no_verify_restore(no_verify);
     warn_decrypt_restore(decrypt_passphrase_file.is_some());
     crate::backup::warn_fail_on_insecure_dest(fail_on_insecure_dest);
+    warn_fail_on_remote_moved(fail_on_remote_moved);
     if dry {
         if json {
             let vals: Vec<_> = plans

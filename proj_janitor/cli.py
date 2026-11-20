@@ -77,6 +77,7 @@ from proj_janitor.restore import (
     warn_no_verify_restore,
     warn_original_location_restore,
     warn_decrypt_restore,
+    warn_fail_on_remote_moved,
     warn_rollback_on_error,
     warn_skip_existing_restore,
 )
@@ -1432,6 +1433,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     warn_no_verify_restore(args.no_verify)
     warn_decrypt_restore(decrypt_passphrase_file is not None)
     warn_fail_on_insecure_dest(fail_on_insecure_dest)
+    warn_fail_on_remote_moved(fail_on_remote_moved)
 
     if args.dry_run:
         if args.json:
@@ -1598,6 +1600,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         warn_git_without_remote_check(
             sum(1 for result in results if result.get("strategy") == "git")
         )
+    warn_fail_on_remote_moved(fail_on_remote_moved)
 
     if args.json:
         payload = {

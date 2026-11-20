@@ -545,6 +545,136 @@ fn backup_warns_when_fail_on_insecure_dest() {
     );
 }
 
+#[test]
+fn restore_warns_when_fail_on_remote_moved() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--fail-on-remote-moved", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-remote-moved hard-fails when --check-remote finds \
+             no remote ref for the recorded commit"
+        ),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr).contains("hard-fails when --check-remote finds"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
+fn verify_warns_when_fail_on_remote_moved() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify", "--fail-on-remote-moved"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-remote-moved hard-fails when --check-remote finds \
+             no remote ref for the recorded commit"
+        ),
+        "{stderr}"
+    );
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["verify"])
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr).contains("hard-fails when --check-remote finds"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn restore_warns_when_fail_on_insecure_dest() {
@@ -3200,6 +3330,10 @@ fn verify_fail_on_remote_moved_exits_one() {
     assert!(!blocked.status.success());
     let stdout = String::from_utf8_lossy(&blocked.stdout);
     let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains("warning: --fail-on-remote-moved hard-fails when --check-remote finds"),
+        "{stderr}"
+    );
     assert!(stdout.contains("no remote ref points at"), "{stdout}");
     assert!(
         stderr.contains("no ref matching the recorded commit"),
@@ -3288,6 +3422,10 @@ fn restore_fail_on_remote_moved_blocks_before_write() {
         .unwrap();
     assert!(!blocked.status.success());
     let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains("warning: --fail-on-remote-moved hard-fails when --check-remote finds"),
+        "{stderr}"
+    );
     assert!(stderr.contains("has no ref matching commit"), "{stderr}");
     assert!(!restored.join("demo").exists());
 
@@ -5262,6 +5400,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("Generated by `projjan init`"), "{text}");
     assert!(text.contains("Security recommendations"), "{text}");
     assert!(text.contains("check_remote = true"), "{text}");
+    assert!(
+        text.contains("--fail-on-remote-moved hard-fails when check-remote finds no matching"),
+        "{text}"
+    );
     assert!(text.contains("require_dest = true"), "{text}");
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
     assert!(
