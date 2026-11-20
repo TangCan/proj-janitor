@@ -228,6 +228,16 @@ fn warn_fail_on_remote_skipped(enabled: bool) {
     );
 }
 
+fn warn_require_dest(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --require-dest refuses restore without an explicit --dest \
+         (no in-place restore to manifest source)"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1259,6 +1269,7 @@ pub(crate) fn restore_cmd(
     decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
+    warn_require_dest(require_dest);
     if require_dest && dest.is_none() {
         anyhow::bail!(
             "--dest is required when --require-dest or [restore].require_dest is enabled"

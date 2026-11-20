@@ -1193,6 +1193,41 @@ class CliTests(unittest.TestCase):
                 (first / "main.py").is_file() or (first / "src" / "main.py").is_file()
             )
 
+    def test_restore_warns_when_require_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--require-dest",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --require-dest refuses restore without an explicit --dest",
+                err,
+            )
+            self.assertIn("no in-place restore to manifest source", err)
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("refuses restore without an explicit --dest", err)
+
     def test_restore_require_dest_blocks_original_location(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1213,6 +1248,10 @@ class CliTests(unittest.TestCase):
                 str(config),
             )
             self.assertEqual(code, 1, out + err)
+            self.assertIn(
+                "warning: --require-dest refuses restore without an explicit --dest",
+                err,
+            )
             self.assertIn("--dest is required", err)
             self.assertFalse(original.exists())
 
@@ -1226,6 +1265,10 @@ class CliTests(unittest.TestCase):
                 str(config),
             )
             self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: --require-dest refuses restore without an explicit --dest",
+                err,
+            )
             self.assertTrue((dest / "app" / "main.py").exists())
 
             code, out, err = run_cli(
@@ -2051,6 +2094,10 @@ class CliTests(unittest.TestCase):
                 text,
             )
             self.assertIn("require_dest = true", text)
+            self.assertIn(
+                "--require-dest refuses restore without an explicit --dest",
+                text,
+            )
             self.assertIn("fail_on_insecure_dest = true", text)
             self.assertIn(
                 "--fail-on-insecure-dest refuses group/other-accessible dest dirs",

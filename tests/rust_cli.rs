@@ -4547,6 +4547,75 @@ fn backup_excludes_patterns_from_config_file() {
 }
 
 #[test]
+fn restore_warns_when_require_dest() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--require-dest", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains("warning: --require-dest refuses restore without an explicit --dest"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("no in-place restore to manifest source"),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr)
+            .contains("refuses restore without an explicit --dest"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
 fn restore_require_dest_blocks_original_location() {
     let temp = TestDir::new();
     let project = temp.project();
@@ -4577,6 +4646,10 @@ fn restore_require_dest_blocks_original_location() {
         String::from_utf8_lossy(&refused.stderr)
     );
     let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains("warning: --require-dest refuses restore without an explicit --dest"),
+        "{stderr}"
+    );
     assert!(stderr.contains("--dest is required"), "{stderr}");
     assert!(!project.exists());
 
@@ -4593,6 +4666,12 @@ fn restore_require_dest_blocks_original_location() {
         with_dest.status.success(),
         "{}",
         String::from_utf8_lossy(&with_dest.stderr)
+    );
+    let with_dest_stderr = String::from_utf8_lossy(&with_dest.stderr);
+    assert!(
+        with_dest_stderr
+            .contains("warning: --require-dest refuses restore without an explicit --dest"),
+        "{with_dest_stderr}"
     );
     assert!(dest.join("demo").join("pyproject.toml").exists());
 
@@ -5547,6 +5626,10 @@ fn init_writes_starter_config() {
         "{text}"
     );
     assert!(text.contains("require_dest = true"), "{text}");
+    assert!(
+        text.contains("--require-dest refuses restore without an explicit --dest"),
+        "{text}"
+    );
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
     assert!(
         text.contains("--fail-on-insecure-dest refuses group/other-accessible dest dirs"),

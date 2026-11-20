@@ -79,6 +79,7 @@ from proj_janitor.restore import (
     warn_decrypt_restore,
     warn_fail_on_remote_moved,
     warn_fail_on_remote_skipped,
+    warn_require_dest,
     warn_rollback_on_error,
     warn_skip_existing_restore,
 )
@@ -1383,6 +1384,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    warn_require_dest(require_dest)
     if require_dest and args.dest is None:
         print(
             "error: --dest is required when --require-dest or "

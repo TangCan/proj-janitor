@@ -279,6 +279,20 @@ def warn_fail_on_remote_skipped(enabled: bool) -> None:
     print(format_fail_on_remote_skipped_warning(), file=sys.stderr)
 
 
+def format_require_dest_warning() -> str:
+    return (
+        "warning: --require-dest refuses restore without an explicit --dest "
+        "(no in-place restore to manifest source)"
+    )
+
+
+def warn_require_dest(enabled: bool) -> None:
+    """Emit a stderr hint when in-place restore without --dest is refused (CR-180)."""
+    if not enabled:
+        return
+    print(format_require_dest_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],
