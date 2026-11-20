@@ -139,6 +139,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup: --keep permanently deletes older manifests/archives after a successful backup
 # - restore: decrypting archives needs the matching backup passphrase (keep it private)
 # - restore: --keep-replaced renames replaced targets aside (reclaim .replaced-* disk later)
+# - restore: --rollback-on-error undoes successful restores if a later project fails
 # - clean/prune: default is dry-run; --apply permanently deletes selected items
 # Passphrase files on Unix should be chmod 600 (group/other bits are refused).
 

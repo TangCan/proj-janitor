@@ -194,6 +194,20 @@ def warn_continue_without_rollback() -> None:
     print(format_continue_without_rollback_warning(), file=sys.stderr)
 
 
+def format_rollback_on_error_warning() -> str:
+    return (
+        "warning: --rollback-on-error will undo successful restores "
+        "if a later project fails; omit it to keep partial successes"
+    )
+
+
+def warn_rollback_on_error(enabled: bool) -> None:
+    """Emit a stderr hint when restore will roll back on failure (CR-174)."""
+    if not enabled:
+        return
+    print(format_rollback_on_error_warning(), file=sys.stderr)
+
+
 def format_skip_existing_restore_warning(count: int) -> str:
     noun = "target" if count == 1 else "targets"
     return (

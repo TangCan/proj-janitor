@@ -29,6 +29,7 @@ from proj_janitor.restore import (
     format_decrypt_restore_warning,
     format_keep_replaced_restore_warning,
     format_no_verify_restore_warning,
+    format_rollback_on_error_warning,
     format_skip_existing_restore_warning,
     plan_restore,
     restore_from_manifest,
@@ -116,6 +117,13 @@ class RestoreTests(unittest.TestCase):
             "reclaim disk space later if the .replaced-* copies are unneeded",
         )
         self.assertIn("2 existing targets", format_keep_replaced_restore_warning(2))
+
+    def test_format_rollback_on_error_warning(self) -> None:
+        self.assertEqual(
+            format_rollback_on_error_warning(),
+            "warning: --rollback-on-error will undo successful restores "
+            "if a later project fails; omit it to keep partial successes",
+        )
 
     def test_verify_manifest_checks_archive_without_restoring(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

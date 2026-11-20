@@ -167,6 +167,16 @@ fn warn_continue_without_rollback() {
     );
 }
 
+fn warn_rollback_on_error(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --rollback-on-error will undo successful restores \
+         if a later project fails; omit it to keep partial successes"
+    );
+}
+
 fn warn_skip_existing_restore(count: usize) {
     if count == 0 {
         return;
@@ -1402,6 +1412,7 @@ pub(crate) fn restore_cmd(
     if continue_on_error && !rollback_on_error {
         warn_continue_without_rollback();
     }
+    warn_rollback_on_error(rollback_on_error);
     warn_skip_existing_restore(plans.iter().filter(|(_, _, _, _, skip)| *skip).count());
     warn_no_verify_restore(no_verify);
     warn_decrypt_restore(decrypt_passphrase_file.is_some());

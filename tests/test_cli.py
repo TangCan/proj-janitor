@@ -946,6 +946,11 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("will leave successful restores", err)
+            self.assertIn(
+                "warning: --rollback-on-error will undo successful restores",
+                err,
+            )
+            self.assertIn("omit it to keep partial successes", err)
 
             code, _out, err = run_cli(
                 "restore",
@@ -960,6 +965,41 @@ class CliTests(unittest.TestCase):
                 "warning: --continue-on-error will leave successful restores",
                 err,
             )
+            self.assertNotIn("will undo successful restores", err)
+
+    def test_restore_warns_when_rollback_on_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--rollback-on-error",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: --rollback-on-error will undo successful restores",
+                err,
+            )
+            self.assertFalse(restored.exists())
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("will undo successful restores", err)
 
     def test_restore_rollback_on_error_removes_partial_successes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2020,6 +2060,9 @@ class CliTests(unittest.TestCase):
                 "decrypting archives needs the matching backup passphrase", text
             )
             self.assertIn("--keep-replaced renames replaced targets aside", text)
+            self.assertIn(
+                "--rollback-on-error undoes successful restores", text
+            )
             self.assertIn("clean/prune", text)
 
             code, out, err = run_cli("init", "--dir", str(root))
