@@ -2044,6 +2044,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("check_remote = true", text)
             self.assertIn("require_dest = true", text)
             self.assertIn("fail_on_insecure_dest = true", text)
+            self.assertIn(
+                "--fail-on-insecure-dest refuses group/other-accessible dest dirs",
+                text,
+            )
             self.assertIn("checkout_branch = true", text)
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
@@ -2147,6 +2151,78 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("omits common secret paths from archives", err)
+
+    def test_backup_warns_when_fail_on_insecure_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--fail-on-insecure-dest",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: --fail-on-insecure-dest refuses destinations with "
+                "group/other access on Unix",
+                err,
+            )
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("refuses destinations with group/other access", err)
+
+    def test_restore_warns_when_fail_on_insecure_dest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if os.name == "posix":
+                root.chmod(0o700)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--fail-on-insecure-dest",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --fail-on-insecure-dest refuses destinations with "
+                "group/other access on Unix",
+                err,
+            )
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("refuses destinations with group/other access", err)
 
     def test_backup_warns_when_fail_on_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

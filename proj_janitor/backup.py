@@ -177,6 +177,20 @@ def warn_fail_on_secrets_backup(enabled: bool) -> None:
     print(format_fail_on_secrets_backup_warning(), file=sys.stderr)
 
 
+def format_fail_on_insecure_dest_warning() -> str:
+    return (
+        "warning: --fail-on-insecure-dest refuses destinations with "
+        "group/other access on Unix"
+    )
+
+
+def warn_fail_on_insecure_dest(enabled: bool) -> None:
+    """Emit a stderr hint when insecure dests are hard-refused (CR-177)."""
+    if not enabled:
+        return
+    print(format_fail_on_insecure_dest_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -306,6 +320,7 @@ def run_backup(
     warn_encrypt_backup(encrypt_passphrase_file is not None)
     warn_exclude_secrets_backup(exclude_secrets)
     warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
+    warn_fail_on_insecure_dest(fail_on_insecure_dest)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

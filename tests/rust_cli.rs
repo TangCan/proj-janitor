@@ -485,6 +485,142 @@ fn backup_warns_when_excluding_secrets() {
 }
 
 #[test]
+fn backup_warns_when_fail_on_insecure_dest() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--fail-on-insecure-dest",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        refused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&refused.stdout);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-insecure-dest refuses destinations with \
+             group/other access on Unix"
+        ),
+        "{stderr}"
+    );
+    assert!(!dest.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr)
+            .contains("refuses destinations with group/other access"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_warns_when_fail_on_insecure_dest() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TestDir::new();
+    // Parent must be private so --fail-on-insecure-dest does not refuse before the enable warn.
+    let mut perms = fs::metadata(&temp.0).unwrap().permissions();
+    perms.set_mode(0o700);
+    fs::set_permissions(&temp.0, perms).unwrap();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    let restored = temp.0.join("restored");
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--fail-on-insecure-dest", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        refused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-insecure-dest refuses destinations with \
+             group/other access on Unix"
+        ),
+        "{stderr}"
+    );
+    assert!(!restored.exists());
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr)
+            .contains("refuses destinations with group/other access"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
 fn backup_warns_when_fail_on_secrets() {
     let temp = TestDir::new();
     let project = temp.0.join("app");
@@ -5128,6 +5264,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("check_remote = true"), "{text}");
     assert!(text.contains("require_dest = true"), "{text}");
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
+    assert!(
+        text.contains("--fail-on-insecure-dest refuses group/other-accessible dest dirs"),
+        "{text}"
+    );
     assert!(text.contains("keep_replaced = true"), "{text}");
     assert!(text.contains("rollback_on_error = true"), "{text}");
     assert!(text.contains("--skip-existing"), "{text}");

@@ -107,6 +107,16 @@ pub(crate) fn warn_fail_on_secrets_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_fail_on_insecure_dest(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --fail-on-insecure-dest refuses destinations with \
+         group/other access on Unix"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -378,6 +388,7 @@ pub(crate) fn backup_cmd(
     warn_encrypt_backup(encrypt_passphrase_file.is_some());
     warn_exclude_secrets_backup(exclude_secrets);
     warn_fail_on_secrets_backup(fail_on_secrets && !exclude_secrets);
+    warn_fail_on_insecure_dest(fail_on_insecure_dest);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

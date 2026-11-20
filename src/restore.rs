@@ -1416,6 +1416,7 @@ pub(crate) fn restore_cmd(
     warn_skip_existing_restore(plans.iter().filter(|(_, _, _, _, skip)| *skip).count());
     warn_no_verify_restore(no_verify);
     warn_decrypt_restore(decrypt_passphrase_file.is_some());
+    crate::backup::warn_fail_on_insecure_dest(fail_on_insecure_dest);
     if dry {
         if json {
             let vals: Vec<_> = plans
