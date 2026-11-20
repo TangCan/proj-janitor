@@ -16,6 +16,7 @@ from proj_janitor.backup import (
     format_git_only_backup_warning,
     format_encrypt_backup_warning,
     format_exclude_secrets_backup_warning,
+    format_fail_on_secrets_backup_warning,
     format_include_artifacts_backup_warning,
     format_incremental_backup_warning,
     run_backup,
@@ -84,6 +85,13 @@ class BackupTests(unittest.TestCase):
             format_exclude_secrets_backup_warning(),
             "warning: --exclude-secrets omits common secret paths from archives; "
             "restored projects will not include those files",
+        )
+
+    def test_format_fail_on_secrets_backup_warning(self) -> None:
+        self.assertEqual(
+            format_fail_on_secrets_backup_warning(),
+            "warning: --fail-on-secrets refuses archive backups that contain "
+            "common secret paths",
         )
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")

@@ -2060,6 +2060,9 @@ class CliTests(unittest.TestCase):
                 "--exclude-secrets omits secret paths from archives", text
             )
             self.assertIn(
+                "--fail-on-secrets refuses archives that contain", text
+            )
+            self.assertIn(
                 "decrypting archives needs the matching backup passphrase", text
             )
             self.assertIn("--keep-replaced renames replaced targets aside", text)
@@ -2145,6 +2148,58 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertNotIn("omits common secret paths from archives", err)
 
+    def test_backup_warns_when_fail_on_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--fail-on-secrets",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: --fail-on-secrets refuses archive backups that contain "
+                "common secret paths",
+                err,
+            )
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--fail-on-secrets",
+                "--exclude-secrets",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("refuses archive backups that contain", err)
+            self.assertIn(
+                "warning: --exclude-secrets omits common secret paths from archives",
+                err,
+            )
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("refuses archive backups that contain", err)
+
     def test_archive_backup_fail_on_secrets_refuses_and_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2162,6 +2217,11 @@ class CliTests(unittest.TestCase):
             )
 
             self.assertEqual(code, 1, out + err)
+            self.assertIn(
+                "warning: --fail-on-secrets refuses archive backups that contain "
+                "common secret paths",
+                err,
+            )
             self.assertIn("refusing backup", err)
             self.assertIn(".env", err)
             self.assertFalse((dest / "app").exists())

@@ -395,9 +395,8 @@ fn backup_warns_when_encrypting() {
     let stderr = String::from_utf8_lossy(&encrypted.stderr);
     assert!(stdout.contains("[archive] app:"), "{stdout}");
     assert!(
-        stderr.contains(
-            "warning: encrypted backups require the same passphrase for restore/verify"
-        ),
+        stderr
+            .contains("warning: encrypted backups require the same passphrase for restore/verify"),
         "{stderr}"
     );
     assert!(
@@ -458,9 +457,7 @@ fn backup_warns_when_excluding_secrets() {
     let stderr = String::from_utf8_lossy(&excluded.stderr);
     assert!(stdout.contains("[archive] app:"), "{stdout}");
     assert!(
-        stderr.contains(
-            "warning: --exclude-secrets omits common secret paths from archives"
-        ),
+        stderr.contains("warning: --exclude-secrets omits common secret paths from archives"),
         "{stderr}"
     );
     assert!(
@@ -481,8 +478,95 @@ fn backup_warns_when_excluding_secrets() {
         String::from_utf8_lossy(&plain.stderr)
     );
     assert!(
-        !String::from_utf8_lossy(&plain.stderr)
-            .contains("omits common secret paths from archives"),
+        !String::from_utf8_lossy(&plain.stderr).contains("omits common secret paths from archives"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
+fn backup_warns_when_fail_on_secrets() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--fail-on-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        refused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&refused.stdout);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-secrets refuses archive backups that contain \
+             common secret paths"
+        ),
+        "{stderr}"
+    );
+    assert!(!dest.exists());
+
+    let excluded = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--fail-on-secrets",
+            "--exclude-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        excluded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&excluded.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&excluded.stderr);
+    assert!(
+        !stderr.contains("refuses archive backups that contain"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("warning: --exclude-secrets omits common secret paths from archives"),
+        "{stderr}"
+    );
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr).contains("refuses archive backups that contain"),
         "{}",
         String::from_utf8_lossy(&plain.stderr)
     );
@@ -521,9 +605,7 @@ fn backup_warns_when_including_artifacts() {
     let stderr = String::from_utf8_lossy(&included.stderr);
     assert!(stdout.contains("[archive] app:"), "{stdout}");
     assert!(
-        stderr.contains(
-            "warning: --include-artifacts archives build caches and dependency trees"
-        ),
+        stderr.contains("warning: --include-artifacts archives build caches and dependency trees"),
         "{stderr}"
     );
     assert!(stderr.contains("backups may be much larger"), "{stderr}");
@@ -581,9 +663,8 @@ fn backup_warns_when_using_incremental() {
     let stderr = String::from_utf8_lossy(&incremental.stderr);
     assert!(stdout.contains("[archive] app:"), "{stdout}");
     assert!(
-        stderr.contains(
-            "warning: --incremental creates delta snapshots that need their base chain"
-        ),
+        stderr
+            .contains("warning: --incremental creates delta snapshots that need their base chain"),
         "{stderr}"
     );
     assert!(
@@ -3585,9 +3666,7 @@ fn archive_backup_exclude_secrets_omits_secret_paths() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains(
-            "warning: --exclude-secrets omits common secret paths from archives"
-        ),
+        stderr.contains("warning: --exclude-secrets omits common secret paths from archives"),
         "{stderr}"
     );
     assert!(stderr.contains("excluding secret paths"), "{stderr}");
@@ -3632,6 +3711,13 @@ fn archive_backup_fail_on_secrets_refuses_and_writes_nothing() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --fail-on-secrets refuses archive backups that contain \
+             common secret paths"
+        ),
+        "{stderr}"
+    );
     assert!(stderr.contains("refusing backup"), "{stderr}");
     assert!(stderr.contains(".env"), "{stderr}");
     assert!(!dest.join("demo").exists());
@@ -5062,6 +5148,10 @@ fn init_writes_starter_config() {
         "{text}"
     );
     assert!(
+        text.contains("--fail-on-secrets refuses archives that contain"),
+        "{text}"
+    );
+    assert!(
         text.contains("decrypting archives needs the matching backup passphrase"),
         "{text}"
     );
@@ -5224,9 +5314,7 @@ fn restore_warns_when_decrypting() {
     );
     let stderr = String::from_utf8_lossy(&warned.stderr);
     assert!(
-        stderr.contains(
-            "warning: decrypting archives requires the matching backup passphrase"
-        ),
+        stderr.contains("warning: decrypting archives requires the matching backup passphrase"),
         "{stderr}"
     );
     assert!(
@@ -5330,9 +5418,7 @@ fn restore_skip_existing_leaves_target_and_restores_others() {
     assert_eq!(second["skipped"], false);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains(
-            "warning: 1 existing target will be left unchanged (--skip-existing)"
-        ),
+        stderr.contains("warning: 1 existing target will be left unchanged (--skip-existing)"),
         "{stderr}"
     );
     assert_eq!(

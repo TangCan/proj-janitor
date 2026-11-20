@@ -387,7 +387,7 @@ projjan backup ROOT [ROOT ...] [--backup-dest DEST] [--config PATH] [--keep N]
 | `--always-archive` | 否 | 关闭 | 强制所有项目归档，即使满足 GitHub URL-only 记录条件。未启用且选用 git-only 时 stderr 提示无本地归档（CR-160）。 |
 | `--exclude-git-metadata` | 否 | 关闭 | 仅对 archive 生效，跳过项目中的 `.git` 路径；恢复后没有 Git 历史/分支/tag/remote。启用时 stderr 提示该后果（CR-164）。 |
 | `--incremental` | 否 | `[backup].incremental` | archive 策略生成差异快照；默认关闭。完整快照归档全部文件并记录 `inventory`；差异快照仅归档相对上一次快照变更/新增的文件与符号链接，并记录 `incremental.base` 与 `deleted`。启用时 stderr 提示恢复依赖整条基线链（CR-166）。`git`/`git_bundle` 策略不受影响。 |
-| `--fail-on-secrets` | 否 | `[backup].fail_on_secrets` | 检测到常见敏感路径时拒绝 archive 备份（不写归档/manifest，非零退出）。默认关闭时仅 stderr 告警（CR-099）。与 `--no-fail-on-secrets` 互斥。 |
+| `--fail-on-secrets` | 否 | `[backup].fail_on_secrets` | 检测到常见敏感路径时拒绝 archive 备份（不写归档/manifest，非零退出）。启用时 stderr 提示将硬拒绝含敏感路径的归档（CR-176）。默认关闭时仅 stderr 告警（CR-099）。与 `--exclude-secrets` 同时开启时优先排除。与 `--no-fail-on-secrets` 互斥。 |
 | `--no-fail-on-secrets` | 否 | 无 | 即使配置开启 `fail_on_secrets`，仍仅告警并继续归档。 |
 | `--exclude-secrets` | 否 | `[backup].exclude_secrets` | 打包时跳过常见敏感路径（启用时 stderr 提示恢复将缺少这些文件，CR-175；匹配时另有 `note: … excluding`）。与 `--fail-on-secrets` 同时开启时优先排除。与 `--no-exclude-secrets` 互斥。 |
 | `--no-exclude-secrets` | 否 | 无 | 即使配置开启 `exclude_secrets`，仍将敏感路径打入归档（并按告警/硬失败策略处理）。 |

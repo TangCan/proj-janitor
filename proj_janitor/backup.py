@@ -163,6 +163,20 @@ def warn_exclude_secrets_backup(enabled: bool) -> None:
     print(format_exclude_secrets_backup_warning(), file=sys.stderr)
 
 
+def format_fail_on_secrets_backup_warning() -> str:
+    return (
+        "warning: --fail-on-secrets refuses archive backups that contain "
+        "common secret paths"
+    )
+
+
+def warn_fail_on_secrets_backup(enabled: bool) -> None:
+    """Emit a stderr hint when backup hard-fails on secret paths (CR-176)."""
+    if not enabled:
+        return
+    print(format_fail_on_secrets_backup_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -291,6 +305,7 @@ def run_backup(
     warn_include_artifacts_backup(include_artifacts)
     warn_encrypt_backup(encrypt_passphrase_file is not None)
     warn_exclude_secrets_backup(exclude_secrets)
+    warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")
