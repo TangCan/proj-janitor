@@ -1028,6 +1028,66 @@ class RestoreTests(unittest.TestCase):
                     ),
                 )
             ),
+            *(
+                case
+                for digit, mark in (
+                    ("1", "١"),
+                    ("2", "٢"),
+                    ("3", "٣"),
+                    ("4", "٤"),
+                    ("5", "٥"),
+                    ("6", "٦"),
+                    ("7", "٧"),
+                    ("8", "٨"),
+                    ("9", "٩"),
+                )
+                for case in (
+                    (
+                        f"reserved-com{digit}-ar.tar.gz",
+                        f"app/COM{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"COM{mark}.txt",
+                    ),
+                    (
+                        f"reserved-lpt{digit}-ar.tar.gz",
+                        f"app/LPT{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"LPT{mark}.txt",
+                    ),
+                )
+            ),
+            *(
+                case
+                for digit, mark in (
+                    ("1", "۱"),
+                    ("2", "۲"),
+                    ("3", "۳"),
+                    ("4", "۴"),
+                    ("5", "۵"),
+                    ("6", "۶"),
+                    ("7", "۷"),
+                    ("8", "۸"),
+                    ("9", "۹"),
+                )
+                for case in (
+                    (
+                        f"reserved-com{digit}-fa.tar.gz",
+                        f"app/COM{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"COM{mark}.txt",
+                    ),
+                    (
+                        f"reserved-lpt{digit}-fa.tar.gz",
+                        f"app/LPT{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"LPT{mark}.txt",
+                    ),
+                )
+            ),
         )
         for archive_name, member_name, link_target, pattern, leaf in cases:
             with self.subTest(archive=archive_name):
