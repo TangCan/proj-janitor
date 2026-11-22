@@ -2194,6 +2194,10 @@ class CliTests(unittest.TestCase):
                 text,
             )
             self.assertIn("checkout_branch = true", text)
+            self.assertIn(
+                "--checkout-branch creates/resets the local branch via checkout -B",
+                text,
+            )
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
             self.assertIn("--skip-existing", text)
@@ -3291,6 +3295,46 @@ class GitCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("will restore as detached HEAD", err)
+            self.assertIn(
+                "warning: 1 git-only record will restore via checkout -B",
+                err,
+            )
+            self.assertIn("creates/resets the local branch", err)
+
+    def test_restore_warns_when_checkout_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_pushed_repo(root)
+            remote = root / "app-remote.git"
+            head = git(project, "rev-parse", "HEAD")
+            manifest = write_git_manifest(root, project, remote, head)
+            restored = root / "restored"
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+                "--checkout-branch",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: 1 git-only record will restore via checkout -B",
+                err,
+            )
+            self.assertIn("omit --checkout-branch for detached HEAD", err)
+
+            code, _out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(restored),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("will restore via checkout -B", err)
+            self.assertIn("will restore as detached HEAD", err)
 
     def test_verify_and_restore_warn_when_git_records_skip_remote_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

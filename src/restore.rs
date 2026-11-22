@@ -138,6 +138,17 @@ fn warn_git_detached_head_restore(count: usize) {
     );
 }
 
+fn warn_git_checkout_branch_restore(count: usize) {
+    if count == 0 {
+        return;
+    }
+    let noun = if count == 1 { "record" } else { "records" };
+    eprintln!(
+        "warning: {count} git-only {noun} will restore via checkout -B \
+         (creates/resets the local branch); omit --checkout-branch for detached HEAD"
+    );
+}
+
 fn warn_force_overwrite_deletes(count: usize) {
     if count == 0 {
         return;
@@ -1427,13 +1438,14 @@ pub(crate) fn restore_cmd(
                 .count(),
         );
     }
-    if !checkout_branch {
-        warn_git_detached_head_restore(
-            plans
-                .iter()
-                .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")
-                .count(),
-        );
+    let git_restore_count = plans
+        .iter()
+        .filter(|(record, _, _, _, skip)| !*skip && record.strategy == "git")
+        .count();
+    if checkout_branch {
+        warn_git_checkout_branch_restore(git_restore_count);
+    } else {
+        warn_git_detached_head_restore(git_restore_count);
     }
     if dest.is_none() {
         warn_original_location_restore(plans.iter().filter(|(_, _, _, _, skip)| !*skip).count());

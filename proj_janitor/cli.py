@@ -71,6 +71,7 @@ from proj_janitor.restore import (
     verify_manifest,
     warn_continue_without_rollback,
     warn_force_overwrite_deletes,
+    warn_git_checkout_branch_restore,
     warn_git_detached_head_restore,
     warn_git_without_remote_check,
     warn_insecure_restore_parents,
@@ -1419,10 +1420,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         warn_git_without_remote_check(
             sum(1 for plan in plans if plan.strategy == "git" and not plan.skip)
         )
-    if not checkout_branch:
-        warn_git_detached_head_restore(
-            sum(1 for plan in plans if plan.strategy == "git" and not plan.skip)
-        )
+    git_restore_count = sum(
+        1 for plan in plans if plan.strategy == "git" and not plan.skip
+    )
+    if checkout_branch:
+        warn_git_checkout_branch_restore(git_restore_count)
+    else:
+        warn_git_detached_head_restore(git_restore_count)
 
     in_place = args.dest is None
     if in_place:

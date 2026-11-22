@@ -152,6 +152,21 @@ def warn_git_detached_head_restore(count: int) -> None:
     print(format_git_detached_head_warning(count), file=sys.stderr)
 
 
+def format_git_checkout_branch_warning(count: int) -> str:
+    noun = "record" if count == 1 else "records"
+    return (
+        f"warning: {count} git-only {noun} will restore via checkout -B "
+        "(creates/resets the local branch); omit --checkout-branch for detached HEAD"
+    )
+
+
+def warn_git_checkout_branch_restore(count: int) -> None:
+    """Emit a stderr hint when Git-only restores use checkout -B (CR-184)."""
+    if count <= 0:
+        return
+    print(format_git_checkout_branch_warning(count), file=sys.stderr)
+
+
 def format_force_overwrite_deletes_warning(count: int) -> str:
     noun = "target" if count == 1 else "targets"
     return (

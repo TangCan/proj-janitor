@@ -676,7 +676,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14；CR-102）。启用时 stderr 提示硬拒绝意图（CR-180）。与 `--no-require-dest` 互斥。 |
 | `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。启用时 stderr 提示将硬拒绝此类目录（CR-177）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
 | `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。启用时 stderr 提示白名单限制意图（CR-181）。 |
-| `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
+| `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。启用时 stderr 提示将 create/reset 本地分支（CR-184）。与 `--no-checkout-branch` 互斥。 |
 | `--force` | 否 | `[restore].force` | 暂存成功后替换已存在目标目录（需 `--yes`）。未开 `--keep-replaced` 时 stderr 提示将永久删除（CR-156）。 |
 | `--skip-existing` | 否 | `[restore].skip_existing` | 目标目录已存在时跳过该项目（拒绝对称链接/非目录）；与 `--force` 互斥。实际跳过时 stderr 提示将保持不变（CR-167）。与 `--no-skip-existing` 互斥。 |
 | `--keep-replaced` | 否 | `[restore].keep_replaced` | 配合 `--force`：将被替换目录重命名旁侧而非删除；有覆盖项时 stderr 提示旁侧副本占磁盘、需事后清理（CR-173）。 |
@@ -702,7 +702,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 10. 原始位置模式在规划完成后要求确认：交互终端列出目标并读取 `y/N`；标准输入不是 TTY 且未给 `--yes` 时拒绝；`--json` 的实际恢复未给 `--yes` 时拒绝。dry-run 不需要确认。
 11. 多项目按顺序恢复；中途失败时不回滚已恢复项目，错误会列出已完成项目和目标，临时目录会清理。
 12. `--check-remote` 时（仅 `git` 策略；`archive`/`git_bundle` 忽略该选项），在每个 Git-only 计划进入恢复前先执行一次 `git ls-remote`（单条最长 30 秒，`GIT_TERMINAL_PROMPT=0`，参数列表调用不经 shell），只读取引用列表、不下载对象；URL 含用户名/口令/query/fragment 时为 `remote-skipped` 不联网。对记录的子模块（`submodules` 字段），对每个子模块的 URL+固定提交同样执行一次预检（含凭据脱敏）。任一记录或子模块 `remote-unreachable` 时整批不开始，报 `cannot restore <项目>: remote <脱敏URL> is unreachable (<原因>)`（子模块则为 `cannot restore <项目>: submodule <path> remote <脱敏URL> is unreachable (<原因>)`）并返回退出码 `1`。该预检发生在 SHA-256 校验与确认之后、创建任何目标目录之前。
-13. Git-only 恢复后默认是 detached HEAD；未启用 `--checkout-branch` 时 stderr 提示（CR-154）。加 `--checkout-branch`（或配置 `[restore].checkout_branch`）时按 manifest 分支检出。默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
+13. Git-only 恢复后默认是 detached HEAD；未启用 `--checkout-branch` 时 stderr 提示（CR-154）。加 `--checkout-branch`（或配置 `[restore].checkout_branch`）时按 manifest 分支检出，并 stderr 提示将 create/reset 本地分支（CR-184）。默认不联网预检远程是否仍包含该提交，需要时加 `--check-remote`。Git bundle 恢复回原始分支并清除远程配置。
 14. 原始位置的 `source` 与备份时的机器和目录布局绑定；跨机器、跨用户或目录已迁移时应使用 `--dest`。
 
 ### 8.3 输出

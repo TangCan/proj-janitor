@@ -4505,6 +4505,102 @@ fn restore_warns_when_git_records_keep_detached_head() {
         !checked_err.contains("will restore as detached HEAD"),
         "{checked_err}"
     );
+    assert!(
+        checked_err.contains("warning: 1 git-only record will restore via checkout -B"),
+        "{checked_err}"
+    );
+    assert!(
+        checked_err.contains("creates/resets the local branch"),
+        "{checked_err}"
+    );
+}
+
+#[test]
+fn restore_warns_when_checkout_branch() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let remote = temp.0.join("demo-remote.git");
+    let init = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    git(
+        &project,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&project, &["push", "-q", "-u", "origin", "main"]);
+    let head = git(&project, &["rev-parse", "HEAD"]);
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-09T00:00:00Z",
+            "tool": "proj-janitor",
+            "version": "0.7.53",
+            "include_artifacts": false,
+            "always_archive": false,
+            "records": [{
+                "project": "demo",
+                "source": project.display().to_string(),
+                "archive": null,
+                "archive_bytes": 0,
+                "source_bytes": 0,
+                "sha256": null,
+                "strategy": "git",
+                "remote": "origin",
+                "remote_url": remote.display().to_string(),
+                "branch": "main",
+                "commit": head,
+                "upstream": "origin/main",
+                "verified": "local-ref"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let restored = temp.0.join("restored");
+    let checked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--checkout-branch", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(checked.status.success());
+    let checked_err = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        checked_err.contains("warning: 1 git-only record will restore via checkout -B"),
+        "{checked_err}"
+    );
+    assert!(
+        checked_err.contains("omit --checkout-branch for detached HEAD"),
+        "{checked_err}"
+    );
+
+    let detached = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&restored)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(detached.status.success());
+    let detached_err = String::from_utf8_lossy(&detached.stderr);
+    assert!(
+        !detached_err.contains("will restore via checkout -B"),
+        "{detached_err}"
+    );
+    assert!(
+        detached_err.contains("will restore as detached HEAD"),
+        "{detached_err}"
+    );
 }
 
 #[test]
@@ -5750,6 +5846,11 @@ fn init_writes_starter_config() {
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");
     assert!(
         text.contains("--fail-on-insecure-dest refuses group/other-accessible dest dirs"),
+        "{text}"
+    );
+    assert!(text.contains("checkout_branch = true"), "{text}");
+    assert!(
+        text.contains("--checkout-branch creates/resets the local branch via checkout -B"),
         "{text}"
     );
     assert!(text.contains("keep_replaced = true"), "{text}");

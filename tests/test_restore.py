@@ -30,6 +30,7 @@ from proj_janitor.restore import (
     format_fail_on_remote_moved_warning,
     format_fail_on_remote_skipped_warning,
     format_allowed_roots_warning,
+    format_git_checkout_branch_warning,
     format_require_dest_warning,
     format_keep_replaced_restore_warning,
     format_no_verify_restore_warning,
@@ -140,6 +141,18 @@ class RestoreTests(unittest.TestCase):
             format_allowed_roots_warning(),
             "warning: --allowed-root restricts restore targets to the given root(s); "
             "paths outside them are refused",
+        )
+
+    def test_format_git_checkout_branch_warning(self) -> None:
+        self.assertEqual(
+            format_git_checkout_branch_warning(1),
+            "warning: 1 git-only record will restore via checkout -B "
+            "(creates/resets the local branch); omit --checkout-branch for detached HEAD",
+        )
+        self.assertEqual(
+            format_git_checkout_branch_warning(2),
+            "warning: 2 git-only records will restore via checkout -B "
+            "(creates/resets the local branch); omit --checkout-branch for detached HEAD",
         )
 
     def test_format_keep_replaced_restore_warning(self) -> None:
