@@ -1611,7 +1611,7 @@ def _safe_windows_component(part: str) -> bool:
         return False
     stem = part.split(".", 1)[0].rstrip(" .").upper()
     return stem not in _WINDOWS_RESERVED_NAMES and not re.fullmatch(
-        r"(?:COM|LPT)[1-9¹²³⁴⁵⁶⁷⁸⁹]", stem
+        r"(?:COM|LPT)[1-9¹²³⁴⁵⁶⁷⁸⁹１２３４５６７８９]", stem
     )
 
 

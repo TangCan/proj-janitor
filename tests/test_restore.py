@@ -968,6 +968,36 @@ class RestoreTests(unittest.TestCase):
                     ),
                 )
             ),
+            *(
+                case
+                for digit, mark in (
+                    ("1", "１"),
+                    ("2", "２"),
+                    ("3", "３"),
+                    ("4", "４"),
+                    ("5", "５"),
+                    ("6", "６"),
+                    ("7", "７"),
+                    ("8", "８"),
+                    ("9", "９"),
+                )
+                for case in (
+                    (
+                        f"reserved-com{digit}-fw.tar.gz",
+                        f"app/COM{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"COM{mark}.txt",
+                    ),
+                    (
+                        f"reserved-lpt{digit}-fw.tar.gz",
+                        f"app/LPT{mark}.txt",
+                        None,
+                        "unsafe archive path",
+                        f"LPT{mark}.txt",
+                    ),
+                )
+            ),
         )
         for archive_name, member_name, link_target, pattern, leaf in cases:
             with self.subTest(archive=archive_name):
