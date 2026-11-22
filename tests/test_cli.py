@@ -1699,6 +1699,44 @@ class CliTests(unittest.TestCase):
             self.assertIn("insecure permissions", err)
             self.assertIn("--fail-on-insecure-dest", err)
 
+    def test_restore_warns_when_allowed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from tests.test_restore import archive_backup, write_manifest
+
+            _, _, record = archive_backup(root / "a", "app")
+            manifest = write_manifest(root / "manifest.json", [record])
+            restored = root / "restored"
+            allowed = root / "allowed"
+            allowed.mkdir()
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(allowed),
+                "--allowed-root",
+                str(allowed),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertIn(
+                "warning: --allowed-root restricts restore targets to the given root(s)",
+                err,
+            )
+            self.assertIn("paths outside them are refused", err)
+            self.assertFalse(restored.exists())
+
+            code, out, err = run_cli(
+                "restore",
+                str(manifest),
+                "--dest",
+                str(allowed),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("restricts restore targets to the given root", err)
+
     def test_restore_allowed_root_refuses_outside_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1729,6 +1767,10 @@ class CliTests(unittest.TestCase):
                 str(allowed),
             )
             self.assertNotEqual(code, 0, err)
+            self.assertIn(
+                "warning: --allowed-root restricts restore targets to the given root(s)",
+                err,
+            )
             self.assertIn("outside allowed roots", err)
             self.assertEqual(out, "")
 
@@ -1742,6 +1784,10 @@ class CliTests(unittest.TestCase):
                 str(allowed),
             )
             self.assertEqual(code, 0, err)
+            self.assertIn(
+                "warning: --allowed-root restricts restore targets to the given root(s)",
+                err,
+            )
 
     @unittest.skipUnless(os.name == "posix", "Unix permission check")
     def test_restore_creates_private_destination_directories(self) -> None:
@@ -2096,6 +2142,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("require_dest = true", text)
             self.assertIn(
                 "--require-dest refuses restore without an explicit --dest",
+                text,
+            )
+            self.assertIn(
+                "--allowed-root restricts targets to whitelist roots",
                 text,
             )
             self.assertIn("fail_on_insecure_dest = true", text)

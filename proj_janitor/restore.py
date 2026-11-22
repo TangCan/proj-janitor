@@ -293,6 +293,20 @@ def warn_require_dest(enabled: bool) -> None:
     print(format_require_dest_warning(), file=sys.stderr)
 
 
+def format_allowed_roots_warning() -> str:
+    return (
+        "warning: --allowed-root restricts restore targets to the given root(s); "
+        "paths outside them are refused"
+    )
+
+
+def warn_allowed_roots(enabled: bool) -> None:
+    """Emit a stderr hint when restore targets are root-whitelisted (CR-181)."""
+    if not enabled:
+        return
+    print(format_allowed_roots_warning(), file=sys.stderr)
+
+
 def refuse_outside_allowed_roots(
     plans: Iterable[RestorePlan],
     allowed_roots: Iterable[Path],

@@ -3859,6 +3859,76 @@ fn restore_creates_private_destination_directories() {
 }
 
 #[test]
+fn restore_warns_when_allowed_root() {
+    let temp = TestDir::new();
+    let project = temp.project();
+    fs::write(project.join("ok.txt"), "ok\n").unwrap();
+    let backups = temp.0.join("backups");
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&backups)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(backups.join("demo"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("manifest-"))
+        })
+        .expect("manifest");
+    let allowed = temp.0.join("allowed");
+    fs::create_dir_all(&allowed).unwrap();
+
+    let warned = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--allowed-root"])
+        .arg(&allowed)
+        .arg("--dest")
+        .arg(&allowed)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        warned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warned.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --allowed-root restricts restore targets to the given root(s)"
+        ),
+        "{stderr}"
+    );
+    assert!(stderr.contains("paths outside them are refused"), "{stderr}");
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--dry-run", "--dest"])
+        .arg(&allowed)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&plain.stderr)
+            .contains("restricts restore targets to the given root"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+}
+
+#[test]
 fn restore_allowed_root_refuses_outside_target() {
     let temp = TestDir::new();
     let project = temp.project();
@@ -3902,6 +3972,12 @@ fn restore_allowed_root_refuses_outside_target() {
         String::from_utf8_lossy(&blocked.stderr)
     );
     let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --allowed-root restricts restore targets to the given root(s)"
+        ),
+        "{stderr}"
+    );
     assert!(stderr.contains("outside allowed roots"), "{stderr}");
 
     let allowed_ok = Command::new(env!("CARGO_BIN_EXE_projjan"))
@@ -3916,6 +3992,13 @@ fn restore_allowed_root_refuses_outside_target() {
         allowed_ok.status.success(),
         "{}",
         String::from_utf8_lossy(&allowed_ok.stderr)
+    );
+    let allowed_stderr = String::from_utf8_lossy(&allowed_ok.stderr);
+    assert!(
+        allowed_stderr.contains(
+            "warning: --allowed-root restricts restore targets to the given root(s)"
+        ),
+        "{allowed_stderr}"
     );
 }
 
@@ -5628,6 +5711,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("require_dest = true"), "{text}");
     assert!(
         text.contains("--require-dest refuses restore without an explicit --dest"),
+        "{text}"
+    );
+    assert!(
+        text.contains("--allowed-root restricts targets to whitelist roots"),
         "{text}"
     );
     assert!(text.contains("fail_on_insecure_dest = true"), "{text}");

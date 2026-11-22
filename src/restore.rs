@@ -238,6 +238,16 @@ fn warn_require_dest(enabled: bool) {
     );
 }
 
+fn warn_allowed_roots(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --allowed-root restricts restore targets to the given root(s); \
+         paths outside them are refused"
+    );
+}
+
 fn refuse_outside_allowed_roots(
     plans: &[(Record, PathBuf, Option<PathBuf>, bool, bool)],
     allowed_roots: &[PathBuf],
@@ -1270,6 +1280,7 @@ pub(crate) fn restore_cmd(
     json: bool,
 ) -> anyhow::Result<()> {
     warn_require_dest(require_dest);
+    warn_allowed_roots(!allowed_roots.is_empty());
     if require_dest && dest.is_none() {
         anyhow::bail!(
             "--dest is required when --require-dest or [restore].require_dest is enabled"

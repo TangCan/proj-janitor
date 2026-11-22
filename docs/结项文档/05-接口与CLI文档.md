@@ -106,7 +106,7 @@ fail_on_remote_moved = false  # 为 true 且 check_remote 时将 remote-moved �
 fail_on_remote_skipped = false  # 为 true 且 check_remote 时将 remote-skipped 视为失败；启用时 stderr 提示硬拒绝意图（CR-179）
 require_dest = false     # 为 true 时必须传 --dest，禁止按 manifest source 原位恢复；可用 --require-dest / --no-require-dest 覆盖；启用时 stderr 提示硬拒绝意图（CR-180）
 fail_on_insecure_dest = false  # 为 true 时拒绝 group/other 可访问的恢复目标或父目录（Unix）；可用 --fail-on-insecure-dest / --no-fail-on-insecure-dest 覆盖；启用时 stderr 提示硬拒绝意图（CR-177）
-allowed_roots = []             # 非空时限制恢复目标必须落在这些根下；可用 --allowed-root（可重复）覆盖
+allowed_roots = []             # 非空时限制恢复目标必须落在这些根下；可用 --allowed-root（可重复）覆盖；启用时 stderr 提示白名单意图（CR-181）
 decrypt_passphrase_file = ""  # 解密加密归档的口令文件；可用 --decrypt-passphrase-file 覆盖；启用时 stderr 提示需匹配备份 passphrase 并妥善保管（CR-172）
 ```
 
@@ -675,7 +675,7 @@ projjan restore MANIFEST [--dest DIR] [--project NAME] [--decrypt-passphrase-fil
 | `--fail-on-remote-skipped` | 否 | `[restore].fail_on_remote_skipped` | 在 `--check-remote` 生效时，将 `remote-skipped`（URL 含凭据/query/fragment 未探测）视为失败，写盘前整批中止（CR-138）。启用时 stderr 提示硬拒绝意图（CR-179）。与 `--no-fail-on-remote-skipped` 互斥。 |
 | `--require-dest` | 否 | `[restore].require_dest` | 必须提供 `--dest`；省略时拒绝原位恢复并返回 `1`（缓解 R-14；CR-102）。启用时 stderr 提示硬拒绝意图（CR-180）。与 `--no-require-dest` 互斥。 |
 | `--fail-on-insecure-dest` | 否 | `[restore].fail_on_insecure_dest` | Unix 上若 `--dest` 或原位恢复父目录（含尚未创建路径的已有祖先）含 group/other 权限位则拒绝恢复（含 `--dry-run`），返回 `1`（缓解 R-05；CR-139）。启用时 stderr 提示将硬拒绝此类目录（CR-177）。未启用时仍会 stderr 提示 insecure 权限（CR-145）。与 `--no-fail-on-insecure-dest` 互斥。 |
-| `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。 |
+| `--allowed-root` | 否 | `[restore].allowed_roots` | 可重复；限制恢复目标必须落在给定根目录下（含 dry-run）。CLI 传入任意一次时覆盖配置列表（缓解 R-14；CR-140）。启用时 stderr 提示白名单限制意图（CR-181）。 |
 | `--checkout-branch` | 否 | `[restore].checkout_branch` | Git-only 恢复按 manifest `branch` 执行 `checkout -B <branch> <commit>`（非 detached HEAD）；缺分支时警告并回退 detached（CR-152）。与 `--no-checkout-branch` 互斥。 |
 | `--force` | 否 | `[restore].force` | 暂存成功后替换已存在目标目录（需 `--yes`）。未开 `--keep-replaced` 时 stderr 提示将永久删除（CR-156）。 |
 | `--skip-existing` | 否 | `[restore].skip_existing` | 目标目录已存在时跳过该项目（拒绝对称链接/非目录）；与 `--force` 互斥。实际跳过时 stderr 提示将保持不变（CR-167）。与 `--no-skip-existing` 互斥。 |
