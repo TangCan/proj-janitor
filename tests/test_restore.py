@@ -927,7 +927,17 @@ class RestoreTests(unittest.TestCase):
             ),
             *(
                 case
-                for digit, mark in (("1", "¹"), ("2", "²"), ("3", "³"))
+                for digit, mark in (
+                    ("1", "¹"),
+                    ("2", "²"),
+                    ("3", "³"),
+                    ("4", "⁴"),
+                    ("5", "⁵"),
+                    ("6", "⁶"),
+                    ("7", "⁷"),
+                    ("8", "⁸"),
+                    ("9", "⁹"),
+                )
                 for case in (
                     (
                         f"reserved-com{digit}-sup.tar.gz",

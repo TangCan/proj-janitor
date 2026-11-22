@@ -994,7 +994,8 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
         stem.strip_prefix(prefix).is_some_and(|number| {
             matches!(
                 number,
-                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+                    | "¹" | "²" | "³" | "⁴" | "⁵" | "⁶" | "⁷" | "⁸" | "⁹"
             )
         })
     });
