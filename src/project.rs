@@ -88,6 +88,16 @@ pub(crate) fn warn_unmarked_root_child_discovery(root: &Path, child_count: usize
     );
 }
 
+pub(crate) fn warn_include_unmarked(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --include-unmarked treats unmarked ROOT directories as projects \
+         themselves (not only marked children)"
+    );
+}
+
 pub(crate) fn list_candidates(root: &Path, all: bool) -> anyhow::Result<Vec<PathBuf>> {
     let root = crate::expand(root);
     anyhow::ensure!(root.exists(), "root does not exist: {}", root.display());

@@ -41,6 +41,20 @@ def warn_unmarked_root_child_discovery(root: Path, child_count: int) -> None:
     )
 
 
+def format_include_unmarked_warning() -> str:
+    return (
+        "warning: --include-unmarked treats unmarked ROOT directories as projects "
+        "themselves (not only marked children)"
+    )
+
+
+def warn_include_unmarked(enabled: bool) -> None:
+    """Emit a stderr hint when unmarked roots are treated as projects (CR-186)."""
+    if not enabled:
+        return
+    print(format_include_unmarked_warning(), file=sys.stderr)
+
+
 def list_project_paths(
     root: Path,
     include_unmarked: bool = False,

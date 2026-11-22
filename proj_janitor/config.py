@@ -137,6 +137,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - restore: --skip-existing leaves existing targets unchanged (no overwrite)
 # - restore: avoid --no-verify unless the archive/manifest is fully trusted
 # - backup/scan: unmarked ROOT finds one-level marked children by default; pass --include-unmarked for the parent
+# - backup/scan: --include-unmarked treats unmarked ROOT dirs as projects themselves
 # - backup: important projects should use --always-archive (git-only records are remote metadata only)
 # - backup: --always-archive forces a local archive for every project (skips git-only; may be larger)
 # - backup: --exclude-git-metadata omits .git from archives (worktree only on restore)

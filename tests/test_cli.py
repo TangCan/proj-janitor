@@ -266,11 +266,19 @@ class CliTests(unittest.TestCase):
             self.assertIn("twinvm", out)
             self.assertIn("[archive]", out)
             self.assertNotIn("has no project markers", err)
+            self.assertIn(
+                "warning: --include-unmarked treats unmarked ROOT directories as projects",
+                err,
+            )
 
             code, out, err = run_cli("scan", str(parent), "--json")
             self.assertEqual(code, 0, err)
             self.assertIn(
                 "warning: twinvm has no project markers; discovered 1 marked child project",
+                err,
+            )
+            self.assertNotIn(
+                "--include-unmarked treats unmarked ROOT directories as projects",
                 err,
             )
             payload = json.loads(out)
@@ -285,6 +293,10 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("has no project markers", err)
+            self.assertIn(
+                "warning: --include-unmarked treats unmarked ROOT directories as projects",
+                err,
+            )
             payload = json.loads(out)
             self.assertEqual(len(payload), 1)
             self.assertEqual(payload[0]["name"], "twinvm")
@@ -2203,6 +2215,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("--skip-existing", text)
             self.assertIn("--no-verify", text)
             self.assertIn("--include-unmarked", text)
+            self.assertIn(
+                "--include-unmarked treats unmarked ROOT dirs as projects themselves",
+                text,
+            )
             self.assertIn("--always-archive", text)
             self.assertIn(
                 "--always-archive forces a local archive for every project",

@@ -102,6 +102,7 @@ from proj_janitor.scanner import (
     is_project,
     list_project_paths,
     scan_project,
+    warn_include_unmarked,
     warn_unmarked_root_child_discovery,
 )
 
@@ -899,6 +900,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         args.progress,
         config.scan.progress if config else False,
     )
+    warn_include_unmarked(args.include_unmarked)
 
     candidates: list[Path] = []
     seen: set[Path] = set()
@@ -1006,6 +1008,7 @@ def _retain_after_backup(backup_root: Path, keep: int, yes: bool) -> int:
 
 
 def _cmd_backup(args: argparse.Namespace) -> int:
+    warn_include_unmarked(args.include_unmarked)
     projects, failures = _collect_projects(
         args.roots, include_unmarked=args.include_unmarked
     )

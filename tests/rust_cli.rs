@@ -1344,6 +1344,12 @@ fn backup_include_unmarked_treats_parent_as_project() {
         !unmarked_err.contains("has no project markers"),
         "{unmarked_err}"
     );
+    assert!(
+        unmarked_err.contains(
+            "warning: --include-unmarked treats unmarked ROOT directories as projects"
+        ),
+        "{unmarked_err}"
+    );
 
     let scan_default = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["scan", "--json"])
@@ -1359,6 +1365,11 @@ fn backup_include_unmarked_treats_parent_as_project() {
     assert!(
         scan_default_err
             .contains("warning: twinvm has no project markers; discovered 1 marked child project"),
+        "{scan_default_err}"
+    );
+    assert!(
+        !scan_default_err
+            .contains("--include-unmarked treats unmarked ROOT directories as projects"),
         "{scan_default_err}"
     );
     let scan_default_payload: serde_json::Value =
@@ -1378,6 +1389,12 @@ fn backup_include_unmarked_treats_parent_as_project() {
     );
     let scan_err = String::from_utf8_lossy(&scan.stderr);
     assert!(!scan_err.contains("has no project markers"), "{scan_err}");
+    assert!(
+        scan_err.contains(
+            "warning: --include-unmarked treats unmarked ROOT directories as projects"
+        ),
+        "{scan_err}"
+    );
     let payload: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
     assert_eq!(payload.as_array().unwrap().len(), 1);
     assert_eq!(payload[0]["name"], "twinvm");
@@ -5920,6 +5937,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("--exclude-git-metadata"), "{text}");
     assert!(text.contains("--incremental"), "{text}");
     assert!(text.contains("--include-artifacts"), "{text}");
+    assert!(
+        text.contains("--include-unmarked treats unmarked ROOT dirs as projects themselves"),
+        "{text}"
+    );
     assert!(
         text.contains("--always-archive forces a local archive for every project"),
         "{text}"

@@ -948,7 +948,11 @@ fn run() -> anyhow::Result<()> {
 }
 
 fn scan_cmd(roots: &[PathBuf], all: bool, progress: bool, json: bool) -> anyhow::Result<()> {
-    use project::{inspect, is_project, list_candidates, warn_unmarked_root_child_discovery};
+    use project::{
+        inspect, is_project, list_candidates, warn_include_unmarked,
+        warn_unmarked_root_child_discovery,
+    };
+    warn_include_unmarked(all);
     let mut candidates = Vec::new();
     let mut seen_paths = HashSet::new();
     let mut failed = false;

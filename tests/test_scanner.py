@@ -146,6 +146,15 @@ class ScannerTests(unittest.TestCase):
             "Pass --include-unmarked to use the root directory itself",
         )
 
+    def test_format_include_unmarked_warning(self) -> None:
+        from proj_janitor.scanner import format_include_unmarked_warning
+
+        self.assertEqual(
+            format_include_unmarked_warning(),
+            "warning: --include-unmarked treats unmarked ROOT directories as projects "
+            "themselves (not only marked children)",
+        )
+
     def test_root_can_be_a_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

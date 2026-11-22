@@ -319,6 +319,7 @@ pub(crate) fn backup_cmd(
     if let Some(pass_file) = &encrypt_passphrase_file {
         validate_passphrase_file(pass_file)?;
     }
+    crate::project::warn_include_unmarked(include_unmarked);
     let mut projects = Vec::new();
     let mut seen = HashSet::new();
     let mut failed = false;
