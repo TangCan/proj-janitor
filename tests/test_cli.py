@@ -2204,6 +2204,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("--no-verify", text)
             self.assertIn("--include-unmarked", text)
             self.assertIn("--always-archive", text)
+            self.assertIn(
+                "--always-archive forces a local archive for every project",
+                text,
+            )
             self.assertIn("--exclude-git-metadata", text)
             self.assertIn("--incremental", text)
             self.assertIn("--include-artifacts", text)
@@ -3160,6 +3164,45 @@ class GitCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 0, err)
             self.assertNotIn("--include-artifacts archives build caches", err)
+            self.assertIn(
+                "warning: --always-archive forces a local archive for every project",
+                err,
+            )
+
+    def test_backup_warns_when_always_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: --always-archive forces a local archive for every project",
+                err,
+            )
+            self.assertIn("skips git-only metadata", err)
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn(
+                "--always-archive forces a local archive for every project", err
+            )
 
     @unittest.skipUnless(shutil.which("openssl"), "openssl is not available")
     def test_backup_warns_when_encrypting(self) -> None:

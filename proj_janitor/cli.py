@@ -28,6 +28,7 @@ from proj_janitor.backup import (
     warn_fail_on_secrets_backup,
     warn_fail_on_insecure_dest,
     warn_git_only_backup,
+    warn_always_archive_backup,
     warn_include_artifacts_backup,
     warn_incremental_backup,
 )
@@ -1103,6 +1104,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         warn_exclude_git_metadata(args.exclude_git_metadata)
         warn_incremental_backup(incremental)
         warn_include_artifacts_backup(args.include_artifacts)
+        warn_always_archive_backup(args.always_archive)
         warn_encrypt_backup(encrypt_passphrase_file is not None)
         warn_exclude_secrets_backup(exclude_secrets)
         warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)

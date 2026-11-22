@@ -77,6 +77,16 @@ pub(crate) fn warn_include_artifacts_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_always_archive_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --always-archive forces a local archive for every project \
+         (skips git-only metadata); backups may be much larger"
+    );
+}
+
 pub(crate) fn warn_encrypt_backup(enabled: bool) {
     if !enabled {
         return;
@@ -395,6 +405,7 @@ pub(crate) fn backup_cmd(
     warn_exclude_git_metadata(exclude_git_metadata);
     warn_incremental_backup(incremental);
     warn_include_artifacts_backup(include_artifacts);
+    warn_always_archive_backup(always);
     warn_encrypt_backup(encrypt_passphrase_file.is_some());
     warn_exclude_secrets_backup(exclude_secrets);
     warn_fail_on_secrets_backup(fail_on_secrets && !exclude_secrets);

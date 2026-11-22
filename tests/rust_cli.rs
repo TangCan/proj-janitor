@@ -1023,6 +1023,66 @@ fn backup_warns_when_including_artifacts() {
         !archived_err.contains("--include-artifacts archives build caches"),
         "{archived_err}"
     );
+    assert!(
+        archived_err.contains(
+            "warning: --always-archive forces a local archive for every project"
+        ),
+        "{archived_err}"
+    );
+}
+
+#[test]
+fn backup_warns_when_always_archive() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let archived = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        archived.status.success(),
+        "{}",
+        String::from_utf8_lossy(&archived.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&archived.stdout);
+    let stderr = String::from_utf8_lossy(&archived.stderr);
+    assert!(stdout.contains("[archive] app:"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "warning: --always-archive forces a local archive for every project"
+        ),
+        "{stderr}"
+    );
+    assert!(stderr.contains("skips git-only metadata"), "{stderr}");
+    assert!(!dest.exists());
+
+    let default = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        default.status.success(),
+        "{}",
+        String::from_utf8_lossy(&default.stderr)
+    );
+    let default_err = String::from_utf8_lossy(&default.stderr);
+    assert!(
+        !default_err.contains("--always-archive forces a local archive for every project"),
+        "{default_err}"
+    );
 }
 
 #[test]
@@ -5860,6 +5920,10 @@ fn init_writes_starter_config() {
     assert!(text.contains("--exclude-git-metadata"), "{text}");
     assert!(text.contains("--incremental"), "{text}");
     assert!(text.contains("--include-artifacts"), "{text}");
+    assert!(
+        text.contains("--always-archive forces a local archive for every project"),
+        "{text}"
+    );
     assert!(
         text.contains("encrypted archives need the same passphrase"),
         "{text}"

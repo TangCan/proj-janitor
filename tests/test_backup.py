@@ -19,6 +19,7 @@ from proj_janitor.backup import (
     format_fail_on_insecure_dest_warning,
     format_check_space_backup_warning,
     format_fail_on_secrets_backup_warning,
+    format_always_archive_backup_warning,
     format_include_artifacts_backup_warning,
     format_incremental_backup_warning,
     run_backup,
@@ -73,6 +74,13 @@ class BackupTests(unittest.TestCase):
             format_include_artifacts_backup_warning(),
             "warning: --include-artifacts archives build caches and dependency trees; "
             "backups may be much larger",
+        )
+
+    def test_format_always_archive_backup_warning(self) -> None:
+        self.assertEqual(
+            format_always_archive_backup_warning(),
+            "warning: --always-archive forces a local archive for every project "
+            "(skips git-only metadata); backups may be much larger",
         )
 
     def test_format_encrypt_backup_warning(self) -> None:

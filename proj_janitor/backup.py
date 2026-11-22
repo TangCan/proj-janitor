@@ -135,6 +135,20 @@ def warn_include_artifacts_backup(enabled: bool) -> None:
     print(format_include_artifacts_backup_warning(), file=sys.stderr)
 
 
+def format_always_archive_backup_warning() -> str:
+    return (
+        "warning: --always-archive forces a local archive for every project "
+        "(skips git-only metadata); backups may be much larger"
+    )
+
+
+def warn_always_archive_backup(enabled: bool) -> None:
+    """Emit a stderr hint when backup forces archive for all projects (CR-185)."""
+    if not enabled:
+        return
+    print(format_always_archive_backup_warning(), file=sys.stderr)
+
+
 def format_encrypt_backup_warning() -> str:
     return (
         "warning: encrypted backups require the same passphrase for restore/verify; "
@@ -331,6 +345,7 @@ def run_backup(
     warn_exclude_git_metadata(exclude_git_metadata)
     warn_incremental_backup(incremental)
     warn_include_artifacts_backup(include_artifacts)
+    warn_always_archive_backup(always_archive)
     warn_encrypt_backup(encrypt_passphrase_file is not None)
     warn_exclude_secrets_backup(exclude_secrets)
     warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
