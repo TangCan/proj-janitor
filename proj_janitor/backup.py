@@ -191,6 +191,20 @@ def warn_fail_on_insecure_dest(enabled: bool) -> None:
     print(format_fail_on_insecure_dest_warning(), file=sys.stderr)
 
 
+def format_check_space_backup_warning() -> str:
+    return (
+        "warning: --check-space refuses archive backups when free disk space "
+        "is below the uncompressed size estimate"
+    )
+
+
+def warn_check_space_backup(enabled: bool) -> None:
+    """Emit a stderr hint when free-space preflight hard-refuses (CR-183)."""
+    if not enabled:
+        return
+    print(format_check_space_backup_warning(), file=sys.stderr)
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -321,6 +335,7 @@ def run_backup(
     warn_exclude_secrets_backup(exclude_secrets)
     warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
     warn_fail_on_insecure_dest(fail_on_insecure_dest)
+    warn_check_space_backup(check_space)
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")

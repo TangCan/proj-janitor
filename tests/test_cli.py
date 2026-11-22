@@ -2037,8 +2037,48 @@ class CliTests(unittest.TestCase):
                 )
 
             self.assertNotEqual(code, 0, err)
+            self.assertIn(
+                "warning: --check-space refuses archive backups when free disk space "
+                "is below the uncompressed size estimate",
+                err,
+            )
             self.assertIn("not enough free space", err)
             self.assertFalse(dest.exists())
+
+    def test_backup_warns_when_check_space(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_pushed_repo(root)
+            dest = root / "backups"
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--check-space",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertIn("[archive] app:", out)
+            self.assertIn(
+                "warning: --check-space refuses archive backups when free disk space "
+                "is below the uncompressed size estimate",
+                err,
+            )
+            self.assertFalse(dest.exists())
+
+            code, out, err = run_cli(
+                "backup",
+                str(root),
+                "--backup-dest",
+                str(dest),
+                "--always-archive",
+                "--dry-run",
+            )
+            self.assertEqual(code, 0, err)
+            self.assertNotIn("refuses archive backups when free disk space", err)
 
     def test_backup_progress_dry_run_estimates_pack_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2170,6 +2210,9 @@ class CliTests(unittest.TestCase):
             )
             self.assertIn(
                 "--fail-on-secrets refuses archives that contain", text
+            )
+            self.assertIn(
+                "--check-space refuses archives when free disk is below", text
             )
             self.assertIn(
                 "decrypting archives needs the matching backup passphrase", text

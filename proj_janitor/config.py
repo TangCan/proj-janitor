@@ -144,6 +144,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup: --keep permanently deletes older manifests/archives after a successful backup
 # - backup: --exclude-secrets omits secret paths from archives (restore will lack those files)
 # - backup: --fail-on-secrets refuses archives that contain common secret paths
+# - backup: --check-space refuses archives when free disk is below the size estimate
 # - restore: decrypting archives needs the matching backup passphrase (keep it private)
 # - restore: --keep-replaced renames replaced targets aside (reclaim .replaced-* disk later)
 # - restore: --rollback-on-error undoes successful restores if a later project fails

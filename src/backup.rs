@@ -117,6 +117,16 @@ pub(crate) fn warn_fail_on_insecure_dest(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_check_space_backup(enabled: bool) {
+    if !enabled {
+        return;
+    }
+    eprintln!(
+        "warning: --check-space refuses archive backups when free disk space \
+         is below the uncompressed size estimate"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -389,6 +399,7 @@ pub(crate) fn backup_cmd(
     warn_exclude_secrets_backup(exclude_secrets);
     warn_fail_on_secrets_backup(fail_on_secrets && !exclude_secrets);
     warn_fail_on_insecure_dest(fail_on_insecure_dest);
+    warn_check_space_backup(check_space);
     if progress && dry {
         eprintln!("progress: would backup {total} project(s)");
     }

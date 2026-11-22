@@ -24,6 +24,7 @@ from proj_janitor.backup import (
     warn_encrypt_backup,
     warn_exclude_git_metadata,
     warn_exclude_secrets_backup,
+    warn_check_space_backup,
     warn_fail_on_secrets_backup,
     warn_fail_on_insecure_dest,
     warn_git_only_backup,
@@ -1105,6 +1106,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
         warn_exclude_secrets_backup(exclude_secrets)
         warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
         warn_fail_on_insecure_dest(fail_on_insecure_dest)
+        warn_check_space_backup(check_space)
         if progress:
             print(
                 f"progress: would backup {len(plans)} project(s)",

@@ -17,6 +17,7 @@ from proj_janitor.backup import (
     format_encrypt_backup_warning,
     format_exclude_secrets_backup_warning,
     format_fail_on_insecure_dest_warning,
+    format_check_space_backup_warning,
     format_fail_on_secrets_backup_warning,
     format_include_artifacts_backup_warning,
     format_incremental_backup_warning,
@@ -100,6 +101,13 @@ class BackupTests(unittest.TestCase):
             format_fail_on_insecure_dest_warning(),
             "warning: --fail-on-insecure-dest refuses destinations with "
             "group/other access on Unix",
+        )
+
+    def test_format_check_space_backup_warning(self) -> None:
+        self.assertEqual(
+            format_check_space_backup_warning(),
+            "warning: --check-space refuses archive backups when free disk space "
+            "is below the uncompressed size estimate",
         )
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "needs Linux byte-path support")

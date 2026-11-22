@@ -4099,7 +4099,37 @@ fn backup_check_space_dry_run_succeeds_when_space_available() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "warning: --check-space refuses archive backups when free disk space \
+             is below the uncompressed size estimate"
+        ),
+        "{stderr}"
+    );
     assert!(!dest.exists());
+
+    let unchecked = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--dry-run",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        unchecked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unchecked.stderr)
+    );
+    let unchecked_stderr = String::from_utf8_lossy(&unchecked.stderr);
+    assert!(
+        !unchecked_stderr.contains("refuses archive backups when free disk space"),
+        "{unchecked_stderr}"
+    );
 }
 
 #[test]
@@ -5743,6 +5773,10 @@ fn init_writes_starter_config() {
     );
     assert!(
         text.contains("--fail-on-secrets refuses archives that contain"),
+        "{text}"
+    );
+    assert!(
+        text.contains("--check-space refuses archives when free disk is below"),
         "{text}"
     );
     assert!(
