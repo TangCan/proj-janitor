@@ -1539,6 +1539,11 @@ class WindowsComponentTests(unittest.TestCase):
             "ℂ𝕆ℕ",
             "ⒸⓄⓃ",
             "ＣＯＭ１",
+            "CON",
+            "CON.",
+            "CON.txt",
+            "COM1.",
+            "COM1 ",
         )
         for name in rejected:
             with self.subTest(name=name):
@@ -1557,6 +1562,8 @@ class WindowsComponentTests(unittest.TestCase):
             "COM",
             "СОН",
             "ΟΝ",
+            "CONSOLE",
+            "MYCON",
         )
         for name in allowed:
             with self.subTest(name=name):
