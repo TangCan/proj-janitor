@@ -2553,7 +2553,8 @@ class RestorePlanValidationTests(unittest.TestCase):
                 [self._git("App"), self._git("app", "b" * 40)],
             )
             with self.assertRaisesRegex(
-                RestoreError, "collide on case-insensitive"
+                RestoreError,
+                "duplicate restore target|collide on case-insensitive",
             ):
                 plan_restore(colliding, dest)
 
