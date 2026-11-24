@@ -27,6 +27,7 @@ from proj_janitor.restore import (
     PartialRestoreError,
     _git_args_have_sensitive_remote,
     _probe_lfs_batch,
+    _restore_git_bundle,
     _rewrite_remote_url,
     _validate_remote_url,
     load_manifest,
@@ -2508,6 +2509,210 @@ class RestoreHelperTests(unittest.TestCase):
             return_value=mock.Mock(returncode=1, stdout=""),
         ):
             self.assertEqual(_rewrite_remote_url(url), url)
+
+
+class RestorePlanValidationTests(unittest.TestCase):
+    commit = "a" * 40
+
+    def _manifest(self, root: Path, records: list[dict]) -> Path:
+        path = root / "manifest.json"
+        path.write_text(
+            json.dumps({"schema_version": 2, "records": records}),
+            encoding="utf-8",
+        )
+        return path
+
+    def _git(self, project: str = "app", commit: str | None = None) -> dict:
+        return {
+            "project": project,
+            "strategy": "git",
+            "remote_url": "https://github.com/acme/app.git",
+            "commit": commit or self.commit,
+            "branch": "main",
+        }
+
+    def test_plan_restore_rejects_bad_destination_and_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "dest"
+            dest.write_text("x", encoding="utf-8")
+            manifest = self._manifest(root, [self._git()])
+            with self.assertRaisesRegex(RestoreError, "not a directory"):
+                plan_restore(manifest, dest)
+
+            dest.unlink()
+            dest.mkdir()
+            duplicate = self._manifest(
+                root, [self._git(), self._git(commit="b" * 40)]
+            )
+            with self.assertRaisesRegex(RestoreError, "duplicate project"):
+                plan_restore(duplicate, dest)
+
+            colliding = self._manifest(
+                root,
+                [self._git("App"), self._git("app", "b" * 40)],
+            )
+            with self.assertRaisesRegex(
+                RestoreError, "collide on case-insensitive"
+            ):
+                plan_restore(colliding, dest)
+
+    def test_plan_restore_rejects_invalid_git_and_bundle_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "dest"
+            dest.mkdir()
+            manifest = self._manifest(
+                root, [self._git(commit="short")]
+            )
+            with self.assertRaisesRegex(RestoreError, "invalid commit"):
+                plan_restore(manifest, dest)
+
+            bundle = root / "app.bundle"
+            bundle.write_bytes(b"bundle")
+            missing_sha = self._manifest(
+                root,
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git_bundle",
+                        "archive": str(bundle),
+                        "commit": self.commit,
+                        "branch": "main",
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(RestoreError, "no sha256"):
+                plan_restore(missing_sha, dest)
+
+            bad_commit = self._manifest(
+                root,
+                [
+                    {
+                        "project": "app",
+                        "strategy": "git_bundle",
+                        "archive": str(bundle),
+                        "commit": "abc",
+                        "branch": "main",
+                        "sha256": "0" * 64,
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(RestoreError, "invalid commit"):
+                plan_restore(bad_commit, dest)
+
+    def test_plan_restore_rejects_bad_archives_and_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "dest"
+            dest.mkdir()
+            archive = root / "app.tar.gz"
+            archive.write_bytes(b"archive")
+
+            bad_sha = self._manifest(
+                root,
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                        "sha256": 1,
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(RestoreError, "invalid sha256"):
+                plan_restore(bad_sha, dest)
+
+            missing_sha = self._manifest(
+                root,
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(RestoreError, "--no-verify"):
+                plan_restore(missing_sha, dest)
+
+            unsupported = self._manifest(
+                root, [{"project": "app", "strategy": "rsync"}]
+            )
+            with self.assertRaisesRegex(
+                RestoreError, "unsupported backup strategy"
+            ):
+                plan_restore(unsupported, dest)
+
+    def test_verify_manifest_rejects_bad_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            duplicate = self._manifest(
+                root, [self._git(), self._git(commit="b" * 40)]
+            )
+            with self.assertRaisesRegex(RestoreError, "duplicate project"):
+                verify_manifest(duplicate)
+
+            archive = root / "app.tar.gz"
+            archive.write_bytes(b"archive")
+            missing_sha = self._manifest(
+                root,
+                [
+                    {
+                        "project": "app",
+                        "strategy": "archive",
+                        "archive": str(archive),
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(RestoreError, "no sha256"):
+                verify_manifest(missing_sha)
+
+            invalid = self._manifest(
+                root, [self._git(commit="short")]
+            )
+            with self.assertRaisesRegex(RestoreError, "invalid commit"):
+                verify_manifest(invalid)
+
+    def test_git_bundle_restore_guard_clauses(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            incomplete = RestorePlan(
+                project="app",
+                strategy="git_bundle",
+                target=root / "app",
+            )
+            with self.assertRaisesRegex(RestoreError, "incomplete"):
+                _restore_git_bundle(incomplete, verify=True)
+
+            target = root / "app"
+            target.mkdir()
+            bundle = root / "app.bundle"
+            bundle.write_bytes(b"bundle")
+            existing = RestorePlan(
+                project="app",
+                strategy="git_bundle",
+                target=target,
+                archive=bundle,
+                commit=self.commit,
+                branch="main",
+            )
+            with self.assertRaisesRegex(RestoreError, "already exists"):
+                _restore_git_bundle(existing, verify=True)
+
+            encrypted = RestorePlan(
+                project="app",
+                strategy="git_bundle",
+                target=root / "other",
+                archive=bundle,
+                commit=self.commit,
+                branch="main",
+                encryption="openssl-aes-256-cbc-pbkdf2",
+            )
+            with self.assertRaisesRegex(RestoreError, "decrypt-passphrase-file"):
+                _restore_git_bundle(encrypted, verify=True)
 
 
 if __name__ == "__main__":
