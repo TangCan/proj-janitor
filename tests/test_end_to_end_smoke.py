@@ -107,9 +107,8 @@ class EndToEndSmokeTests(unittest.TestCase):
 
             tampered = root / "tampered"
             shutil.copytree(dest, tampered)
-            tampered_manifest = tampered / manifests[0].relative_to(dest)
-            archive = Path(records[0].archive)
-            tampered_archive = tampered / archive.relative_to(dest)
+            tampered_manifest = next(tampered.rglob("manifest-*.json"))
+            tampered_archive = next(tampered.rglob("*.tar.gz"))
             tampered_archive.write_bytes(tampered_archive.read_bytes() + b"tamper")
             document = json.loads(tampered_manifest.read_text(encoding="utf-8"))
             document["records"][0]["archive"] = str(tampered_archive)
