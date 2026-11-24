@@ -15,7 +15,10 @@ use crate::project::git_compatible_path;
 use crate::project::{
     github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
 };
-use crate::restore::{RemoteProbe, probe_remote, redact_remote, restore_cmd, validate_git_restore};
+use crate::restore::{
+    RemoteProbe, probe_lfs_batch_for_test, probe_remote, redact_remote, restore_cmd,
+    validate_git_restore,
+};
 use crate::retention::{apply_retention_plan, plan_retention};
 use flate2::{Compression, write::GzEncoder};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -3091,4 +3094,67 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
     ] {
         assert!(safe_windows_component(name), "expected safe: {name}");
     }
+}
+
+fn serve_lfs_once(status: &str, body: &str) -> (String, std::thread::JoinHandle<()>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let status = status.to_owned();
+    let body = body.to_owned();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0u8; 4096];
+        let _ = std::io::Read::read(&mut stream, &mut buffer);
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/vnd.git-lfs+json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+    });
+    (format!("http://{address}/repo"), handle)
+}
+
+#[test]
+fn lfs_batch_probe_maps_statuses() {
+    let sized = vec![crate::LfsObjectRef::Object {
+        oid: "o1".into(),
+        size: 10,
+    }];
+    let mixed = vec![
+        crate::LfsObjectRef::Object {
+            oid: "o1".into(),
+            size: 10,
+        },
+        crate::LfsObjectRef::Oid("o5".into()),
+    ];
+
+    let (url, handle) = serve_lfs_once(
+        "200 OK",
+        r#"{"objects":[{"oid":"o1","size":10,"actions":{"download":{"href":"x"}}}]}"#,
+    );
+    let checks = probe_lfs_batch_for_test(&url, &mixed).unwrap();
+    handle.join().unwrap();
+    assert_eq!(
+        checks,
+        vec![
+            ("o1".into(), Some(10), "lfs-verified", None),
+            ("o5".into(), None, "lfs-skipped", Some("oid-only-no-size")),
+        ]
+    );
+
+    let (url, handle) = serve_lfs_once("404 Not Found", "");
+    let checks = probe_lfs_batch_for_test(&url, &sized).unwrap();
+    handle.join().unwrap();
+    assert_eq!(checks[0].2, "lfs-missing");
+    assert_eq!(checks[0].3, Some("lfs-batch-not-found"));
+
+    let (url, handle) = serve_lfs_once("401 Unauthorized", "");
+    let checks = probe_lfs_batch_for_test(&url, &sized).unwrap();
+    handle.join().unwrap();
+    assert_eq!(checks[0].3, Some("lfs-auth-required"));
+
+    let (url, handle) = serve_lfs_once("200 OK", "{");
+    let checks = probe_lfs_batch_for_test(&url, &sized).unwrap();
+    handle.join().unwrap();
+    assert_eq!(checks[0].3, Some("lfs-batch-invalid-json"));
 }

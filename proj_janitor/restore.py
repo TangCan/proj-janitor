@@ -1107,7 +1107,17 @@ def _probe_lfs_batch(
             }
             for oid, size in batch
         ] + checks
-    except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return [
+            {
+                "oid": oid,
+                "size": size,
+                "status": "lfs-unreachable",
+                "reason": "lfs-batch-invalid-json",
+            }
+            for oid, size in batch
+        ] + checks
+    except (URLError, TimeoutError, OSError):
         return [
             {
                 "oid": oid,
@@ -1122,10 +1132,11 @@ def _probe_lfs_batch(
         for entry in payload.get("objects") or []
         if isinstance(entry, dict) and isinstance(entry.get("oid"), str)
     }
+    results: list[dict[str, object]] = []
     for oid, size in batch:
         entry = reported.get(oid)
         if entry is None:
-            checks.append(
+            results.append(
                 {
                     "oid": oid,
                     "size": size,
@@ -1134,7 +1145,7 @@ def _probe_lfs_batch(
                 }
             )
         elif entry.get("error") is not None:
-            checks.append(
+            results.append(
                 {
                     "oid": oid,
                     "size": size,
@@ -1145,7 +1156,7 @@ def _probe_lfs_batch(
         elif isinstance(entry.get("actions"), dict) and entry["actions"].get(
             "download"
         ):
-            checks.append(
+            results.append(
                 {
                     "oid": oid,
                     "size": size,
@@ -1154,7 +1165,7 @@ def _probe_lfs_batch(
                 }
             )
         else:
-            checks.append(
+            results.append(
                 {
                     "oid": oid,
                     "size": size,
@@ -1162,7 +1173,7 @@ def _probe_lfs_batch(
                     "reason": "no-download-action",
                 }
             )
-    return checks
+    return results + checks
 
 
 def verify_manifest(

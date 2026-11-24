@@ -1228,6 +1228,7 @@ fn probe_lfs_batch(
             by_oid.insert(oid.to_owned(), entry);
         }
     }
+    let mut results = Vec::with_capacity(batch.len());
     for (oid, size) in batch {
         let check = match by_oid.get(&oid) {
             Some(entry) if entry.get("error").is_some() => LfsCheck {
@@ -1261,9 +1262,24 @@ fn probe_lfs_batch(
                 reason: Some("lfs-batch-incomplete"),
             },
         };
-        checks.push(check);
+        results.push(check);
     }
-    Ok(checks)
+    results.extend(checks);
+    Ok(results)
+}
+
+#[cfg(test)]
+pub(crate) type LfsCheckTuple = (String, Option<u64>, &'static str, Option<&'static str>);
+
+#[cfg(test)]
+pub(crate) fn probe_lfs_batch_for_test(
+    remote_url: &str,
+    objects: &[crate::LfsObjectRef],
+) -> anyhow::Result<Vec<LfsCheckTuple>> {
+    Ok(probe_lfs_batch(remote_url, objects)?
+        .into_iter()
+        .map(|check| (check.oid, check.size, check.status, check.reason))
+        .collect())
 }
 
 #[allow(clippy::too_many_arguments)]

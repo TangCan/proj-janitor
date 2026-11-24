@@ -18,12 +18,14 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+from urllib.error import HTTPError, URLError
 
 from proj_janitor.backup import run_backup, sha256_file
 import proj_janitor.restore as restore_module
 import proj_janitor.scanner as scanner_module
 from proj_janitor.restore import (
     PartialRestoreError,
+    _probe_lfs_batch,
     RestoreError,
     execute_restore,
     format_decrypt_restore_warning,
@@ -2380,6 +2382,128 @@ class RestoreRemoteCheckTests(unittest.TestCase):
                 restore_from_manifest(manifest, restored, check_remote=True)
 
             self.assertFalse((restored / "app").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class LfsBatchProbeTests(unittest.TestCase):
+    class _Response:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def read(self) -> bytes:
+            return self.payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+    def _probe(self, payload: bytes, objects):
+        with mock.patch.object(
+            restore_module, "urlopen", return_value=self._Response(payload)
+        ) as urlopen:
+            checks = _probe_lfs_batch("https://example.com/acme/app", objects)
+        return checks, urlopen
+
+    def test_oid_only_is_skipped_without_network(self) -> None:
+        with mock.patch.object(restore_module, "urlopen") as urlopen:
+            checks = _probe_lfs_batch(
+                "https://example.com/acme/app", [("a" * 64, None)]
+            )
+        urlopen.assert_not_called()
+        self.assertEqual(
+            checks,
+            [
+                {
+                    "oid": "a" * 64,
+                    "size": None,
+                    "status": "lfs-skipped",
+                    "reason": "oid-only-no-size",
+                }
+            ],
+        )
+
+    def test_batch_results_precede_skipped_entries(self) -> None:
+        payload = json.dumps(
+            {
+                "objects": [
+                    {"oid": "o1", "size": 10, "actions": {"download": {"href": "x"}}},
+                    {"oid": "o2", "size": 20, "error": {"code": 404}},
+                    {"oid": "o3", "size": 30},
+                ]
+            }
+        ).encode("utf-8")
+        checks, urlopen = self._probe(
+            payload,
+            [("o1", 10), ("o2", 20), ("o3", 30), ("o4", 40), ("o5", None)],
+        )
+        urlopen.assert_called_once()
+        self.assertEqual(
+            [(check["oid"], check["status"], check["reason"]) for check in checks],
+            [
+                ("o1", "lfs-verified", None),
+                ("o2", "lfs-missing", "object-not-found"),
+                ("o3", "lfs-missing", "no-download-action"),
+                ("o4", "lfs-unreachable", "lfs-batch-incomplete"),
+                ("o5", "lfs-skipped", "oid-only-no-size"),
+            ],
+        )
+
+    def test_http_errors_map_to_lfs_statuses(self) -> None:
+        objects = [("o1", 10), ("o2", 20), ("o3", None)]
+        cases = (
+            (404, "lfs-missing", "lfs-batch-not-found"),
+            (401, "lfs-unreachable", "lfs-auth-required"),
+            (403, "lfs-unreachable", "lfs-auth-required"),
+            (500, "lfs-unreachable", "lfs-batch-failed"),
+        )
+        for code, status, reason in cases:
+            with self.subTest(code=code):
+                error = HTTPError(
+                    "https://example.com/acme/app/info/lfs/objects/batch",
+                    code,
+                    "failed",
+                    None,
+                    None,
+                )
+                with mock.patch.object(restore_module, "urlopen", side_effect=error):
+                    checks = _probe_lfs_batch(
+                        "https://example.com/acme/app", objects
+                    )
+                self.assertEqual(
+                    [(check["oid"], check["status"], check["reason"]) for check in checks],
+                    [
+                        ("o1", status, reason),
+                        ("o2", status, reason),
+                        ("o3", "lfs-skipped", "oid-only-no-size"),
+                    ],
+                )
+
+    def test_network_and_invalid_json_map_to_failed_or_invalid(self) -> None:
+        with mock.patch.object(
+            restore_module, "urlopen", side_effect=URLError("offline")
+        ):
+            checks = _probe_lfs_batch(
+                "https://example.com/acme/app", [("o1", 10)]
+            )
+        self.assertEqual(checks[0]["reason"], "lfs-batch-failed")
+
+        checks, _ = self._probe(b"{", [("o1", 10)])
+        self.assertEqual(checks[0]["reason"], "lfs-batch-invalid-json")
+
+        with mock.patch.object(
+            restore_module,
+            "urlopen",
+            return_value=self._Response(b"\xff"),
+        ):
+            checks = _probe_lfs_batch(
+                "https://example.com/acme/app", [("o1", 10)]
+            )
+        self.assertEqual(checks[0]["reason"], "lfs-batch-invalid-json")
 
 
 if __name__ == "__main__":
