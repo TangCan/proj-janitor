@@ -15,6 +15,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -28,6 +29,7 @@ from proj_janitor.restore import (
     _git_args_have_sensitive_remote,
     _probe_lfs_batch,
     _extract_incremental_delta,
+    _publish_restored_tree,
     _restore_git_bundle,
     _restore_incremental,
     _rewrite_remote_url,
@@ -50,7 +52,7 @@ from proj_janitor.restore import (
     verify_manifest,
 )
 from proj_janitor.scanner import scan_project
-from tests.support import GIT_AVAILABLE, git, init_repo, make_pushed_repo
+from tests.support import GIT_AVAILABLE, commit_all, git, init_repo, make_pushed_repo
 
 GIT_LFS_AVAILABLE = shutil.which("git-lfs") is not None
 
@@ -3023,6 +3025,133 @@ class ExecuteRestoreGuardTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RestoreError, "cannot restore app"):
                 execute_restore([plan], verify=False)
+
+
+class PublishRestoredTreeTests(unittest.TestCase):
+    def test_existing_file_target_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staged = root / "staged"
+            staged.mkdir()
+            (staged / "file.txt").write_text("x", encoding="utf-8")
+            target = root / "target"
+            target.write_text("file", encoding="utf-8")
+            with self.assertRaisesRegex(
+                RestoreError, "not a directory"
+            ):
+                _publish_restored_tree(staged, target, force=True)
+
+    def test_existing_directory_requires_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staged = root / "staged"
+            staged.mkdir()
+            target = root / "target"
+            target.mkdir()
+            with self.assertRaisesRegex(
+                RestoreError, "already exists"
+            ):
+                _publish_restored_tree(staged, target, force=False)
+
+
+class GitBundleExecutionTests(unittest.TestCase):
+    def _bundle(self, root: Path):
+        from proj_janitor.models import RestorePlan
+
+        repo = root / "repo"
+        repo.mkdir()
+        init_repo(repo)
+        (repo / "file.txt").write_text("bundle payload", encoding="utf-8")
+        commit_all(repo)
+        bundle = root / "app.bundle"
+        git(repo, "bundle", "create", str(bundle), "--all")
+        commit = git(repo, "rev-parse", "HEAD")
+        plan = RestorePlan(
+            project="app",
+            strategy="git_bundle",
+            target=root / "out" / "app",
+            archive=bundle,
+            commit=commit,
+            branch="main",
+            sha256=sha256_file(bundle),
+        )
+        return plan
+
+    def test_restores_bundle_and_rejects_invalid_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = self._bundle(root)
+            _restore_git_bundle(plan, verify=True)
+            self.assertEqual(
+                (plan.target / "file.txt").read_text(encoding="utf-8"),
+                "bundle payload",
+            )
+
+            invalid = replace(
+                plan,
+                target=root / "bad" / "app",
+                branch="bad..name",
+            )
+            with self.assertRaisesRegex(RestoreError, "invalid branch"):
+                _restore_git_bundle(invalid, verify=True)
+
+    def test_commit_mismatch_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = self._bundle(root)
+            original = restore_module._run_git
+
+            def fake_run(args, **kwargs):
+                result = original(args, **kwargs)
+                if (
+                    "rev-parse" in args
+                    and args[-1] == "HEAD"
+                    and result.returncode == 0
+                ):
+                    result.stdout = "f" * 40 + "\n"
+                return result
+
+            with mock.patch.object(
+                restore_module, "_run_git", side_effect=fake_run
+            ):
+                with self.assertRaisesRegex(RestoreError, "commit mismatch"):
+                    _restore_git_bundle(plan, verify=True)
+
+    def test_rollback_after_partial_restore(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "a.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                info = tarfile.TarInfo("a/file.txt")
+                payload = b"restored"
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+
+            target_a = root / "out" / "a"
+            target_b = root / "out" / "b"
+            plans = [
+                RestorePlan(
+                    project="a",
+                    strategy="archive",
+                    target=target_a,
+                    archive=archive,
+                ),
+                RestorePlan(
+                    project="b",
+                    strategy="archive",
+                    target=target_b,
+                    archive=root / "missing.tar.gz",
+                ),
+            ]
+            with self.assertRaisesRegex(RestoreError, "rolled back"):
+                execute_restore(
+                    plans,
+                    verify=False,
+                    rollback_on_error=True,
+                )
+            self.assertFalse(target_a.exists())
 
 
 if __name__ == "__main__":
