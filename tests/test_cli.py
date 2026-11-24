@@ -3846,6 +3846,157 @@ class VerifyFormattingTests(unittest.TestCase):
         self.assertIn("(overwrite)", output)
 
 
+class CommandErrorPathTests(unittest.TestCase):
+    def _make_backups(self, root: Path) -> Path:
+        backups = root / "backups"
+        directory = backups / "demo"
+        directory.mkdir(parents=True)
+        for stamp in ("20261101-100000", "20261102-100000"):
+            archive = directory / f"demo-{stamp}.tar.gz"
+            archive.write_bytes(b"x" * 16)
+            manifest = directory / f"manifest-{stamp}.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "records": [
+                            {
+                                "project": "demo",
+                                "strategy": "archive",
+                                "archive": str(archive),
+                                "archive_bytes": 16,
+                                "source_bytes": 16,
+                                "sha256": "0" * 64,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return backups
+
+    def test_prune_dry_run_lists_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._make_backups(Path(tmp))
+            code, out, err = run_cli("prune", str(backups), "--keep", "1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Prune plan for", out)
+        self.assertIn("Dry run.", out)
+        self.assertIn("artifact(s)", out)
+
+    def test_prune_apply_json_requires_yes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._make_backups(Path(tmp))
+            code, _, err = run_cli(
+                "prune", str(backups), "--keep", "1", "--apply", "--json"
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("--yes", err)
+
+    def test_prune_apply_interactive_abort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._make_backups(Path(tmp))
+            with (
+                mock.patch("sys.stdin.isatty", return_value=True),
+                mock.patch("builtins.input", return_value="n"),
+            ):
+                code, out, _ = run_cli(
+                    "prune", str(backups), "--keep", "1", "--apply"
+                )
+        self.assertEqual(code, 2)
+        self.assertIn("Aborted.", out)
+
+    def test_prune_config_and_missing_root_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backups = self._make_backups(root)
+            code, _, err = run_cli(
+                "prune",
+                str(backups),
+                "--keep",
+                "1",
+                "--config",
+                str(root / "missing.toml"),
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("error:", err)
+
+            code, _, err = run_cli(
+                "prune", str(root / "missing"), "--keep", "1"
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("error:", err)
+
+    def test_clean_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            code, _, err = run_cli(
+                "clean",
+                str(project),
+                "--config",
+                str(root / "missing.toml"),
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("error:", err)
+
+    def test_clean_json_apply_interactive_abort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            with (
+                mock.patch("sys.stdin.isatty", return_value=True),
+                mock.patch("builtins.input", return_value="n"),
+            ):
+                code, out, err = run_cli(
+                    "clean", str(project), "--json", "--apply"
+                )
+        self.assertEqual(code, 2)
+        self.assertIn("Aborted.", err)
+        json.loads(out)
+
+    def test_backup_no_projects_and_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            empty = root / "empty"
+            empty.mkdir()
+            code, _, err = run_cli(
+                "backup", str(empty), "--backup-dest", str(root / "dest")
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("No projects found.", err)
+
+            project = make_project(root)
+            code, _, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(root / "dest"),
+                "--config",
+                str(root / "missing.toml"),
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("error:", err)
+
+    def test_retain_after_backup_abort_and_error(self) -> None:
+        from proj_janitor.cli import _retain_after_backup
+
+        with tempfile.TemporaryDirectory() as tmp:
+            backups = self._make_backups(Path(tmp))
+            buffer = io.StringIO()
+            with (
+                redirect_stdout(buffer),
+                mock.patch("sys.stdin.isatty", return_value=True),
+                mock.patch("builtins.input", return_value="n"),
+            ):
+                code = _retain_after_backup(backups, 1, False)
+            self.assertEqual(code, 0)
+            self.assertIn("Retention skipped.", buffer.getvalue())
+
+            code = _retain_after_backup(Path(tmp) / "missing", 1, True)
+            self.assertEqual(code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
