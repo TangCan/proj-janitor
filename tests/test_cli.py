@@ -3059,7 +3059,7 @@ class GitCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertIn("[archive] app:", out)
-            self.assertNotIn("git-only metadata", err)
+            self.assertNotIn("will use git-only metadata", err)
 
             manifest_path = next(dest.glob("*/manifest-*.json"))
             manifest = json.loads(

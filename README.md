@@ -44,12 +44,12 @@ Rust 版首次从源码安装需要 Cargo 下载依赖；安装完成后的程�
 
 ### Python 版
 
-Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.52`；发布说明见 [Python 0.1.52 发布记录](docs/发布记录/0.1.52-Python版.md)。推荐安装：
+Python 实现支持 Python `>=3.10`；除 Python 3.10 依赖 `tomli`（3.11+ 用标准库 `tomllib`）外无第三方运行时依赖。源码元数据版本为 `0.1.88`；发布说明见 [Python 0.1.88 发布记录](docs/发布记录/0.1.88-Python版.md)。推荐安装：
 
 ```bash
 pipx install proj-janitor
 # 或
-pip install proj-janitor==0.1.52
+pip install proj-janitor==0.1.88
 ```
 
 从 Git 安装最新 main，或开发时需要可编辑源码安装：

@@ -154,27 +154,21 @@ mod tests {
         );
         assert!(text.contains("require_dest = true"));
         assert!(text.contains("--require-dest refuses restore without an explicit --dest"));
-        assert!(text.contains(
-            "--allowed-root restricts targets to whitelist roots"
-        ));
+        assert!(text.contains("--allowed-root restricts targets to whitelist roots"));
         assert!(text.contains("fail_on_insecure_dest = true"));
         assert!(text.contains("--fail-on-insecure-dest refuses group/other-accessible dest dirs"));
         assert!(text.contains("checkout_branch = true"));
-        assert!(text.contains(
-            "--checkout-branch creates/resets the local branch via checkout -B"
-        ));
+        assert!(text.contains("--checkout-branch creates/resets the local branch via checkout -B"));
         assert!(text.contains("keep_replaced = true"));
         assert!(text.contains("rollback_on_error = true"));
         assert!(text.contains("--skip-existing"));
         assert!(text.contains("--no-verify"));
         assert!(text.contains("--include-unmarked"));
-        assert!(text.contains(
-            "--include-unmarked treats unmarked ROOT dirs as projects themselves"
-        ));
+        assert!(
+            text.contains("--include-unmarked treats unmarked ROOT dirs as projects themselves")
+        );
         assert!(text.contains("--always-archive"));
-        assert!(text.contains(
-            "--always-archive forces a local archive for every project"
-        ));
+        assert!(text.contains("--always-archive forces a local archive for every project"));
         assert!(text.contains("--exclude-git-metadata"));
         assert!(text.contains("--incremental"));
         assert!(text.contains("--include-artifacts"));

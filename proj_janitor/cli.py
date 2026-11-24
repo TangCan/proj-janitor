@@ -1971,7 +1971,9 @@ def _cmd_clean(args: argparse.Namespace) -> int:
         config.clean.progress if config else False,
     )
 
-    projects, failures = _collect_projects(args.roots, include_unmarked=False)
+    projects, failures = _collect_projects(
+        args.roots, include_unmarked=False, warn_unmarked=False
+    )
     total_projects = len(projects)
     progress_started = time.monotonic() if progress else None
     if progress:
@@ -2053,6 +2055,8 @@ def _cmd_clean(args: argparse.Namespace) -> int:
 def _collect_projects(
     roots: Iterable[Path],
     include_unmarked: bool,
+    *,
+    warn_unmarked: bool = True,
 ) -> tuple[list[Project], int]:
     projects: list[Project] = []
     failures = 0
@@ -2066,7 +2070,8 @@ def _collect_projects(
             continue
         expanded = root.expanduser()
         if (
-            not include_unmarked
+            warn_unmarked
+            and not include_unmarked
             and found
             and expanded.is_dir()
             and not is_project(expanded)

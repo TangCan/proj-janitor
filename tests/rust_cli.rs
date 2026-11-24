@@ -1024,9 +1024,7 @@ fn backup_warns_when_including_artifacts() {
         "{archived_err}"
     );
     assert!(
-        archived_err.contains(
-            "warning: --always-archive forces a local archive for every project"
-        ),
+        archived_err.contains("warning: --always-archive forces a local archive for every project"),
         "{archived_err}"
     );
 }
@@ -1059,9 +1057,7 @@ fn backup_warns_when_always_archive() {
     let stderr = String::from_utf8_lossy(&archived.stderr);
     assert!(stdout.contains("[archive] app:"), "{stdout}");
     assert!(
-        stderr.contains(
-            "warning: --always-archive forces a local archive for every project"
-        ),
+        stderr.contains("warning: --always-archive forces a local archive for every project"),
         "{stderr}"
     );
     assert!(stderr.contains("skips git-only metadata"), "{stderr}");
@@ -1280,7 +1276,7 @@ fn backup_warns_when_using_git_only_metadata() {
     let archived_err = String::from_utf8_lossy(&archived.stderr);
     assert!(archived_out.contains("[archive] app:"), "{archived_out}");
     assert!(
-        !archived_err.contains("git-only metadata"),
+        !archived_err.contains("will use git-only metadata"),
         "{archived_err}"
     );
 }
@@ -1345,9 +1341,8 @@ fn backup_include_unmarked_treats_parent_as_project() {
         "{unmarked_err}"
     );
     assert!(
-        unmarked_err.contains(
-            "warning: --include-unmarked treats unmarked ROOT directories as projects"
-        ),
+        unmarked_err
+            .contains("warning: --include-unmarked treats unmarked ROOT directories as projects"),
         "{unmarked_err}"
     );
 
@@ -1390,9 +1385,8 @@ fn backup_include_unmarked_treats_parent_as_project() {
     let scan_err = String::from_utf8_lossy(&scan.stderr);
     assert!(!scan_err.contains("has no project markers"), "{scan_err}");
     assert!(
-        scan_err.contains(
-            "warning: --include-unmarked treats unmarked ROOT directories as projects"
-        ),
+        scan_err
+            .contains("warning: --include-unmarked treats unmarked ROOT directories as projects"),
         "{scan_err}"
     );
     let payload: serde_json::Value = serde_json::from_slice(&scan.stdout).unwrap();
@@ -3217,7 +3211,11 @@ fn cli_deduplicates_overlapping_roots_for_backup_and_clean() {
     );
     let actions: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
     assert_eq!(actions.as_array().unwrap().len(), 1);
-    assert!(applied.stderr.is_empty());
+    assert!(
+        String::from_utf8_lossy(&applied.stderr).contains("clean --apply will permanently delete"),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
     assert!(!project.join("target/cache").exists());
 }
 
@@ -3979,12 +3977,13 @@ fn restore_warns_when_allowed_root() {
     );
     let stderr = String::from_utf8_lossy(&warned.stderr);
     assert!(
-        stderr.contains(
-            "warning: --allowed-root restricts restore targets to the given root(s)"
-        ),
+        stderr.contains("warning: --allowed-root restricts restore targets to the given root(s)"),
         "{stderr}"
     );
-    assert!(stderr.contains("paths outside them are refused"), "{stderr}");
+    assert!(
+        stderr.contains("paths outside them are refused"),
+        "{stderr}"
+    );
 
     let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["restore", "--dry-run", "--dest"])
@@ -4050,9 +4049,7 @@ fn restore_allowed_root_refuses_outside_target() {
     );
     let stderr = String::from_utf8_lossy(&blocked.stderr);
     assert!(
-        stderr.contains(
-            "warning: --allowed-root restricts restore targets to the given root(s)"
-        ),
+        stderr.contains("warning: --allowed-root restricts restore targets to the given root(s)"),
         "{stderr}"
     );
     assert!(stderr.contains("outside allowed roots"), "{stderr}");
@@ -4072,9 +4069,8 @@ fn restore_allowed_root_refuses_outside_target() {
     );
     let allowed_stderr = String::from_utf8_lossy(&allowed_ok.stderr);
     assert!(
-        allowed_stderr.contains(
-            "warning: --allowed-root restricts restore targets to the given root(s)"
-        ),
+        allowed_stderr
+            .contains("warning: --allowed-root restricts restore targets to the given root(s)"),
         "{allowed_stderr}"
     );
 }
@@ -4187,12 +4183,7 @@ fn backup_check_space_dry_run_succeeds_when_space_available() {
     assert!(!dest.exists());
 
     let unchecked = Command::new(env!("CARGO_BIN_EXE_projjan"))
-        .args([
-            "backup",
-            "--always-archive",
-            "--dry-run",
-            "--backup-dest",
-        ])
+        .args(["backup", "--always-archive", "--dry-run", "--backup-dest"])
         .arg(&dest)
         .arg(&project)
         .output()
