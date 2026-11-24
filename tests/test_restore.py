@@ -27,7 +27,9 @@ from proj_janitor.restore import (
     PartialRestoreError,
     _git_args_have_sensitive_remote,
     _probe_lfs_batch,
+    _extract_incremental_delta,
     _restore_git_bundle,
+    _restore_incremental,
     _rewrite_remote_url,
     _validate_remote_url,
     load_manifest,
@@ -2714,6 +2716,172 @@ class RestorePlanValidationTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RestoreError, "decrypt-passphrase-file"):
                 _restore_git_bundle(encrypted, verify=True)
+
+
+class IncrementalDeltaTests(unittest.TestCase):
+    def _archive(self, root: Path, entries, name: str = "delta.tar.gz") -> Path:
+        path = root / name
+        with tarfile.open(path, "w:gz") as tar:
+            for entry in entries:
+                info = tarfile.TarInfo(entry["name"])
+                if entry.get("type") is not None:
+                    info.type = entry["type"]
+                if entry.get("linkname") is not None:
+                    info.linkname = entry["linkname"]
+                if entry.get("type") in (
+                    tarfile.DIRTYPE,
+                    tarfile.SYMTYPE,
+                    tarfile.LNKTYPE,
+                    tarfile.FIFOTYPE,
+                ):
+                    tar.addfile(info)
+                    continue
+                payload = entry.get("data", b"x")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+        return path
+
+    def test_extract_delta_rejects_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self._archive(root, [{"name": "app/a.txt", "data": b"a"}])
+            with self.assertRaisesRegex(RestoreError, "sha256 mismatch"):
+                _extract_incremental_delta(
+                    archive, root / "out", "app", "0" * 64
+                )
+
+    def test_extract_delta_rejects_outside_project_and_unsafe_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = self._archive(
+                root, [{"name": "other/a.txt", "data": b"a"}], "outside.tar.gz"
+            )
+            with self.assertRaisesRegex(RestoreError, "outside project"):
+                _extract_incremental_delta(outside, root / "out", "app", None)
+
+            unsafe = self._archive(
+                root,
+                [{"name": "app/../escape.txt", "data": b"a"}],
+                "unsafe.tar.gz",
+            )
+            with self.assertRaises(RestoreError):
+                _extract_incremental_delta(unsafe, root / "out", "app", None)
+
+    def test_extract_delta_rejects_duplicates_and_case_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            duplicate = self._archive(
+                root,
+                [
+                    {"name": "app/a.txt", "data": b"a"},
+                    {"name": "app/a.txt", "data": b"b"},
+                ],
+                "duplicate.tar.gz",
+            )
+            with self.assertRaisesRegex(RestoreError, "duplicate path"):
+                _extract_incremental_delta(duplicate, root / "out", "app", None)
+
+            collision = self._archive(
+                root,
+                [
+                    {"name": "app/File.txt", "data": b"a"},
+                    {"name": "app/file.txt", "data": b"b"},
+                ],
+                "collision.tar.gz",
+            )
+            with self.assertRaisesRegex(RestoreError, "collide on case-insensitive"):
+                _extract_incremental_delta(collision, root / "out", "app", None)
+
+    def test_extract_delta_rejects_links_and_special_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hardlink = self._archive(
+                root,
+                [
+                    {
+                        "name": "app/link.txt",
+                        "type": tarfile.LNKTYPE,
+                        "linkname": "app/a.txt",
+                    }
+                ],
+                "hardlink.tar.gz",
+            )
+            with self.assertRaisesRegex(RestoreError, "hard link"):
+                _extract_incremental_delta(hardlink, root / "out", "app", None)
+
+            symlink = self._archive(
+                root,
+                [
+                    {
+                        "name": "app/link",
+                        "type": tarfile.SYMTYPE,
+                        "linkname": "../../escape",
+                    }
+                ],
+                "symlink.tar.gz",
+            )
+            with self.assertRaisesRegex(RestoreError, "symlink escapes"):
+                _extract_incremental_delta(symlink, root / "out", "app", None)
+
+            fifo = self._archive(
+                root,
+                [{"name": "app/pipe", "type": tarfile.FIFOTYPE}],
+                "fifo.tar.gz",
+            )
+            with self.assertRaisesRegex(RestoreError, "unsupported entry type"):
+                _extract_incremental_delta(fifo, root / "out", "app", None)
+
+    def test_extract_delta_writes_files_and_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self._archive(
+                root,
+                [
+                    {"name": "app/sub", "type": tarfile.DIRTYPE},
+                    {"name": "app/sub/file.txt", "data": b"payload"},
+                ],
+            )
+            target = root / "out"
+            _extract_incremental_delta(archive, target, "app", None)
+            self.assertEqual(
+                (target / "sub" / "file.txt").read_bytes(), b"payload"
+            )
+
+    def test_incremental_restore_guard_clauses(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            incomplete = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=root / "out",
+                archive=None,
+            )
+            with self.assertRaisesRegex(RestoreError, "incomplete incremental"):
+                _restore_incremental(incomplete, verify=False)
+
+            archive = root / "delta.tar.gz"
+            archive.write_bytes(b"x")
+            no_base = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=root / "out",
+                archive=archive,
+                incremental={"base": ""},
+            )
+            with self.assertRaisesRegex(RestoreError, "no base manifest"):
+                _restore_incremental(no_base, verify=False)
+
+            missing = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=root / "out",
+                archive=archive,
+                incremental={"base": "missing.json"},
+            )
+            with self.assertRaisesRegex(RestoreError, "base manifest not found"):
+                _restore_incremental(missing, verify=False)
 
 
 if __name__ == "__main__":
