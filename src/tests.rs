@@ -3065,13 +3065,29 @@ fn insecure_dir_mode_detects_group_or_other_bits() {
 #[test]
 fn windows_component_rejects_unicode_decimal_device_digits() {
     for name in [
-        "COM1", "LPT9", "COM١", "COM۱", "COM१", "LPT१", "COM๑", "COM১", "COM５", "COM⑤", "COM⁵",
+        "COM1",
+        "LPT9",
+        "COM١",
+        "COM۱",
+        "COM१",
+        "LPT१",
+        "COM๑",
+        "COM১",
+        "COM５",
+        "COM⑤",
+        "COM⁵",
         "COM𝟙",
+        "ＣＯＮ",
+        "ｐｒｎ",
+        "𝐂𝐎𝐍",
+        "ℂ𝕆ℕ",
+        "ⒸⓄⓃ",
+        "ＣＯＭ１",
     ] {
         assert!(!safe_windows_component(name), "expected unsafe: {name}");
     }
     for name in [
-        "COM0", "LPT0", "COM10", "COM四", "COMⅨ", "COM½", "COM⑩", "COM０", "COM",
+        "COM0", "LPT0", "COM10", "COM四", "COMⅨ", "COM½", "COM⑩", "COM０", "COM", "СОН", "ΟΝ",
     ] {
         assert!(safe_windows_component(name), "expected safe: {name}");
     }

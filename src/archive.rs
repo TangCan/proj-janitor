@@ -973,15 +973,14 @@ pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool
     !parts.is_empty() && parts[0] == project
 }
 
-/// Windows reserves `COM1`–`COM9` / `LPT1`–`LPT9`. Normalize the suffix with
-/// NFKC so compatibility forms (fullwidth, circled, superscript) and other
-/// scripts' decimal digits are covered by one rule. ASCII `0` is not a device
-/// number and remains usable.
+/// Windows reserves `COM1`–`COM9` / `LPT1`–`LPT9`. The caller passes an
+/// NFKC-normalized stem, so compatibility forms and other scripts' decimal
+/// digits are covered by one rule. ASCII `0` is not a device number and remains
+/// usable.
 fn is_reserved_device_name(stem: &str) -> bool {
     ["COM", "LPT"].iter().any(|prefix| {
         stem.strip_prefix(prefix).is_some_and(|suffix| {
-            let normalized: String = suffix.nfkc().collect();
-            let mut characters = normalized.chars();
+            let mut characters = suffix.chars();
             matches!(
                 (characters.next(), characters.next()),
                 (Some(character), None)
@@ -1001,7 +1000,8 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
     {
         return false;
     }
-    let stem = name
+    let normalized: String = name.nfkc().collect();
+    let stem = normalized
         .split('.')
         .next()
         .unwrap_or("")

@@ -19,3 +19,4 @@ lcov.info
 backups/
 .DS_Store
 /target/
+.cargo-home/

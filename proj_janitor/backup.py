@@ -1598,14 +1598,14 @@ def _portable_path_key(value: str) -> str:
 def _reserved_device_name(stem: str) -> bool:
     """Return True for COM/LPT plus one Unicode decimal digit (CR-193).
 
-    NFKC-normalize the suffix so fullwidth, circled and superscript forms are
-    covered together with other scripts' decimal digits. ASCII ``0`` is not a
-    device number and remains usable.
+    The caller passes an NFKC-normalized stem, so compatibility forms and other
+    scripts' decimal digits are covered. ASCII ``0`` is not a device number and
+    remains usable.
     """
     for prefix in ("COM", "LPT"):
         if not stem.startswith(prefix):
             continue
-        suffix = unicodedata.normalize("NFKC", stem[len(prefix) :])
+        suffix = stem[len(prefix) :]
         if (
             len(suffix) == 1
             and suffix != "0"
@@ -1628,7 +1628,8 @@ def _safe_windows_component(part: str) -> bool:
         )
     ):
         return False
-    stem = part.split(".", 1)[0].rstrip(" .").upper()
+    normalized = unicodedata.normalize("NFKC", part)
+    stem = normalized.split(".", 1)[0].rstrip(" .").upper()
     return stem not in _WINDOWS_RESERVED_NAMES and not _reserved_device_name(stem)
 
 

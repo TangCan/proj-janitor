@@ -705,6 +705,26 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             _build_reserved_file("demo/COM𝟙.txt"),
             ("unsafe archive path", "not Windows-portable"),
         ),
+        (
+            "reserved-con-fullwidth",
+            _build_reserved_file("demo/ＣＯＮ.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "reserved-con-math",
+            _build_reserved_file("demo/𝐂𝐎𝐍.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "reserved-con-circled",
+            _build_reserved_file("demo/ⒸⓄⓃ.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "reserved-com1-fullwidth",
+            _build_reserved_file("demo/ＣＯＭ１.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
