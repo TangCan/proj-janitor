@@ -25,7 +25,11 @@ import proj_janitor.restore as restore_module
 import proj_janitor.scanner as scanner_module
 from proj_janitor.restore import (
     PartialRestoreError,
+    _git_args_have_sensitive_remote,
     _probe_lfs_batch,
+    _rewrite_remote_url,
+    _validate_remote_url,
+    load_manifest,
     RestoreError,
     execute_restore,
     format_decrypt_restore_warning,
@@ -2382,6 +2386,128 @@ class RestoreRemoteCheckTests(unittest.TestCase):
                 restore_from_manifest(manifest, restored, check_remote=True)
 
             self.assertFalse((restored / "app").exists())
+
+
+class RestoreHelperTests(unittest.TestCase):
+    def test_validate_remote_url_rejects_unsafe_forms(self) -> None:
+        cases = (
+            ("https://exa mple.com/repo", "contains whitespace"),
+            ("-oProxyCommand=calc", "must not start with '-'"),
+            ("https:///repo", "has no host"),
+            ("ssh:///repo", "has no host"),
+            ("file://user:pass@localhost/repo", "must not contain credentials"),
+            ("file:///repo?query=1", "must not contain credentials"),
+            ("https://[::1", "invalid remote URL"),
+            ("git://example.com/repo", "unsupported remote URL"),
+        )
+        for remote, message in cases:
+            with self.subTest(remote=remote), self.assertRaisesRegex(
+                RestoreError, message
+            ):
+                _validate_remote_url(remote)
+
+    def test_validate_remote_url_accepts_supported_forms(self) -> None:
+        for remote in (
+            "https://github.com/acme/app",
+            "ssh://git@github.com/acme/app",
+            "file:///tmp/repo",
+            "git@github.com:acme/app.git",
+            str(Path(tempfile.gettempdir()) / "repo"),
+        ):
+            with self.subTest(remote=remote):
+                _validate_remote_url(remote)
+
+    def test_git_args_detect_sensitive_remote(self) -> None:
+        self.assertFalse(
+            _git_args_have_sensitive_remote(["https://github.com/acme/app"])
+        )
+        self.assertFalse(_git_args_have_sensitive_remote(["--depth", "1"]))
+        for value in (
+            "https://token@github.com/acme/app",
+            "https://github.com/acme/app?ref=main",
+            "git@github.com:acme/app.git",
+            "https://[::1",
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(_git_args_have_sensitive_remote([value]))
+        self.assertTrue(
+            _git_args_have_sensitive_remote(
+                [], "https://token@github.com/acme/app"
+            )
+        )
+
+    def test_load_manifest_rejects_invalid_shapes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(RestoreError, "does not exist"):
+                load_manifest(root / "missing.json")
+            with self.assertRaisesRegex(RestoreError, "is not a file"):
+                load_manifest(root)
+
+            invalid = root / "invalid.json"
+            invalid.write_text("{", encoding="utf-8")
+            with self.assertRaisesRegex(RestoreError, "cannot read manifest"):
+                load_manifest(invalid)
+
+            array = root / "array.json"
+            array.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(RestoreError, "must be a JSON object"):
+                load_manifest(array)
+
+            schema = root / "schema.json"
+            schema.write_text(
+                json.dumps({"schema_version": 1, "records": [{}]}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RestoreError, "schema_version"):
+                load_manifest(schema)
+
+            empty = root / "empty.json"
+            empty.write_text(
+                json.dumps({"schema_version": 2, "records": []}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RestoreError, "non-empty array"):
+                load_manifest(empty)
+
+            bad_record = root / "bad-record.json"
+            bad_record.write_text(
+                json.dumps({"schema_version": 2, "records": ["x"]}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RestoreError, "must be JSON objects"):
+                load_manifest(bad_record)
+
+    def test_rewrite_remote_url_uses_longest_prefix(self) -> None:
+        result = mock.Mock(
+            returncode=0,
+            stdout=(
+                "url.https://mirror.example/.insteadof https://github.com/\n"
+                "url.https://fallback.example/.insteadof https://\n"
+                "garbage-line\n"
+                "url.other.insteadof https://github.com/\n"
+            ),
+        )
+        with mock.patch.object(restore_module, "_run_git", return_value=result):
+            self.assertEqual(
+                _rewrite_remote_url("https://github.com/acme/app.git"),
+                "https://mirror.example/acme/app.git",
+            )
+
+    def test_rewrite_remote_url_falls_back(self) -> None:
+        url = "https://github.com/acme/app.git"
+        with mock.patch.object(
+            restore_module,
+            "_run_git",
+            side_effect=RestoreError("git unavailable"),
+        ):
+            self.assertEqual(_rewrite_remote_url(url), url)
+        with mock.patch.object(
+            restore_module,
+            "_run_git",
+            return_value=mock.Mock(returncode=1, stdout=""),
+        ):
+            self.assertEqual(_rewrite_remote_url(url), url)
 
 
 if __name__ == "__main__":
