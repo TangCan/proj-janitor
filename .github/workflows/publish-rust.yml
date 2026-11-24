@@ -127,3 +127,13 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --locked
+
+  github-release:
+    needs: [validate, publish]
+    if: inputs.publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-github.yml
+    with:
+      tag: ${{ inputs.tag }}
+      dry_run: false
