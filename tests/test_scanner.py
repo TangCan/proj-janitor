@@ -5,12 +5,16 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import proj_janitor.scanner as scanner_module
 from proj_janitor.config import PROJECT_MARKERS
 from proj_janitor.scanner import (
+    _git_lfs_recovery_reason,
     _remote_tag_refs,
+    _submodule_recovery_reason,
     _url_has_sensitive_data,
     discover_projects,
     inspect_git_recoverability,
@@ -344,6 +348,156 @@ class GithubUrlTests(unittest.TestCase):
     def test_sanitize_returns_original_for_malformed_url(self) -> None:
         malformed = "https://[::1"
         self.assertEqual(sanitize_remote_url(malformed), malformed)
+
+
+class LfsRecoveryReasonTests(unittest.TestCase):
+    def test_lfsconfig_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".lfsconfig").write_text("[lfs]\n", encoding="utf-8")
+            self.assertEqual(
+                _git_lfs_recovery_reason(root),
+                "Git LFS is not supported",
+            )
+
+    def test_custom_lfs_endpoint_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_run(_path, *args):
+                if "grep" in args:
+                    return SimpleNamespace(returncode=0, stdout=".gitattributes")
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="remote.origin.lfsurl https://lfs.example.com",
+                )
+
+            with patch.object(scanner_module, "_git_run", side_effect=fake_run):
+                self.assertEqual(
+                    _git_lfs_recovery_reason(Path(tmp)),
+                    "custom Git LFS endpoints are not supported",
+                )
+
+    def test_attribute_and_endpoint_probe_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(
+                scanner_module,
+                "_git_run",
+                return_value=SimpleNamespace(returncode=2, stdout=""),
+            ):
+                self.assertEqual(
+                    _git_lfs_recovery_reason(root),
+                    "cannot inspect Git LFS attributes",
+                )
+
+            def fake_run(_path, *args):
+                if "grep" in args:
+                    return SimpleNamespace(returncode=0, stdout=".gitattributes")
+                return SimpleNamespace(returncode=2, stdout="")
+
+            with patch.object(scanner_module, "_git_run", side_effect=fake_run):
+                self.assertEqual(
+                    _git_lfs_recovery_reason(root),
+                    "cannot inspect Git LFS configuration",
+                )
+
+
+class SubmoduleRecoveryReasonTests(unittest.TestCase):
+    modules = [
+        (
+            PurePosixPath("vendor/child"),
+            "https://github.com/acme/child.git",
+        )
+    ]
+
+    def _reason(
+        self,
+        root: Path,
+        status_stdout: str,
+        *,
+        dirty: str = "",
+        ignored: str = "",
+        ignored_rc: int = 0,
+        nested=None,
+    ) -> str | None:
+        def fake_run(_path, *args):
+            if "submodule" in args:
+                return SimpleNamespace(returncode=0, stdout=status_stdout)
+            if "ls-files" in args:
+                return SimpleNamespace(returncode=ignored_rc, stdout=ignored)
+            return SimpleNamespace(returncode=1, stdout="")
+
+        with (
+            patch.object(
+                scanner_module,
+                "_git_lfs_recovery_reason",
+                return_value=None,
+            ),
+            patch.object(scanner_module, "_git_run", side_effect=fake_run),
+            patch.object(scanner_module, "_git_output", return_value=dirty),
+            patch.object(
+                scanner_module,
+                "submodule_config",
+                return_value=[] if nested is None else nested,
+            ),
+        ):
+            return _submodule_recovery_reason(root, self.modules, ())
+
+    def test_marker_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cases = (
+                ("+abc123 vendor/child\n", "submodule is not at its recorded commit: vendor/child"),
+                ("Uabc123 vendor/child\n", "submodule has merge conflicts: vendor/child"),
+                ("?abc123 vendor/child\n", "cannot parse submodule status"),
+                ("\n", "cannot parse submodule status"),
+                ("+abc123\n", "cannot parse submodule status"),
+                ("+abc123 other/path\n", "cannot match configured submodules to Git links"),
+            )
+            for stdout, expected in cases:
+                with self.subTest(stdout=stdout):
+                    self.assertEqual(self._reason(root, stdout), expected)
+
+    def test_occupied_uninitialized_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            occupied = root / "vendor" / "child"
+            occupied.mkdir(parents=True)
+            (occupied / "stray.txt").write_text("x", encoding="utf-8")
+            self.assertEqual(
+                self._reason(root, "-abc123 vendor/child\n"),
+                "uninitialized submodule path is not empty: vendor/child",
+            )
+
+    def test_dirty_submodule_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                self._reason(
+                    Path(tmp),
+                    " abc123 vendor/child\n",
+                    dirty=" M file.txt\n",
+                ),
+                "submodule working tree is not clean: vendor/child",
+            )
+
+    def test_ignored_non_artifact_and_probe_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(
+                self._reason(
+                    root,
+                    " abc123 vendor/child\n",
+                    ignored="secrets.txt\0",
+                ),
+                "ignored submodule path is not an artifact: vendor/child/secrets.txt",
+            )
+            self.assertEqual(
+                self._reason(
+                    root,
+                    " abc123 vendor/child\n",
+                    ignored_rc=1,
+                ),
+                "cannot inspect ignored submodule files: vendor/child",
+            )
 
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
@@ -729,6 +883,82 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertFalse(state.eligible)
             self.assertTrue(
                 state.reason.startswith("ignored path is not an artifact"),
+            )
+
+    def test_detached_head_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "checkout", "--detach", "-q", "HEAD")
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(state.reason, "detached HEAD")
+
+    def test_missing_upstream_config_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            git(project, "config", "--unset", "branch.main.merge")
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(state.reason, "branch has no upstream")
+
+    def test_lfsconfig_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            (project / ".lfsconfig").write_text("[lfs]\n", encoding="utf-8")
+            commit_all(project)
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(state.reason, "Git LFS is not supported")
+
+    def test_custom_lfs_endpoint_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            (project / ".gitattributes").write_text(
+                "*.bin filter=lfs diff=lfs merge=lfs -text\n",
+                encoding="utf-8",
+            )
+            commit_all(project)
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+            git(
+                project,
+                "config",
+                "remote.origin.lfsurl",
+                "https://lfs.example.com",
+            )
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "custom Git LFS endpoints are not supported",
+            )
+
+    def test_unsupported_submodule_url_blocks_git_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_pushed_repo(Path(tmp))
+            (project / ".gitmodules").write_text(
+                '[submodule "vendor"]\n'
+                "\tpath = vendor/child\n"
+                "\turl = https://gitlab.com/acme/child.git\n",
+                encoding="utf-8",
+            )
+            commit_all(project)
+            git(project, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            state = inspect_git_recoverability(scan_project(project))
+
+            self.assertFalse(state.eligible)
+            self.assertEqual(
+                state.reason,
+                "submodule URL is not a supported GitHub URL",
             )
 
 
