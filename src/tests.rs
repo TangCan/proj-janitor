@@ -3103,8 +3103,36 @@ fn serve_lfs_once(status: &str, body: &str) -> (String, std::thread::JoinHandle<
     let body = body.to_owned();
     let handle = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut buffer = [0u8; 4096];
-        let _ = std::io::Read::read(&mut stream, &mut buffer);
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let read = match std::io::Read::read(&mut stream, &mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            };
+            request.extend_from_slice(&chunk[..read]);
+            if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..position]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        if name.eq_ignore_ascii_case("content-length") {
+                            value.trim().parse::<usize>().ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0);
+                if request.len() >= position + 4 + length {
+                    break;
+                }
+            }
+            if request.len() > 1 << 20 {
+                break;
+            }
+        }
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: application/vnd.git-lfs+json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
