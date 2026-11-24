@@ -30,6 +30,7 @@ from proj_janitor.restore import (
     _probe_lfs_batch,
     _extract_incremental_delta,
     _publish_restored_tree,
+    _remove_deleted_paths,
     _restore_git_bundle,
     _restore_incremental,
     _rewrite_remote_url,
@@ -3152,6 +3153,53 @@ class GitBundleExecutionTests(unittest.TestCase):
                     rollback_on_error=True,
                 )
             self.assertFalse(target_a.exists())
+
+
+class IncrementalDeletionTests(unittest.TestCase):
+    def test_removes_files_directories_and_ignores_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            target.mkdir()
+            (target / "directory").mkdir()
+            (target / "directory" / "nested.txt").write_text("x", encoding="utf-8")
+            (target / "file.txt").write_text("x", encoding="utf-8")
+
+            _remove_deleted_paths(
+                target,
+                ["directory", "file.txt", "missing.txt"],
+            )
+
+            self.assertFalse((target / "directory").exists())
+            self.assertFalse((target / "file.txt").exists())
+
+    def test_rejects_unsafe_deleted_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            target.mkdir()
+            for raw in ("../escape", "/absolute", "a\x00b", ".", ""):
+                with self.subTest(raw=raw), self.assertRaisesRegex(
+                    RestoreError, "unsafe deleted path"
+                ):
+                    _remove_deleted_paths(target, [raw])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs extra privileges")
+    def test_symlink_is_unlinked_not_followed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target"
+            target.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "keep.txt").write_text("keep", encoding="utf-8")
+            (target / "link").symlink_to(outside, target_is_directory=True)
+
+            _remove_deleted_paths(target, ["link"])
+
+            self.assertFalse((target / "link").exists())
+            self.assertEqual(
+                (outside / "keep.txt").read_text(encoding="utf-8"),
+                "keep",
+            )
 
 
 if __name__ == "__main__":
