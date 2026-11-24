@@ -2884,6 +2884,147 @@ class IncrementalDeltaTests(unittest.TestCase):
                 _restore_incremental(missing, verify=False)
 
 
+class ExecuteRestoreGuardTests(unittest.TestCase):
+    commit = "a" * 40
+    sub_commit = "b" * 40
+
+    def _plan(self, root: Path) -> "RestorePlan":
+        from proj_janitor.models import RestorePlan
+
+        return RestorePlan(
+            project="app",
+            strategy="git",
+            target=root / "app",
+            remote_url="https://github.com/acme/app.git",
+            commit=self.commit,
+            submodules=[
+                {
+                    "path": "sub",
+                    "url": "https://github.com/acme/sub.git",
+                    "commit": self.sub_commit,
+                }
+            ],
+        )
+
+    def _probe(self, sub_status: str, sub_reason: str):
+        def probe(url: str, commit: str):
+            if "sub" in url:
+                return sub_status, sub_reason, []
+            return "remote-verified", None, ["refs/heads/main"]
+
+        return probe
+
+    def test_incomplete_archive_plan_is_rejected(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=Path(tmp) / "app",
+                archive=None,
+            )
+            with self.assertRaisesRegex(RestoreError, "incomplete archive"):
+                execute_restore([plan], verify=True)
+
+    def test_submodule_remote_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = self._plan(root)
+            with mock.patch.object(
+                restore_module,
+                "_probe_remote",
+                side_effect=self._probe("remote-moved", "no-ref"),
+            ):
+                with self.assertRaisesRegex(RestoreError, "no ref matching"):
+                    execute_restore(
+                        [plan],
+                        verify=False,
+                        check_remote=True,
+                        fail_on_remote_moved=True,
+                    )
+
+            with mock.patch.object(
+                restore_module,
+                "_probe_remote",
+                side_effect=self._probe("remote-skipped", "credentials"),
+            ):
+                with self.assertRaisesRegex(RestoreError, "was not checked"):
+                    execute_restore(
+                        [plan],
+                        verify=False,
+                        check_remote=True,
+                        fail_on_remote_skipped=True,
+                    )
+
+            with mock.patch.object(
+                restore_module,
+                "_probe_remote",
+                side_effect=self._probe("remote-unreachable", "timeout"),
+            ):
+                with self.assertRaisesRegex(RestoreError, "is unreachable"):
+                    execute_restore(
+                        [plan],
+                        verify=False,
+                        check_remote=True,
+                    )
+
+    def test_missing_lfs_object_blocks_restore(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = RestorePlan(
+                project="app",
+                strategy="git",
+                target=root / "app",
+                remote_url="https://github.com/acme/app.git",
+                commit=self.commit,
+                lfs_objects=[{"oid": "c" * 40, "size": 10}],
+            )
+            with (
+                mock.patch.object(
+                    restore_module,
+                    "_probe_remote",
+                    return_value=(
+                        "remote-verified",
+                        None,
+                        ["refs/heads/main"],
+                    ),
+                ),
+                mock.patch.object(
+                    restore_module,
+                    "_probe_lfs_objects",
+                    return_value=[
+                        {
+                            "oid": "c" * 40,
+                            "status": "lfs-missing",
+                            "reason": "object-not-found",
+                        }
+                    ],
+                ),
+                self.assertRaisesRegex(RestoreError, "LFS object"),
+            ):
+                execute_restore([plan], verify=False, check_remote=True)
+
+    def test_uncreatable_target_parent_is_rejected(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            blocked = root / "blocked"
+            blocked.write_text("x", encoding="utf-8")
+            plan = RestorePlan(
+                project="app",
+                strategy="git",
+                target=blocked / "app",
+                remote_url="https://github.com/acme/app.git",
+                commit=self.commit,
+            )
+            with self.assertRaisesRegex(RestoreError, "cannot restore app"):
+                execute_restore([plan], verify=False)
+
+
 if __name__ == "__main__":
     unittest.main()
 
