@@ -299,6 +299,52 @@ class GithubUrlTests(unittest.TestCase):
             "git@github.com:acme/app.git",
         )
 
+    def test_rejects_whitespace_and_invalid_ssh_variants(self) -> None:
+        for url in (
+            "",
+            " https://github.com/acme/app",
+            "https://github.com/acme/app ",
+            "https://github.com/acme app",
+            "ssh://root@github.com/acme/app",
+            "ssh://git:secret@github.com/acme/app",
+            "ssh://git@github.com:2222/acme/app",
+            "ssh://git@github.com/acme/app?ref=main",
+            "ssh://git@github.com/acme/app#frag",
+            "https://github.com:8443/acme/app",
+            "https://github.com/acme/app#frag",
+            "https://github.com/acme/app?ref=main",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(is_github_remote_url(url))
+
+    def test_accepts_explicit_default_ports(self) -> None:
+        self.assertTrue(
+            is_github_remote_url("https://github.com:443/acme/app.git")
+        )
+        self.assertTrue(
+            is_github_remote_url("ssh://git@github.com:22/acme/app.git")
+        )
+
+    def test_sanitize_preserves_port_and_drops_query(self) -> None:
+        self.assertEqual(
+            sanitize_remote_url(
+                "https://token@github.com:443/acme/app.git?ref=main#frag"
+            ),
+            "https://github.com:443/acme/app.git",
+        )
+        self.assertEqual(
+            sanitize_remote_url("http://github.com/acme/app"),
+            "http://github.com/acme/app",
+        )
+        self.assertEqual(
+            sanitize_remote_url("https://gitlab.com/acme/app"),
+            "https://gitlab.com/acme/app",
+        )
+
+    def test_sanitize_returns_original_for_malformed_url(self) -> None:
+        malformed = "https://[::1"
+        self.assertEqual(sanitize_remote_url(malformed), malformed)
+
 
 @unittest.skipUnless(GIT_AVAILABLE, "git is not available")
 class GitRecoveryTests(unittest.TestCase):

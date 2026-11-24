@@ -3666,5 +3666,180 @@ class GitCliTests(unittest.TestCase):
             self.assertEqual(out, "")
 
 
+class VerifyFormattingTests(unittest.TestCase):
+    commit = "a" * 40
+    url = "https://github.com/acme/app.git"
+
+    def test_verify_remote_line_without_remote(self) -> None:
+        from proj_janitor.cli import _verify_remote_line
+
+        line = _verify_remote_line(
+            {"project": "app", "commit": self.commit, "status": "git-only"}
+        )
+        self.assertEqual(
+            line,
+            "[git] app: manifest metadata valid (commit aaaaaaaaaaaa)",
+        )
+
+    def test_verify_remote_line_statuses_and_overflow(self) -> None:
+        from proj_janitor.cli import _verify_remote_line
+
+        verified = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "remote-verified",
+                "remote": {
+                    "url": self.url,
+                    "refs": [
+                        "refs/heads/main",
+                        "refs/tags/v1",
+                        "refs/heads/dev",
+                        "refs/tags/v2",
+                    ],
+                },
+            }
+        )
+        self.assertIn("(+1 more)", verified)
+        self.assertIn("refs/heads/main", verified)
+
+        moved = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "remote-moved",
+                "remote": {"url": self.url},
+            }
+        )
+        self.assertIn("no remote ref points at commit", moved)
+
+        unreachable = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "remote-unreachable",
+                "remote": {"url": self.url, "reason": "timed out"},
+            }
+        )
+        self.assertIn("remote timed out for", unreachable)
+
+        lfs_unavailable = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "lfs-unavailable",
+                "remote": {"url": self.url},
+            }
+        )
+        self.assertIn("LFS objects unavailable", lfs_unavailable)
+
+        skipped = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "remote-skipped",
+                "remote": {"url": self.url, "reason": "credentials"},
+            }
+        )
+        self.assertIn("remote credentials; not contacted", skipped)
+
+    def test_verify_remote_line_renders_submodules_and_lfs(self) -> None:
+        from proj_janitor.cli import _verify_remote_line
+
+        line = _verify_remote_line(
+            {
+                "project": "app",
+                "commit": self.commit,
+                "status": "remote-verified",
+                "remote": {"url": self.url, "refs": ["refs/heads/main"]},
+                "submodules": [
+                    {
+                        "path": "sub",
+                        "status": "remote-moved",
+                        "url": self.url,
+                    },
+                    "ignored",
+                ],
+                "lfs": [
+                    {"oid": "b" * 40, "status": "lfs-verified"},
+                    {"oid": "c" * 40, "status": "lfs-missing"},
+                    {
+                        "oid": "d" * 40,
+                        "status": "lfs-unreachable",
+                        "reason": "timeout",
+                    },
+                    {"oid": "e" * 40, "status": "lfs-skipped"},
+                    "ignored",
+                ],
+            }
+        )
+        self.assertIn("submodule sub: remote-moved", line)
+        self.assertIn("lfs available (bbbbbbbbbbbb)", line)
+        self.assertIn("lfs missing (cccccccccccc; object-not-found)", line)
+        self.assertIn("lfs unreachable (dddddddddddd; timeout)", line)
+        self.assertIn("lfs skipped (eeeeeeeeeeee; not-probed)", line)
+
+    def test_verify_result_has_status_checks_submodules(self) -> None:
+        from proj_janitor.cli import _verify_result_has_status
+
+        self.assertTrue(_verify_result_has_status({"status": "remote-moved"}, "remote-moved"))
+        self.assertTrue(
+            _verify_result_has_status(
+                {"status": "ok", "submodules": [{"status": "remote-moved"}]},
+                "remote-moved",
+            )
+        )
+        self.assertFalse(
+            _verify_result_has_status(
+                {"status": "ok", "submodules": ["ignored"]},
+                "remote-moved",
+            )
+        )
+
+    def test_print_restore_plan_variants(self) -> None:
+        from proj_janitor.cli import _print_restore_plan
+        from proj_janitor.models import RestorePlan
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            _print_restore_plan(
+                RestorePlan(
+                    project="app",
+                    strategy="git",
+                    target=Path("/dst/app"),
+                    remote_url="https://token@github.com/acme/app.git",
+                    commit=self.commit,
+                    skip=True,
+                )
+            )
+            _print_restore_plan(
+                RestorePlan(
+                    project="app",
+                    strategy="git_bundle",
+                    target=Path("/dst/app"),
+                    archive=Path("/src/app.bundle"),
+                    commit=self.commit,
+                )
+            )
+            _print_restore_plan(
+                RestorePlan(
+                    project="app",
+                    strategy="archive",
+                    target=Path("/dst/app"),
+                    archive=Path("/src/app.tar.gz"),
+                    hash_verified=True,
+                    overwrite=True,
+                )
+            )
+        output = buffer.getvalue()
+        self.assertIn("https://github.com/acme/app.git @ aaaaaaaaaaaa", output)
+        self.assertIn("(skip existing)", output)
+        self.assertIn("[git-bundle] app: aaaaaaaaaaaa /src/app.bundle", output)
+        self.assertIn("(sha256 unchecked)", output)
+        self.assertIn("[archive] app: /src/app.tar.gz (sha256 verified)", output)
+        self.assertIn("(overwrite)", output)
+
+
 if __name__ == "__main__":
     unittest.main()
+
