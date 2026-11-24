@@ -1,0 +1,129 @@
+name: Publish Rust crate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Rust release tag, e.g. v0.7.92
+        required: true
+        type: string
+      publish:
+        description: Upload to crates.io (requires CARGO_REGISTRY_TOKEN)
+        default: false
+        required: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: publish-rust-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.verify.outputs.commit }}
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - id: verify
+        name: Verify release tag and version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+
+          tag = os.environ["RELEASE_TAG"].strip()
+          publish = os.environ["PUBLISH_REQUESTED"] == "true"
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+              raise SystemExit("release tag must look like v0.7.92")
+          commit = subprocess.check_output(
+              ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+              text=True,
+          ).strip()
+          subprocess.run(
+              ["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+              check=True,
+          )
+          manifest = subprocess.check_output(
+              ["git", "show", f"{tag}:Cargo.toml"], text=True
+          )
+          version = tomllib.loads(manifest)["package"]["version"]
+          if tag != f"v{version}":
+              raise SystemExit(f"tag {tag} does not match Cargo version {version}")
+          lock = subprocess.check_output(
+              ["git", "show", f"{tag}:Cargo.lock"], text=True
+          )
+          match = re.search(
+              r'^name = "proj-janitor"\r?\nversion = "([^"]+)"',
+              lock,
+              re.MULTILINE,
+          )
+          if match is None or match.group(1) != version:
+              raise SystemExit("Cargo.lock does not match Cargo.toml version")
+          record = f"docs/发布记录/{version}-Rust版.md"
+          subprocess.run(
+              ["git", "cat-file", "-e", f"{tag}:{record}"],
+              check=True,
+              capture_output=True,
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"commit={commit}\n")
+              output.write(f"version={version}\n")
+          PY
+
+      - name: Require green CI for the release commit
+        env:
+          COMMIT: ${{ steps.verify.outputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/require_green_ci.py
+
+  build:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+      - name: Package and verify
+        run: |
+          cargo package --locked
+          cargo publish --dry-run --locked
+
+  publish:
+    needs: [validate, build]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+      - name: Require crates.io token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "error: CARGO_REGISTRY_TOKEN repository secret is not configured" >&2
+            exit 1
+          fi
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
