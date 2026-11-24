@@ -3202,6 +3202,73 @@ class IncrementalDeletionTests(unittest.TestCase):
             )
 
 
+class RestoreWriteFailureTests(unittest.TestCase):
+    def test_archive_extraction_disk_full_leaves_no_target(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "app.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                info = tarfile.TarInfo("app/file.txt")
+                payload = b"payload"
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            target = root / "out" / "app"
+            plan = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=target,
+                archive=archive,
+            )
+            with mock.patch.object(
+                restore_module.tarfile.TarFile,
+                "extractall",
+                side_effect=OSError("No space left on device"),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "cannot restore app"
+                ):
+                    execute_restore([plan], verify=False)
+            self.assertFalse(target.exists())
+            self.assertFalse(list(target.parent.glob(".app-restore-*")))
+
+    def test_bundle_copy_disk_full_leaves_no_target(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            init_repo(repo)
+            (repo / "file.txt").write_text("payload", encoding="utf-8")
+            commit_all(repo)
+            bundle = root / "app.bundle"
+            git(repo, "bundle", "create", str(bundle), "--all")
+            commit = git(repo, "rev-parse", "HEAD")
+            target = root / "out" / "app"
+            plan = RestorePlan(
+                project="app",
+                strategy="git_bundle",
+                target=target,
+                archive=bundle,
+                commit=commit,
+                branch="main",
+                sha256=sha256_file(bundle),
+            )
+            with mock.patch.object(
+                restore_module.shutil,
+                "copyfileobj",
+                side_effect=OSError("No space left on device"),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "cannot restore app"
+                ):
+                    execute_restore([plan], verify=False)
+            self.assertFalse(target.exists())
+            self.assertFalse(list(target.parent.glob(".app-restore-*")))
+
+
 if __name__ == "__main__":
     unittest.main()
 
