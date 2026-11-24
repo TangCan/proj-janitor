@@ -8,6 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use tar::{Archive, Builder, EntryType, Header};
+use unicode_general_category::{GeneralCategory, get_general_category};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
@@ -972,6 +973,25 @@ pub(crate) fn safe_archive_link(name: &Path, link: &Path, project: &str) -> bool
     !parts.is_empty() && parts[0] == project
 }
 
+/// Windows reserves `COM1`–`COM9` / `LPT1`–`LPT9`. Normalize the suffix with
+/// NFKC so compatibility forms (fullwidth, circled, superscript) and other
+/// scripts' decimal digits are covered by one rule. ASCII `0` is not a device
+/// number and remains usable.
+fn is_reserved_device_name(stem: &str) -> bool {
+    ["COM", "LPT"].iter().any(|prefix| {
+        stem.strip_prefix(prefix).is_some_and(|suffix| {
+            let normalized: String = suffix.nfkc().collect();
+            let mut characters = normalized.chars();
+            matches!(
+                (characters.next(), characters.next()),
+                (Some(character), None)
+                    if character != '0'
+                        && get_general_category(character) == GeneralCategory::DecimalNumber
+            )
+        })
+    })
+}
+
 pub(crate) fn safe_windows_component(name: &str) -> bool {
     if name.is_empty()
         || name.ends_with([' ', '.'])
@@ -990,66 +1010,7 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
     let reserved = matches!(
         stem.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-    ) || ["COM", "LPT"].iter().any(|prefix| {
-        stem.strip_prefix(prefix).is_some_and(|number| {
-            matches!(
-                number,
-                "1" | "2"
-                    | "3"
-                    | "4"
-                    | "5"
-                    | "6"
-                    | "7"
-                    | "8"
-                    | "9"
-                    | "¹"
-                    | "²"
-                    | "³"
-                    | "⁴"
-                    | "⁵"
-                    | "⁶"
-                    | "⁷"
-                    | "⁸"
-                    | "⁹"
-                    | "１"
-                    | "２"
-                    | "３"
-                    | "４"
-                    | "５"
-                    | "６"
-                    | "７"
-                    | "８"
-                    | "９"
-                    | "①"
-                    | "②"
-                    | "③"
-                    | "④"
-                    | "⑤"
-                    | "⑥"
-                    | "⑦"
-                    | "⑧"
-                    | "⑨"
-                    | "١"
-                    | "٢"
-                    | "٣"
-                    | "٤"
-                    | "٥"
-                    | "٦"
-                    | "٧"
-                    | "٨"
-                    | "٩"
-                    | "۱"
-                    | "۲"
-                    | "۳"
-                    | "۴"
-                    | "۵"
-                    | "۶"
-                    | "۷"
-                    | "۸"
-                    | "۹"
-            )
-        })
-    });
+    ) || is_reserved_device_name(&stem);
     !reserved
 }
 

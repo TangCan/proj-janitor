@@ -22,6 +22,7 @@ from proj_janitor.backup import (
     format_always_archive_backup_warning,
     format_include_artifacts_backup_warning,
     format_incremental_backup_warning,
+    _safe_windows_component,
     run_backup,
     sha256_file,
 )
@@ -1515,6 +1516,43 @@ class GitStrategyBackupTests(unittest.TestCase):
                 manifest_paths[0].read_text(encoding="utf-8"),
             )
             self.assertTrue(manifest["include_artifacts"])
+
+
+class WindowsComponentTests(unittest.TestCase):
+    def test_device_names_reject_unicode_decimal_digits(self) -> None:
+        rejected = (
+            "COM1",
+            "LPT9",
+            "COM١",
+            "COM۱",
+            "COM१",
+            "LPT१",
+            "COM๑",
+            "COM১",
+            "COM５",
+            "COM⑤",
+            "COM⁵",
+            "COM𝟙",
+        )
+        for name in rejected:
+            with self.subTest(name=name):
+                self.assertFalse(_safe_windows_component(name))
+
+    def test_device_names_keep_non_device_numbers(self) -> None:
+        allowed = (
+            "COM0",
+            "LPT0",
+            "COM10",
+            "COM四",
+            "COMⅨ",
+            "COM½",
+            "COM⑩",
+            "COM０",
+            "COM",
+        )
+        for name in allowed:
+            with self.subTest(name=name):
+                self.assertTrue(_safe_windows_component(name))
 
 
 if __name__ == "__main__":

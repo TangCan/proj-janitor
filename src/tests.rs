@@ -5,7 +5,7 @@ use crate::archive::find_unsafe_archive_paths;
 use crate::archive::remove_file_if_same;
 use crate::archive::{
     archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
-    sha256, write_new_file,
+    safe_windows_component, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -3060,4 +3060,19 @@ fn insecure_dir_mode_detects_group_or_other_bits() {
     perms.set_mode(0o700);
     fs::set_permissions(&dir, perms).unwrap();
     assert_eq!(insecure_dir_mode(&dir).unwrap(), None);
+}
+
+#[test]
+fn windows_component_rejects_unicode_decimal_device_digits() {
+    for name in [
+        "COM1", "LPT9", "COM١", "COM۱", "COM१", "LPT१", "COM๑", "COM১", "COM５", "COM⑤", "COM⁵",
+        "COM𝟙",
+    ] {
+        assert!(!safe_windows_component(name), "expected unsafe: {name}");
+    }
+    for name in [
+        "COM0", "LPT0", "COM10", "COM四", "COMⅨ", "COM½", "COM⑩", "COM０", "COM",
+    ] {
+        assert!(safe_windows_component(name), "expected safe: {name}");
+    }
 }

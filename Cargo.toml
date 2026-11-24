@@ -1,6 +1,6 @@
 [package]
 name = "proj-janitor"
-version = "0.7.89"
+version = "0.7.90"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Tang Can <tang_can@qq.com>"]
@@ -28,6 +28,7 @@ same-file = "1.0.6"
 sha2 = "0.10"
 tar = "0.4"
 toml = "0.8"
+unicode-general-category = "1.1"
 unicode-normalization = "0.1"
 walkdir = "2.5"
 url = "2.5"

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -1596,6 +1595,26 @@ def _portable_path_key(value: str) -> str:
     return unicodedata.normalize("NFC", value.lower())
 
 
+def _reserved_device_name(stem: str) -> bool:
+    """Return True for COM/LPT plus one Unicode decimal digit (CR-193).
+
+    NFKC-normalize the suffix so fullwidth, circled and superscript forms are
+    covered together with other scripts' decimal digits. ASCII ``0`` is not a
+    device number and remains usable.
+    """
+    for prefix in ("COM", "LPT"):
+        if not stem.startswith(prefix):
+            continue
+        suffix = unicodedata.normalize("NFKC", stem[len(prefix) :])
+        if (
+            len(suffix) == 1
+            and suffix != "0"
+            and unicodedata.decimal(suffix, None) is not None
+        ):
+            return True
+    return False
+
+
 def _safe_windows_component(part: str) -> bool:
     if (
         not part
@@ -1610,10 +1629,7 @@ def _safe_windows_component(part: str) -> bool:
     ):
         return False
     stem = part.split(".", 1)[0].rstrip(" .").upper()
-    return stem not in _WINDOWS_RESERVED_NAMES and not re.fullmatch(
-        r"(?:COM|LPT)[1-9¹²³⁴⁵⁶⁷⁸⁹１２３４５６７８９①②③④⑤⑥⑦⑧⑨١٢٣٤٥٦٧٨٩۱۲۳۴۵۶۷۸۹]",
-        stem,
-    )
+    return stem not in _WINDOWS_RESERVED_NAMES and not _reserved_device_name(stem)
 
 
 def _unique_file(
