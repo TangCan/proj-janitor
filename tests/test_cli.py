@@ -3800,13 +3800,16 @@ class VerifyFormattingTests(unittest.TestCase):
         from proj_janitor.cli import _print_restore_plan
         from proj_janitor.models import RestorePlan
 
+        target = Path("/dst/app")
+        bundle = Path("/src/app.bundle")
+        archive = Path("/src/app.tar.gz")
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             _print_restore_plan(
                 RestorePlan(
                     project="app",
                     strategy="git",
-                    target=Path("/dst/app"),
+                    target=target,
                     remote_url="https://token@github.com/acme/app.git",
                     commit=self.commit,
                     skip=True,
@@ -3816,8 +3819,8 @@ class VerifyFormattingTests(unittest.TestCase):
                 RestorePlan(
                     project="app",
                     strategy="git_bundle",
-                    target=Path("/dst/app"),
-                    archive=Path("/src/app.bundle"),
+                    target=target,
+                    archive=bundle,
                     commit=self.commit,
                 )
             )
@@ -3825,18 +3828,21 @@ class VerifyFormattingTests(unittest.TestCase):
                 RestorePlan(
                     project="app",
                     strategy="archive",
-                    target=Path("/dst/app"),
-                    archive=Path("/src/app.tar.gz"),
+                    target=target,
+                    archive=archive,
                     hash_verified=True,
                     overwrite=True,
                 )
             )
         output = buffer.getvalue()
-        self.assertIn("https://github.com/acme/app.git @ aaaaaaaaaaaa", output)
+        self.assertIn(
+            f"https://github.com/acme/app.git @ aaaaaaaaaaaa -> {target}",
+            output,
+        )
         self.assertIn("(skip existing)", output)
-        self.assertIn("[git-bundle] app: aaaaaaaaaaaa /src/app.bundle", output)
+        self.assertIn(f"[git-bundle] app: aaaaaaaaaaaa {bundle}", output)
         self.assertIn("(sha256 unchecked)", output)
-        self.assertIn("[archive] app: /src/app.tar.gz (sha256 verified)", output)
+        self.assertIn(f"[archive] app: {archive} (sha256 verified)", output)
         self.assertIn("(overwrite)", output)
 
 
