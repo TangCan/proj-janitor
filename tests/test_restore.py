@@ -30,6 +30,7 @@ from proj_janitor.restore import (
     _git_args_have_sensitive_remote,
     _probe_lfs_batch,
     _extract_incremental_delta,
+    _check_restore_space,
     _publish_restored_tree,
     _remove_deleted_paths,
     _restore_git_bundle,
@@ -3337,6 +3338,56 @@ class RestoreSpaceCheckTests(unittest.TestCase):
             ):
                 execute_restore([plan], verify=False)
             self.assertTrue(plan.target.exists())
+
+    def test_inventory_covers_encrypted_archive(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=root / "out" / "app",
+                archive=root / "app.enc",
+                encryption="openssl-aes-256-cbc-pbkdf2",
+                inventory=[{"path": "app/file", "sha256": "x", "size": 100}],
+            )
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 50),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "not enough free space"
+                ):
+                    _check_restore_space([plan])
+
+    def test_skips_encrypted_without_inventory_and_incremental(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            encrypted = RestorePlan(
+                project="enc",
+                strategy="archive",
+                target=root / "out" / "enc",
+                archive=root / "enc.bin",
+                encryption="openssl-aes-256-cbc-pbkdf2",
+            )
+            incremental = RestorePlan(
+                project="inc",
+                strategy="archive",
+                target=root / "out" / "inc",
+                archive=root / "inc.tar.gz",
+                incremental={"base": "previous.json", "deleted": []},
+            )
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                _check_restore_space([encrypted, incremental])
+            output = stderr.getvalue()
+            self.assertIn("skipped encrypted archive", output)
+            self.assertIn("skipped incremental archive", output)
 
 
 if __name__ == "__main__":

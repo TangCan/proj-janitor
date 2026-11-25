@@ -912,6 +912,20 @@ def _archive_uncompressed_bytes(archive: Path, limit: int | None = None) -> int:
     return total
 
 
+def _inventory_uncompressed_bytes(plan: RestorePlan) -> int | None:
+    """Estimate archive contents from the manifest inventory when available."""
+    if plan.inventory is None:
+        return None
+    total = 0
+    for entry in plan.inventory:
+        if not isinstance(entry, dict):
+            continue
+        size = entry.get("size")
+        if isinstance(size, int) and size > 0:
+            total += size
+    return total
+
+
 def _check_restore_space(plans: list[RestorePlan]) -> None:
     """Refuse archive restores whose uncompressed size exceeds free space."""
     for plan in plans:
@@ -919,18 +933,36 @@ def _check_restore_space(plans: list[RestorePlan]) -> None:
             plan.skip
             or plan.strategy != "archive"
             or plan.archive is None
-            or plan.encryption
-            or plan.incremental
         ):
             continue
+        if plan.incremental:
+            print(
+                f"warning: --check-space skipped incremental archive for {plan.project}",
+                file=sys.stderr,
+            )
+            continue
         parent = plan.target.parent
+        probe = parent
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
         try:
-            available = shutil.disk_usage(parent).free
+            available = shutil.disk_usage(probe).free
         except OSError as exc:
             raise RestoreError(
-                f"cannot determine free space for {parent}: {exc}"
+                f"cannot determine free space for {probe}: {exc}"
             ) from exc
-        needed = _archive_uncompressed_bytes(plan.archive, limit=available)
+        estimated = _inventory_uncompressed_bytes(plan)
+        if estimated is not None:
+            needed = estimated
+        elif plan.encryption:
+            print(
+                "warning: --check-space skipped encrypted archive without "
+                f"inventory for {plan.project}",
+                file=sys.stderr,
+            )
+            continue
+        else:
+            needed = _archive_uncompressed_bytes(plan.archive, limit=available)
         if needed > available:
             raise RestoreError(
                 f"not enough free space under {parent} for {plan.project}: "

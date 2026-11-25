@@ -1576,19 +1576,36 @@ pub(crate) fn restore_cmd(
     }
     if check_space {
         for (record, target, archive, _, skip) in &plans {
-            if *skip
-                || record.strategy != "archive"
-                || record.encryption.is_some()
-                || record.incremental.is_some()
-            {
+            if *skip || record.strategy != "archive" {
                 continue;
             }
             let Some(archive) = archive else {
                 continue;
             };
+            if record.incremental.is_some() {
+                eprintln!(
+                    "warning: --check-space skipped incremental archive for {}",
+                    record.project
+                );
+                continue;
+            }
             let parent = target.parent().unwrap_or_else(|| Path::new("."));
             let available = crate::archive::available_disk_bytes(parent)?;
-            let needed = crate::archive::archive_uncompressed_bytes(archive, available)?;
+            let estimated = record
+                .inventory
+                .as_ref()
+                .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>());
+            let needed = if let Some(estimated) = estimated {
+                estimated
+            } else if record.encryption.is_some() {
+                eprintln!(
+                    "warning: --check-space skipped encrypted archive without inventory for {}",
+                    record.project
+                );
+                continue;
+            } else {
+                crate::archive::archive_uncompressed_bytes(archive, available)?
+            };
             anyhow::ensure!(
                 needed <= available,
                 "not enough free space for {}: need {} bytes, available {} bytes",
