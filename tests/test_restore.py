@@ -447,7 +447,10 @@ class RestoreTests(unittest.TestCase):
                     time.sleep(0.02)
                 self.assertTrue(pid_file.is_file())
                 child_pid = int(pid_file.read_text(encoding="utf-8"))
-                while not marker.exists() and time.monotonic() < deadline:
+                marker_deadline = time.monotonic() + 5
+                while (
+                    not marker.exists() or marker.stat().st_size == 0
+                ) and time.monotonic() < marker_deadline:
                     time.sleep(0.02)
                 self.assertGreater(marker.stat().st_size, 0)
 
