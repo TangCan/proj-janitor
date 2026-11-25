@@ -123,6 +123,12 @@ jobs:
             echo "error: CARGO_REGISTRY_TOKEN repository secret is not configured" >&2
             exit 1
           fi
+      - name: Verify crates.io token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          curl -fsS -H "Authorization: ${CARGO_REGISTRY_TOKEN}" https://crates.io/api/v1/me >/dev/null
+          echo "crates.io token accepted"
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

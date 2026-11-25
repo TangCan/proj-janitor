@@ -1,0 +1,27 @@
+name: Verify crates.io token
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check crates.io token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "error: CARGO_REGISTRY_TOKEN repository secret is not configured" >&2
+            exit 1
+          fi
+          response="$(curl -fsS -H "Authorization: ${CARGO_REGISTRY_TOKEN}" https://crates.io/api/v1/me)"
+          printf '%s' "$response" | python3 -c '
+          import json, sys
+          payload = json.load(sys.stdin)
+          login = payload.get("login") or (payload.get("user") or {}).get("login")
+          print("crates.io token OK for", login or "authenticated user")
+          '
