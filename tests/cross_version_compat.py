@@ -745,6 +745,11 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             _build_reserved_file("demo/COM1 /x.txt"),
             ("unsafe archive path", "not Windows-portable"),
         ),
+        (
+            "bidi-control-name",
+            _build_reserved_file("demo/safe\u202Egnp.exe"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:

@@ -55,6 +55,13 @@ from proj_janitor.scanner import (
 
 _WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
 _WINDOWS_INVALID_CHARS = '<>:"|?*'
+_BIDI_CONTROL_CHARS = {
+    0x061C,
+    0x200E,
+    0x200F,
+    *range(0x202A, 0x202F),
+    *range(0x2066, 0x206A),
+}
 _BLOCKED_BACKUP_REASONS = (
     "remote URL contains credentials or query data",
     "submodule URL contains credentials or query data",
@@ -1624,6 +1631,7 @@ def _safe_windows_component(part: str) -> bool:
             ord(char) < 32
             or ord(char) == 127
             or char in _WINDOWS_INVALID_CHARS
+            or ord(char) in _BIDI_CONTROL_CHARS
             for char in part
         )
     ):

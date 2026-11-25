@@ -3086,11 +3086,26 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
         "ℂ𝕆ℕ",
         "ⒸⓄⓃ",
         "ＣＯＭ１",
+        "safe\u{202E}gnp.exe",
+        "a\u{2066}b",
+        "a\u{061C}b",
     ] {
         assert!(!safe_windows_component(name), "expected unsafe: {name}");
     }
     for name in [
-        "COM0", "LPT0", "COM10", "COM四", "COMⅨ", "COM½", "COM⑩", "COM０", "COM", "СОН", "ΟΝ",
+        "COM0",
+        "LPT0",
+        "COM10",
+        "COM四",
+        "COMⅨ",
+        "COM½",
+        "COM⑩",
+        "COM０",
+        "COM",
+        "СОН",
+        "ΟΝ",
+        "文件名.txt",
+        "emoji-😀.txt",
     ] {
         assert!(safe_windows_component(name), "expected safe: {name}");
     }

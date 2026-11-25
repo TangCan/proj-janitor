@@ -991,12 +991,25 @@ fn is_reserved_device_name(stem: &str) -> bool {
     })
 }
 
+fn is_bidi_control(character: char) -> bool {
+    matches!(
+        character,
+        '\u{061C}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+    )
+}
+
 pub(crate) fn safe_windows_component(name: &str) -> bool {
     if name.is_empty()
         || name.ends_with([' ', '.'])
-        || name
-            .chars()
-            .any(|character| character.is_ascii_control() || "<>:\"|?*\\".contains(character))
+        || name.chars().any(|character| {
+            character.is_ascii_control()
+                || "<>:\"|?*\\".contains(character)
+                || is_bidi_control(character)
+        })
     {
         return false;
     }
