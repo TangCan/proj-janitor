@@ -1582,24 +1582,27 @@ pub(crate) fn restore_cmd(
             let Some(archive) = archive else {
                 continue;
             };
-            if record.incremental.is_some() {
-                eprintln!(
-                    "warning: --check-space skipped incremental archive for {}",
-                    record.project
-                );
-                continue;
-            }
             let parent = target.parent().unwrap_or_else(|| Path::new("."));
             let available = crate::archive::available_disk_bytes(parent)?;
             let estimated = record
                 .inventory
                 .as_ref()
-                .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>());
+                .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>())
+                .or_else(|| {
+                    (record.incremental.is_some() || record.encryption.is_some())
+                        .then_some(record.source_bytes)
+                        .filter(|size| *size > 0)
+                });
             let needed = if let Some(estimated) = estimated {
                 estimated
-            } else if record.encryption.is_some() {
+            } else if record.incremental.is_some() || record.encryption.is_some() {
+                let reason = if record.incremental.is_some() {
+                    "incremental"
+                } else {
+                    "encrypted"
+                };
                 eprintln!(
-                    "warning: --check-space skipped encrypted archive without inventory for {}",
+                    "warning: --check-space skipped {reason} archive without size estimate for {}",
                     record.project
                 );
                 continue;

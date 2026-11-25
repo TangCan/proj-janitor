@@ -107,6 +107,7 @@ class RestorePlan:
     in_place: bool = False
     incremental: dict | None = None
     inventory: list | None = None
+    source_bytes: int | None = None
     manifest_dir: Path | None = None
     submodules: list | None = None
     lfs_objects: list | None = None

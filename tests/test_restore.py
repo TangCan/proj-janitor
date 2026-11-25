@@ -3389,6 +3389,42 @@ class RestoreSpaceCheckTests(unittest.TestCase):
             self.assertIn("skipped encrypted archive", output)
             self.assertIn("skipped incremental archive", output)
 
+    def test_source_bytes_covers_incremental_and_encrypted(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plans = [
+                RestorePlan(
+                    project="inc",
+                    strategy="archive",
+                    target=root / "out" / "inc",
+                    archive=root / "inc.tar.gz",
+                    source_bytes=100,
+                    incremental={"base": "previous.json", "deleted": []},
+                ),
+                RestorePlan(
+                    project="enc",
+                    strategy="archive",
+                    target=root / "out" / "enc",
+                    archive=root / "enc.bin",
+                    source_bytes=100,
+                    encryption="openssl-aes-256-cbc-pbkdf2",
+                ),
+            ]
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 50),
+            ):
+                for plan in plans:
+                    with self.subTest(project=plan.project):
+                        with self.assertRaisesRegex(
+                            RestoreError, "not enough free space"
+                        ):
+                            _check_restore_space([plan])
+
 
 if __name__ == "__main__":
     unittest.main()

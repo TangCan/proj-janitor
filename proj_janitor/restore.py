@@ -806,6 +806,11 @@ def plan_restore(
                     in_place=dest is None,
                     incremental=record.get("incremental"),
                     inventory=record.get("inventory"),
+                    source_bytes=(
+                        record.get("source_bytes")
+                        if isinstance(record.get("source_bytes"), int)
+                        else None
+                    ),
                     manifest_dir=manifest_path.parent,
                     encryption=(
                         record.get("encryption")
@@ -935,12 +940,6 @@ def _check_restore_space(plans: list[RestorePlan]) -> None:
             or plan.archive is None
         ):
             continue
-        if plan.incremental:
-            print(
-                f"warning: --check-space skipped incremental archive for {plan.project}",
-                file=sys.stderr,
-            )
-            continue
         parent = plan.target.parent
         probe = parent
         while not probe.exists() and probe != probe.parent:
@@ -952,15 +951,19 @@ def _check_restore_space(plans: list[RestorePlan]) -> None:
                 f"cannot determine free space for {probe}: {exc}"
             ) from exc
         estimated = _inventory_uncompressed_bytes(plan)
+        if estimated is None and (plan.incremental or plan.encryption):
+            if plan.source_bytes is not None and plan.source_bytes > 0:
+                estimated = plan.source_bytes
+            else:
+                reason = "incremental" if plan.incremental else "encrypted"
+                print(
+                    f"warning: --check-space skipped {reason} archive "
+                    f"without size estimate for {plan.project}",
+                    file=sys.stderr,
+                )
+                continue
         if estimated is not None:
             needed = estimated
-        elif plan.encryption:
-            print(
-                "warning: --check-space skipped encrypted archive without "
-                f"inventory for {plan.project}",
-                file=sys.stderr,
-            )
-            continue
         else:
             needed = _archive_uncompressed_bytes(plan.archive, limit=available)
         if needed > available:
