@@ -249,8 +249,11 @@ enum Action {
         #[arg(long)]
         no_verify: bool,
         /// Refuse archive restores whose uncompressed size exceeds free space
-        #[arg(long)]
+        #[arg(long = "check-space", conflicts_with = "no_check_space")]
         check_space: bool,
+        /// Skip free-space preflight even when [restore].check_space is true
+        #[arg(long = "no-check-space", conflicts_with = "check_space")]
+        no_check_space: bool,
         /// Skip confirmation for original-location restore or --force overwrite
         #[arg(long)]
         yes: bool,
@@ -718,6 +721,7 @@ fn run() -> anyhow::Result<()> {
             dry_run,
             no_verify,
             check_space,
+            no_check_space,
             yes,
             check_remote,
             no_check_remote,
@@ -843,6 +847,14 @@ fn run() -> anyhow::Result<()> {
                 config
                     .as_ref()
                     .map(|cfg| cfg.restore.checkout_branch)
+                    .unwrap_or(false),
+            );
+            let check_space = resolve_tri_state(
+                check_space,
+                no_check_space,
+                config
+                    .as_ref()
+                    .map(|cfg| cfg.restore.check_space)
                     .unwrap_or(false),
             );
             let progress = resolve_tri_state(

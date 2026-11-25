@@ -146,6 +146,9 @@ pub(crate) struct RestoreConfig {
     /// Check out the manifest branch for Git-only restores (default: detached HEAD).
     #[serde(default)]
     pub(crate) checkout_branch: bool,
+    /// Check free space against the archive's uncompressed size before restoring.
+    #[serde(default)]
+    pub(crate) check_space: bool,
     /// Emit per-project restore progress on stderr.
     #[serde(default)]
     pub(crate) progress: bool,

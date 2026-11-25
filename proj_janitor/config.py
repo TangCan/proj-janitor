@@ -319,6 +319,7 @@ class RestoreConfig:
         "continue_on_error",
         "skip_existing",
         "checkout_branch",
+        "check_space",
         "progress",
     )
 
@@ -337,6 +338,7 @@ class RestoreConfig:
         continue_on_error: bool = False,
         skip_existing: bool = False,
         checkout_branch: bool = False,
+        check_space: bool = False,
         progress: bool = False,
     ) -> None:
         self.check_remote = check_remote
@@ -352,6 +354,7 @@ class RestoreConfig:
         self.continue_on_error = continue_on_error
         self.skip_existing = skip_existing
         self.checkout_branch = checkout_branch
+        self.check_space = check_space
         self.progress = progress
 
 
@@ -621,6 +624,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "continue_on_error",
         "skip_existing",
         "checkout_branch",
+        "check_space",
         "progress",
     }
     if set(restore_data) - allowed_restore:
@@ -692,6 +696,11 @@ def load_config(path: Path | None = None) -> Config | None:
             restore_data["checkout_branch"], "[restore].checkout_branch"
         )
         if "checkout_branch" in restore_data
+        else False,
+        check_space=_parse_bool(
+            restore_data["check_space"], "[restore].check_space"
+        )
+        if "check_space" in restore_data
         else False,
         progress=_parse_bool(restore_data["progress"], "[restore].progress")
         if "progress" in restore_data

@@ -452,10 +452,19 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument(
         "--check-space",
         action="store_true",
+        dest="check_space",
+        default=None,
         help=(
             "refuse archive restores whose uncompressed size exceeds free space "
-            "at the destination"
+            "at the destination (overrides [restore].check_space)"
         ),
+    )
+    restore.add_argument(
+        "--no-check-space",
+        action="store_false",
+        dest="check_space",
+        default=None,
+        help="skip free-space preflight even when [restore].check_space is true",
     )
     restore.add_argument(
         "--yes",
@@ -1382,6 +1391,10 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         args.checkout_branch,
         config.restore.checkout_branch if config else False,
     )
+    check_space = resolve_tri_state(
+        args.check_space,
+        config.restore.check_space if config else False,
+    )
     progress = resolve_tri_state(
         args.progress,
         config.restore.progress if config else False,
@@ -1541,7 +1554,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             rollback_on_error=rollback_on_error,
             continue_on_error=continue_on_error,
             checkout_branch=checkout_branch,
-            check_space=args.check_space,
+            check_space=check_space,
             progress=progress,
         )
     except PartialRestoreError as exc:

@@ -227,6 +227,13 @@ class ConfigTests(unittest.TestCase):
                 config = load_config()
             self.assertIsNone(config)
 
+    def test_loads_restore_check_space_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text("[restore]\ncheck_space = true\n", encoding="utf-8")
+            config = load_config(path)
+            self.assertTrue(config.restore.check_space)
+
     def test_loads_verify_and_restore_check_remote(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cfg.toml"
