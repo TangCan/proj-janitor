@@ -4,8 +4,8 @@ use crate::archive::find_unsafe_archive_paths;
 #[cfg(unix)]
 use crate::archive::remove_file_if_same;
 use crate::archive::{
-    archive_path_matches, create_archive, extract_archive, safe_archive_link, safe_archive_path,
-    safe_windows_component, sha256, write_new_file,
+    archive_path_matches, archive_uncompressed_bytes, create_archive, extract_archive,
+    safe_archive_link, safe_archive_path, safe_windows_component, sha256, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -1786,6 +1786,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         false,
         false,
         false,
+        false,
         false, // fail_on_insecure_dest
         &[],
         false,
@@ -1810,6 +1811,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1843,6 +1845,7 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         &manifest_path,
         Some(failed_restore_root.clone()),
         &[],
+        false,
         false,
         false,
         false,
@@ -1894,7 +1897,8 @@ fn restore_reads_a_schema_v2_archive_manifest_and_checks_its_hash() {
         Some(continued.clone()),
         &[],
         false,
-        true, // --no-verify: second archive bytes no longer match gzip
+        true,
+        false, // --no-verify: second archive bytes no longer match gzip
         false,
         false,
         false,
@@ -2033,6 +2037,7 @@ fn git_restore_fetches_commit_without_persisting_fetch_url() {
         &manifest_path,
         Some(dest.clone()),
         &[],
+        false,
         false,
         false,
         true,
@@ -2355,6 +2360,7 @@ fn restore_dest_rejects_project_names_that_differ_only_by_case() {
             &[],
             true,
             false,
+            false,
             true,
             false,
             false,
@@ -2430,6 +2436,7 @@ fn restore_git_rejects_windows_invalid_project_names() {
             Some(dest.clone()),
             &[],
             true,
+            false,
             false,
             true,
             false,
@@ -2847,6 +2854,7 @@ fn restore_check_remote_blocks_unreachable_remote() {
         &[],
         false,
         false,
+        false,
         true,
         true,
         false,
@@ -2916,6 +2924,7 @@ fn restore_check_remote_proceeds_when_remote_verified() {
         &manifest_path,
         Some(dest.clone()),
         &[],
+        false,
         false,
         false,
         true,
@@ -2992,6 +3001,7 @@ fn restore_git_checkout_branch_creates_named_branch() {
         &manifest_path,
         Some(dest.clone()),
         &[],
+        false,
         false,
         false,
         true,
@@ -3203,4 +3213,23 @@ fn lfs_batch_probe_maps_statuses() {
     let checks = probe_lfs_batch_for_test(&url, &sized).unwrap();
     handle.join().unwrap();
     assert_eq!(checks[0].3, Some("lfs-batch-invalid-json"));
+}
+
+#[test]
+fn archive_uncompressed_bytes_stops_at_limit() {
+    let temp = TestDir::new();
+    let archive = temp.0.join("size.tar.gz");
+    let encoder = GzEncoder::new(File::create(&archive).unwrap(), Compression::default());
+    let mut tar = Builder::new(encoder);
+    let mut header = Header::new_gnu();
+    header.set_entry_type(EntryType::Regular);
+    header.set_mode(0o644);
+    header.set_size(7);
+    header.set_path("demo/a.txt").unwrap();
+    header.set_cksum();
+    tar.append(&header, &b"1234567"[..]).unwrap();
+    tar.into_inner().unwrap().finish().unwrap();
+
+    assert_eq!(archive_uncompressed_bytes(&archive, 100).unwrap(), 7);
+    assert_eq!(archive_uncompressed_bytes(&archive, 3).unwrap(), 7);
 }

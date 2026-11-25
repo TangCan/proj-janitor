@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import collections
 from contextlib import redirect_stderr
 from dataclasses import replace
 from pathlib import Path
@@ -3267,6 +3268,75 @@ class RestoreWriteFailureTests(unittest.TestCase):
                     execute_restore([plan], verify=False)
             self.assertFalse(target.exists())
             self.assertFalse(list(target.parent.glob(".app-restore-*")))
+
+
+class RestoreSpaceCheckTests(unittest.TestCase):
+    def test_check_space_refuses_when_archive_exceeds_free_space(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "app.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                info = tarfile.TarInfo("app/file.txt")
+                payload = b"0123456789"
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            target = root / "out" / "app"
+            plan = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=target,
+                archive=archive,
+            )
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 5),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "not enough free space"
+                ):
+                    execute_restore([plan], verify=False, check_space=True)
+            self.assertFalse(target.exists())
+
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 1024 * 1024),
+            ):
+                execute_restore([plan], verify=False, check_space=True)
+            self.assertEqual(
+                (target / "file.txt").read_text(encoding="utf-8"),
+                "0123456789",
+            )
+
+    def test_check_space_is_optional(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "app.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                info = tarfile.TarInfo("app/file.txt")
+                payload = b"payload"
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            plan = RestorePlan(
+                project="app",
+                strategy="archive",
+                target=root / "out" / "app",
+                archive=archive,
+            )
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 1),
+            ):
+                execute_restore([plan], verify=False)
+            self.assertTrue(plan.target.exists())
 
 
 if __name__ == "__main__":

@@ -1105,6 +1105,29 @@ fn report_extract_progress(
 /// Slack reserved for the manifest and archive headers beyond content bytes.
 pub(crate) const ARCHIVE_SPACE_SLACK: u64 = 1024 * 1024;
 
+/// Return the total declared size of regular files in an archive.
+pub(crate) fn archive_uncompressed_bytes(path: &Path, limit: u64) -> anyhow::Result<u64> {
+    let file =
+        File::open(path).with_context(|| format!("cannot open archive {}", path.display()))?;
+    let mut archive = Archive::new(GzDecoder::new(file));
+    let mut total = 0u64;
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let size = entry.size();
+        let kind = entry.header().entry_type();
+        let is_data = kind.is_file() || kind == EntryType::GNUSparse;
+        if is_data && size > 0 && size > limit.saturating_sub(total) {
+            // Stop before advancing past a member that already exceeds the
+            // budget; advancing would make tar skip its declared data.
+            return Ok(total.saturating_add(size));
+        }
+        if is_data {
+            total = total.saturating_add(size);
+        }
+    }
+    Ok(total)
+}
+
 /// Return free bytes available to the caller on the filesystem containing `path`.
 /// Walks up to an existing ancestor when `path` does not exist yet.
 pub(crate) fn available_disk_bytes(path: &Path) -> anyhow::Result<u64> {

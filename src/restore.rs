@@ -1289,6 +1289,7 @@ pub(crate) fn restore_cmd(
     projects: &[String],
     dry: bool,
     no_verify: bool,
+    check_space: bool,
     yes: bool,
     check_remote: bool,
     fail_on_remote_moved: bool,
@@ -1572,6 +1573,30 @@ pub(crate) fn restore_cmd(
             }
         }
         return Ok(());
+    }
+    if check_space {
+        for (record, target, archive, _, skip) in &plans {
+            if *skip
+                || record.strategy != "archive"
+                || record.encryption.is_some()
+                || record.incremental.is_some()
+            {
+                continue;
+            }
+            let Some(archive) = archive else {
+                continue;
+            };
+            let parent = target.parent().unwrap_or_else(|| Path::new("."));
+            let available = crate::archive::available_disk_bytes(parent)?;
+            let needed = crate::archive::archive_uncompressed_bytes(archive, available)?;
+            anyhow::ensure!(
+                needed <= available,
+                "not enough free space for {}: need {} bytes, available {} bytes",
+                record.project,
+                needed,
+                available
+            );
+        }
     }
     let has_overwrite = plans.iter().any(|(_, _, _, overwrite, _)| *overwrite);
     if (dest.is_none() || has_overwrite) && !yes {

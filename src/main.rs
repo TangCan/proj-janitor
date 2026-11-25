@@ -248,6 +248,9 @@ enum Action {
         /// Skip archive SHA-256 verification
         #[arg(long)]
         no_verify: bool,
+        /// Refuse archive restores whose uncompressed size exceeds free space
+        #[arg(long)]
+        check_space: bool,
         /// Skip confirmation for original-location restore or --force overwrite
         #[arg(long)]
         yes: bool,
@@ -714,6 +717,7 @@ fn run() -> anyhow::Result<()> {
             projects,
             dry_run,
             no_verify,
+            check_space,
             yes,
             check_remote,
             no_check_remote,
@@ -864,6 +868,7 @@ fn run() -> anyhow::Result<()> {
                 &projects,
                 dry_run,
                 no_verify,
+                check_space,
                 yes,
                 check_remote,
                 fail_on_remote_moved,

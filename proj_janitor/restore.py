@@ -374,6 +374,7 @@ def restore_from_manifest(
     continue_on_error: bool = False,
     skip_existing: bool = False,
     checkout_branch: bool = False,
+    check_space: bool = False,
     progress: bool = False,
 ) -> tuple[list[RestorePlan], list[RestoreResult]]:
     plans = plan_restore(
@@ -396,6 +397,7 @@ def restore_from_manifest(
         rollback_on_error=rollback_on_error,
         continue_on_error=continue_on_error,
         checkout_branch=checkout_branch,
+        check_space=check_space,
         progress=progress,
     )
     if verify:
@@ -421,6 +423,7 @@ def execute_restore(
     rollback_on_error: bool = False,
     continue_on_error: bool = False,
     checkout_branch: bool = False,
+    check_space: bool = False,
     progress: bool = False,
 ) -> list[RestoreResult]:
     plan_list = list(plans)
@@ -527,6 +530,8 @@ def execute_restore(
         raise RestoreError(
             f"cannot create restore target directory: {exc}"
         ) from exc
+    if check_space:
+        _check_restore_space(plan_list)
     results: list[RestoreResult] = []
     failures: list[tuple[str, str]] = []
     total = len(plan_list)
@@ -885,6 +890,52 @@ def _publish_restored_tree(
     except OSError as exc:
         raise RestoreError(f"cannot publish restore target {target}: {exc}") from exc
     return aside
+
+
+def _archive_uncompressed_bytes(archive: Path, limit: int | None = None) -> int:
+    """Return the total declared size of regular files in an archive.
+
+    Stop once ``limit`` is exceeded so a malicious/sparse member cannot force
+    the caller to scan a huge amount of declared data.
+    """
+    total = 0
+    try:
+        with tarfile.open(archive, "r:*") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                total += member.size
+                if limit is not None and total > limit:
+                    break
+    except (OSError, tarfile.TarError) as exc:
+        raise RestoreError(f"cannot inspect archive {archive}: {exc}") from exc
+    return total
+
+
+def _check_restore_space(plans: list[RestorePlan]) -> None:
+    """Refuse archive restores whose uncompressed size exceeds free space."""
+    for plan in plans:
+        if (
+            plan.skip
+            or plan.strategy != "archive"
+            or plan.archive is None
+            or plan.encryption
+            or plan.incremental
+        ):
+            continue
+        parent = plan.target.parent
+        try:
+            available = shutil.disk_usage(parent).free
+        except OSError as exc:
+            raise RestoreError(
+                f"cannot determine free space for {parent}: {exc}"
+            ) from exc
+        needed = _archive_uncompressed_bytes(plan.archive, limit=available)
+        if needed > available:
+            raise RestoreError(
+                f"not enough free space under {parent} for {plan.project}: "
+                f"need {needed} bytes, available {available} bytes"
+            )
 
 
 def _verify_archive_hash(

@@ -450,6 +450,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip archive SHA-256 verification",
     )
     restore.add_argument(
+        "--check-space",
+        action="store_true",
+        help=(
+            "refuse archive restores whose uncompressed size exceeds free space "
+            "at the destination"
+        ),
+    )
+    restore.add_argument(
         "--yes",
         action="store_true",
         help=(
@@ -1533,6 +1541,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             rollback_on_error=rollback_on_error,
             continue_on_error=continue_on_error,
             checkout_branch=checkout_branch,
+            check_space=args.check_space,
             progress=progress,
         )
     except PartialRestoreError as exc:
