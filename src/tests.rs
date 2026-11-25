@@ -3089,6 +3089,9 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
         "safe\u{202E}gnp.exe",
         "a\u{2066}b",
         "a\u{061C}b",
+        "a\u{0085}b",
+        "a\u{009F}b",
+        "a\u{007F}b",
     ] {
         assert!(!safe_windows_component(name), "expected unsafe: {name}");
     }

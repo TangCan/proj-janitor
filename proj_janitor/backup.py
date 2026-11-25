@@ -1629,7 +1629,7 @@ def _safe_windows_component(part: str) -> bool:
         or any(0xD800 <= ord(char) <= 0xDFFF for char in part)
         or any(
             ord(char) < 32
-            or ord(char) == 127
+            or 0x7F <= ord(char) <= 0x9F
             or char in _WINDOWS_INVALID_CHARS
             or ord(char) in _BIDI_CONTROL_CHARS
             for char in part

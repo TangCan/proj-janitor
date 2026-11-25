@@ -750,6 +750,11 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             _build_reserved_file("demo/safe\u202Egnp.exe"),
             ("unsafe archive path", "not Windows-portable"),
         ),
+        (
+            "c1-control-name",
+            _build_reserved_file("demo/a\u0085b.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:

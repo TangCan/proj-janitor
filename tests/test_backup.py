@@ -1547,6 +1547,9 @@ class WindowsComponentTests(unittest.TestCase):
             "safe\u202Egnp.exe",
             "a\u2066b",
             "a\u061Cb",
+            "a\u0085b",
+            "a\u009Fb",
+            "a\u007Fb",
         )
         for name in rejected:
             with self.subTest(name=name):
@@ -1569,6 +1572,8 @@ class WindowsComponentTests(unittest.TestCase):
             "MYCON",
             "文件名.txt",
             "emoji-😀.txt",
+            "a\u00A0b",
+            "normal.txt",
         )
         for name in allowed:
             with self.subTest(name=name):
