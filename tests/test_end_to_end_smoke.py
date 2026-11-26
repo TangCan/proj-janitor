@@ -33,6 +33,7 @@ def make_sample_project(root: Path) -> Path:
     unicode_dir = project / "数据"
     unicode_dir.mkdir()
     (unicode_dir / "说明.txt").write_text("你好，世界\n", encoding="utf-8")
+    (project / "👨\u200d👩\u200d👧.txt").write_text("family\n", encoding="utf-8")
     junk = project / "node_modules" / "pkg"
     junk.mkdir(parents=True)
     (junk / "index.js").write_text("x" * 4096, encoding="utf-8")
