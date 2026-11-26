@@ -933,6 +933,15 @@ def _inventory_uncompressed_bytes(plan: RestorePlan) -> int | None:
 
 def _check_restore_space(plans: list[RestorePlan]) -> None:
     """Refuse archive restores whose combined size exceeds free space."""
+    skipped_git = sum(
+        1 for plan in plans if not plan.skip and plan.strategy != "archive"
+    )
+    if skipped_git:
+        print(
+            "warning: --check-space only estimates archive restores; "
+            f"skipped {skipped_git} git/git_bundle plan(s)",
+            file=sys.stderr,
+        )
     grouped: dict[Path, list[RestorePlan]] = {}
     for plan in plans:
         if (

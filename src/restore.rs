@@ -1589,6 +1589,15 @@ pub(crate) fn restore_cmd(
     if check_space {
         use std::collections::BTreeMap;
 
+        let skipped_git = plans
+            .iter()
+            .filter(|(record, _, _, _, skip)| !*skip && record.strategy != "archive")
+            .count();
+        if skipped_git > 0 {
+            eprintln!(
+                "warning: --check-space only estimates archive restores; skipped {skipped_git} git/git_bundle plan(s)"
+            );
+        }
         let mut grouped: BTreeMap<PathBuf, Vec<usize>> = BTreeMap::new();
         for (index, (record, target, archive, _, skip)) in plans.iter().enumerate() {
             if *skip || record.strategy != "archive" || archive.is_none() {

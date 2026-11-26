@@ -3485,6 +3485,21 @@ class RestoreSpaceCheckTests(unittest.TestCase):
                 ):
                     _check_restore_space([plan])
 
+    def test_warns_when_git_plans_are_skipped(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = RestorePlan(
+                project="git-only",
+                strategy="git",
+                target=Path(tmp) / "out" / "git-only",
+            )
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                _check_restore_space([plan])
+            self.assertIn("only estimates archive restores", stderr.getvalue())
+            self.assertIn("skipped 1 git/git_bundle plan", stderr.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
