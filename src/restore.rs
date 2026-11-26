@@ -1283,6 +1283,18 @@ pub(crate) fn probe_lfs_batch_for_test(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn estimated_restore_bytes(record: &Record) -> Option<u64> {
+    record
+        .inventory
+        .as_ref()
+        .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>())
+        .or_else(|| {
+            (record.incremental.is_some() || record.encryption.is_some())
+                .then_some(record.source_bytes)
+                .filter(|size| *size > 0)
+        })
+}
+
 pub(crate) fn restore_cmd(
     manifest_path: &Path,
     dest: Option<PathBuf>,
@@ -1597,15 +1609,7 @@ pub(crate) fn restore_cmd(
                 let Some(archive) = archive else {
                     continue;
                 };
-                let estimated = record
-                    .inventory
-                    .as_ref()
-                    .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>())
-                    .or_else(|| {
-                        (record.incremental.is_some() || record.encryption.is_some())
-                            .then_some(record.source_bytes)
-                            .filter(|size| *size > 0)
-                    });
+                let estimated = estimated_restore_bytes(record);
                 let needed = if let Some(estimated) = estimated {
                     estimated
                 } else if record.incremental.is_some() || record.encryption.is_some() {

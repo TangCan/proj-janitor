@@ -16,8 +16,8 @@ use crate::project::{
     github_url, inspect, inspect_bundle_recovery, inspect_recovery, verify_local_tags,
 };
 use crate::restore::{
-    RemoteProbe, probe_lfs_batch_for_test, probe_remote, redact_remote, restore_cmd,
-    validate_git_restore,
+    RemoteProbe, estimated_restore_bytes, probe_lfs_batch_for_test, probe_remote, redact_remote,
+    restore_cmd, validate_git_restore,
 };
 use crate::retention::{apply_retention_plan, plan_retention};
 use flate2::{Compression, write::GzEncoder};
@@ -3241,4 +3241,52 @@ fn archive_uncompressed_bytes_stops_at_limit() {
 
     assert_eq!(archive_uncompressed_bytes(&archive, 100).unwrap(), 7);
     assert_eq!(archive_uncompressed_bytes(&archive, 3).unwrap(), 7);
+}
+
+fn base_record_value() -> serde_json::Value {
+    serde_json::json!({
+        "project": "app",
+        "source": "/tmp/app",
+        "archive": "/tmp/app.tar.gz",
+        "archive_bytes": 10,
+        "source_bytes": 1000,
+        "sha256": "abcd",
+        "strategy": "archive",
+        "remote": null,
+        "remote_url": null,
+        "branch": null,
+        "commit": null,
+        "upstream": null,
+        "verified": null,
+        "fallback_reason": null,
+    })
+}
+
+#[test]
+fn estimated_restore_bytes_prefers_inventory() {
+    let mut value = base_record_value();
+    value["inventory"] = serde_json::json!([
+        {"path": "app/a", "sha256": "x", "size": 60}
+    ]);
+    let record: Record = serde_json::from_value(value).unwrap();
+    assert_eq!(estimated_restore_bytes(&record), Some(60));
+}
+
+#[test]
+fn estimated_restore_bytes_falls_back_for_incremental_and_encrypted() {
+    let mut incremental = base_record_value();
+    incremental["incremental"] = serde_json::json!({"base": "previous.json", "deleted": []});
+    let record: Record = serde_json::from_value(incremental).unwrap();
+    assert_eq!(estimated_restore_bytes(&record), Some(1000));
+
+    let mut encrypted = base_record_value();
+    encrypted["encryption"] = serde_json::json!("openssl-aes-256-cbc-pbkdf2");
+    let record: Record = serde_json::from_value(encrypted).unwrap();
+    assert_eq!(estimated_restore_bytes(&record), Some(1000));
+}
+
+#[test]
+fn estimated_restore_bytes_needs_metadata_for_plain_archive() {
+    let record: Record = serde_json::from_value(base_record_value()).unwrap();
+    assert_eq!(estimated_restore_bytes(&record), None);
 }
