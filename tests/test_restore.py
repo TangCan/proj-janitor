@@ -3428,6 +3428,32 @@ class RestoreSpaceCheckTests(unittest.TestCase):
                         ):
                             _check_restore_space([plan])
 
+    def test_combines_archives_sharing_a_parent(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plans = [
+                RestorePlan(
+                    project=name,
+                    strategy="archive",
+                    target=root / "out" / name,
+                    archive=root / f"{name}.tar.gz",
+                    inventory=[{"path": f"app/{name}", "sha256": "x", "size": 60}],
+                )
+                for name in ("a", "b")
+            ]
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 100),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "not enough free space"
+                ):
+                    _check_restore_space(plans)
+
 
 if __name__ == "__main__":
     unittest.main()

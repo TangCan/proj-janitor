@@ -932,7 +932,8 @@ def _inventory_uncompressed_bytes(plan: RestorePlan) -> int | None:
 
 
 def _check_restore_space(plans: list[RestorePlan]) -> None:
-    """Refuse archive restores whose uncompressed size exceeds free space."""
+    """Refuse archive restores whose combined size exceeds free space."""
+    grouped: dict[Path, list[RestorePlan]] = {}
     for plan in plans:
         if (
             plan.skip
@@ -940,7 +941,8 @@ def _check_restore_space(plans: list[RestorePlan]) -> None:
             or plan.archive is None
         ):
             continue
-        parent = plan.target.parent
+        grouped.setdefault(plan.target.parent, []).append(plan)
+    for parent, group in grouped.items():
         probe = parent
         while not probe.exists() and probe != probe.parent:
             probe = probe.parent
@@ -950,26 +952,35 @@ def _check_restore_space(plans: list[RestorePlan]) -> None:
             raise RestoreError(
                 f"cannot determine free space for {probe}: {exc}"
             ) from exc
-        estimated = _inventory_uncompressed_bytes(plan)
-        if estimated is None and (plan.incremental or plan.encryption):
-            if plan.source_bytes is not None and plan.source_bytes > 0:
-                estimated = plan.source_bytes
+        total = 0
+        checked: list[str] = []
+        for plan in group:
+            estimated = _inventory_uncompressed_bytes(plan)
+            if estimated is None and (plan.incremental or plan.encryption):
+                if plan.source_bytes is not None and plan.source_bytes > 0:
+                    estimated = plan.source_bytes
+                else:
+                    reason = "incremental" if plan.incremental else "encrypted"
+                    print(
+                        f"warning: --check-space skipped {reason} archive "
+                        f"without size estimate for {plan.project}",
+                        file=sys.stderr,
+                    )
+                    continue
+            if estimated is not None:
+                needed = estimated
             else:
-                reason = "incremental" if plan.incremental else "encrypted"
-                print(
-                    f"warning: --check-space skipped {reason} archive "
-                    f"without size estimate for {plan.project}",
-                    file=sys.stderr,
+                remaining = max(available - total, 0)
+                needed = _archive_uncompressed_bytes(
+                    plan.archive, limit=remaining
                 )
-                continue
-        if estimated is not None:
-            needed = estimated
-        else:
-            needed = _archive_uncompressed_bytes(plan.archive, limit=available)
-        if needed > available:
+            total += needed
+            checked.append(plan.project)
+        if total > available:
+            names = ", ".join(checked)
             raise RestoreError(
-                f"not enough free space under {parent} for {plan.project}: "
-                f"need {needed} bytes, available {available} bytes"
+                f"not enough free space under {parent} for {names}: "
+                f"need {total} bytes, available {available} bytes"
             )
 
 

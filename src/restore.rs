@@ -1575,45 +1575,65 @@ pub(crate) fn restore_cmd(
         return Ok(());
     }
     if check_space {
-        for (record, target, archive, _, skip) in &plans {
-            if *skip || record.strategy != "archive" {
+        use std::collections::BTreeMap;
+
+        let mut grouped: BTreeMap<PathBuf, Vec<usize>> = BTreeMap::new();
+        for (index, (record, target, archive, _, skip)) in plans.iter().enumerate() {
+            if *skip || record.strategy != "archive" || archive.is_none() {
                 continue;
             }
-            let Some(archive) = archive else {
-                continue;
-            };
-            let parent = target.parent().unwrap_or_else(|| Path::new("."));
-            let available = crate::archive::available_disk_bytes(parent)?;
-            let estimated = record
-                .inventory
-                .as_ref()
-                .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>())
-                .or_else(|| {
-                    (record.incremental.is_some() || record.encryption.is_some())
-                        .then_some(record.source_bytes)
-                        .filter(|size| *size > 0)
-                });
-            let needed = if let Some(estimated) = estimated {
-                estimated
-            } else if record.incremental.is_some() || record.encryption.is_some() {
-                let reason = if record.incremental.is_some() {
-                    "incremental"
-                } else {
-                    "encrypted"
+            let parent = target
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+            grouped.entry(parent).or_default().push(index);
+        }
+        for (parent, indexes) in grouped {
+            let available = crate::archive::available_disk_bytes(&parent)?;
+            let mut total = 0u64;
+            let mut checked: Vec<&str> = Vec::new();
+            for index in indexes {
+                let (record, _, archive, _, _) = &plans[index];
+                let Some(archive) = archive else {
+                    continue;
                 };
-                eprintln!(
-                    "warning: --check-space skipped {reason} archive without size estimate for {}",
-                    record.project
-                );
-                continue;
-            } else {
-                crate::archive::archive_uncompressed_bytes(archive, available)?
-            };
+                let estimated = record
+                    .inventory
+                    .as_ref()
+                    .map(|inventory| inventory.iter().map(|entry| entry.size).sum::<u64>())
+                    .or_else(|| {
+                        (record.incremental.is_some() || record.encryption.is_some())
+                            .then_some(record.source_bytes)
+                            .filter(|size| *size > 0)
+                    });
+                let needed = if let Some(estimated) = estimated {
+                    estimated
+                } else if record.incremental.is_some() || record.encryption.is_some() {
+                    let reason = if record.incremental.is_some() {
+                        "incremental"
+                    } else {
+                        "encrypted"
+                    };
+                    eprintln!(
+                        "warning: --check-space skipped {reason} archive without size estimate for {}",
+                        record.project
+                    );
+                    continue;
+                } else {
+                    crate::archive::archive_uncompressed_bytes(
+                        archive,
+                        available.saturating_sub(total),
+                    )?
+                };
+                total = total.saturating_add(needed);
+                checked.push(&record.project);
+            }
             anyhow::ensure!(
-                needed <= available,
-                "not enough free space for {}: need {} bytes, available {} bytes",
-                record.project,
-                needed,
+                total <= available,
+                "not enough free space under {} for {}: need {} bytes, available {} bytes",
+                parent.display(),
+                checked.join(", "),
+                total,
                 available
             );
         }
