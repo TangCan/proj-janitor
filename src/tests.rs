@@ -3108,6 +3108,8 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
         "a\u{200B}b",
         "a\u{FEFF}b",
         "a\u{2060}b",
+        "a\u{2028}b",
+        "a\u{2029}b",
     ] {
         assert!(!safe_windows_component(name), "expected unsafe: {name}");
     }

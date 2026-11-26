@@ -1005,6 +1005,7 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
             character.is_control()
                 || "<>:\"|?*\\".contains(character)
                 || is_invisible_format(character)
+                || matches!(character, '\u{2028}' | '\u{2029}')
         })
     {
         return false;

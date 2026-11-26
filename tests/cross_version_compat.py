@@ -765,6 +765,11 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             _build_reserved_file("demo/a\u00ADb.txt"),
             ("unsafe archive path", "not Windows-portable"),
         ),
+        (
+            "line-separator-name",
+            _build_reserved_file("demo/a\u2028b.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
     ):
         archive_path = root / f"{kind}.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:

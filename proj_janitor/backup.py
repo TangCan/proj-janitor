@@ -1637,6 +1637,7 @@ def _safe_windows_component(part: str) -> bool:
             or 0x7F <= ord(char) <= 0x9F
             or char in _WINDOWS_INVALID_CHARS
             or _is_invisible_format(char)
+            or char in ("\u2028", "\u2029")
             for char in part
         )
     ):

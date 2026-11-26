@@ -1556,6 +1556,8 @@ class WindowsComponentTests(unittest.TestCase):
             "a\u200Bb",
             "a\uFEFFb",
             "a\u2060b",
+            "a\u2028b",
+            "a\u2029b",
         )
         for name in rejected:
             with self.subTest(name=name):
