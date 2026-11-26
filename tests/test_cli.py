@@ -450,8 +450,10 @@ class CliTests(unittest.TestCase):
             self.assertFalse(env_dest.exists())
 
     def test_backup_destination_is_required_without_environment_variable(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            code, out, err = run_cli("backup", ".")
+        with tempfile.TemporaryDirectory() as tmp:
+            project = make_project(Path(tmp))
+            with mock.patch.dict("os.environ", {}, clear=True):
+                code, out, err = run_cli("backup", str(project))
         self.assertEqual(code, 1)
         self.assertIn("configure [backup].dest", err)
 
