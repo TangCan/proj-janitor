@@ -1006,7 +1006,10 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
     if name.is_empty()
         || name.ends_with([' ', '.'])
         || name.chars().any(|character| {
-            character.is_control() || "<>:\"|?*\\".contains(character) || is_bidi_control(character)
+            character.is_control()
+                || "<>:\"|?*\\".contains(character)
+                || is_bidi_control(character)
+                || ('\u{E0000}'..='\u{E007F}').contains(&character)
         })
     {
         return false;

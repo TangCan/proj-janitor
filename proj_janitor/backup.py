@@ -1632,6 +1632,7 @@ def _safe_windows_component(part: str) -> bool:
             or 0x7F <= ord(char) <= 0x9F
             or char in _WINDOWS_INVALID_CHARS
             or ord(char) in _BIDI_CONTROL_CHARS
+            or 0xE0000 <= ord(char) <= 0xE007F
             for char in part
         )
     ):
