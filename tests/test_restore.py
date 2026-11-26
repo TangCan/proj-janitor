@@ -3454,6 +3454,37 @@ class RestoreSpaceCheckTests(unittest.TestCase):
                 ):
                     _check_restore_space(plans)
 
+    def test_incremental_inventory_wins_over_source_bytes(self) -> None:
+        from proj_janitor.models import RestorePlan
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = RestorePlan(
+                project="inc",
+                strategy="archive",
+                target=root / "out" / "inc",
+                archive=root / "inc.tar.gz",
+                source_bytes=1000,
+                incremental={"base": "previous.json", "deleted": []},
+                inventory=[{"path": "app/a", "sha256": "x", "size": 60}],
+            )
+            usage = collections.namedtuple("usage", "total used free")
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 100),
+            ):
+                _check_restore_space([plan])
+            with mock.patch.object(
+                restore_module.shutil,
+                "disk_usage",
+                return_value=usage(0, 0, 50),
+            ):
+                with self.assertRaisesRegex(
+                    RestoreError, "not enough free space"
+                ):
+                    _check_restore_space([plan])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2757,9 +2757,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("incremental", record)
             self.assertIsInstance(record["incremental"]["base"], str)
             self.assertIn("inventory", record)
-            self.assertTrue(
-                any(item["path"] == "new.txt" for item in record["inventory"])
-            )
+            inventory_paths = {item["path"] for item in record["inventory"]}
+            self.assertIn("new.txt", inventory_paths)
+            # Incremental inventories are full snapshots, not just the delta.
+            self.assertIn("main.py", inventory_paths)
 
             restored = root / "restored"
             code, out, err = run_cli(
