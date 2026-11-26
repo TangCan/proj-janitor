@@ -567,6 +567,54 @@ class CliTests(unittest.TestCase):
             )
             self.assertFalse((restored / "app" / "node_modules").exists())
 
+    def test_restore_check_space_config_and_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backups = root / "backups"
+            code, _, _ = run_cli(
+                "backup", str(project), "--backup-dest", str(backups)
+            )
+            self.assertEqual(code, 0)
+            manifest = next(backups.glob("*/manifest-*.json"))
+            config = root / "config.toml"
+            config.write_text("[restore]\ncheck_space = true\n", encoding="utf-8")
+
+            with mock.patch(
+                "proj_janitor.cli.execute_restore", return_value=[]
+            ) as execute:
+                code, _, _ = run_cli(
+                    "restore",
+                    str(manifest),
+                    "--dest",
+                    str(root / "with-config"),
+                    "--config",
+                    str(config),
+                )
+                self.assertEqual(code, 0)
+                self.assertTrue(execute.call_args.kwargs["check_space"])
+
+                code, _, _ = run_cli(
+                    "restore",
+                    str(manifest),
+                    "--dest",
+                    str(root / "overridden"),
+                    "--config",
+                    str(config),
+                    "--no-check-space",
+                )
+                self.assertEqual(code, 0)
+                self.assertFalse(execute.call_args.kwargs["check_space"])
+
+                code, _, _ = run_cli(
+                    "restore",
+                    str(manifest),
+                    "--dest",
+                    str(root / "default"),
+                )
+                self.assertEqual(code, 0)
+                self.assertFalse(execute.call_args.kwargs["check_space"])
+
     def test_restore_dry_run_json_is_pure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
