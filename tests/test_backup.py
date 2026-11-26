@@ -1576,6 +1576,11 @@ class WindowsComponentTests(unittest.TestCase):
             "emoji-😀.txt",
             "a\u00A0b",
             "normal.txt",
+            "👨\u200d👩\u200d👧.txt",
+            "می\u200cخانه.txt",
+            "❤\ufe0f.txt",
+            "👍🏽.txt",
+            "e\u0301.txt",
         )
         for name in allowed:
             with self.subTest(name=name):

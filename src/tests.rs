@@ -3121,6 +3121,13 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
         "ΟΝ",
         "文件名.txt",
         "emoji-😀.txt",
+        "a\u{00A0}b",
+        "normal.txt",
+        "👨\u{200D}👩\u{200D}👧.txt",
+        "می\u{200C}خانه.txt",
+        "❤\u{FE0F}.txt",
+        "👍🏽.txt",
+        "e\u{0301}.txt",
     ] {
         assert!(safe_windows_component(name), "expected safe: {name}");
     }
