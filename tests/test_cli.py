@@ -2258,6 +2258,8 @@ class CliTests(unittest.TestCase):
                 "--checkout-branch creates/resets the local branch via checkout -B",
                 text,
             )
+            self.assertIn("check_space = false", text)
+            self.assertIn("[restore].check_space = true", text)
             self.assertIn("keep_replaced = true", text)
             self.assertIn("rollback_on_error = true", text)
             self.assertIn("--skip-existing", text)

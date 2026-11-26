@@ -131,6 +131,7 @@ INIT_CONFIG_TEMPLATE = """\
 # - backup/restore: --fail-on-insecure-dest refuses group/other-accessible dest dirs on Unix
 # - [backup].fail_on_secrets / exclude_secrets / encrypt_passphrase_file — handle secrets (R-05)
 # - [restore].checkout_branch = true — Git-only restore checks out manifest branch (else detached HEAD)
+# - [restore].check_space = true — restore refuses archive when estimate exceeds free space
 # - restore: --checkout-branch creates/resets the local branch via checkout -B
 # - [restore].keep_replaced = true — with force, rename aside instead of deleting replaced targets
 # - [restore].rollback_on_error = true — with continue-on-error, undo successful restores on failure
@@ -195,6 +196,7 @@ INIT_CONFIG_TEMPLATE = """\
 # continue_on_error = false
 # skip_existing = false
 # checkout_branch = false
+# check_space = false
 # progress = true
 # decrypt_passphrase_file = "/path/to/passphrase"
 """
