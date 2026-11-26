@@ -1282,7 +1282,6 @@ pub(crate) fn probe_lfs_batch_for_test(
         .collect())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn estimated_restore_bytes(record: &Record) -> Option<u64> {
     record
         .inventory
@@ -1295,6 +1294,7 @@ pub(crate) fn estimated_restore_bytes(record: &Record) -> Option<u64> {
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn restore_cmd(
     manifest_path: &Path,
     dest: Option<PathBuf>,
