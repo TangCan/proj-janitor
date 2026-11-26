@@ -55,13 +55,18 @@ from proj_janitor.scanner import (
 
 _WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
 _WINDOWS_INVALID_CHARS = '<>:"|?*'
-_BIDI_CONTROL_CHARS = {
-    0x061C,
-    0x200E,
-    0x200F,
-    *range(0x202A, 0x202F),
-    *range(0x2066, 0x206A),
-}
+
+
+def _is_invisible_format(character: str) -> bool:
+    """Invisible format controls are rejected, except ZWNJ/ZWJ.
+
+    ZWNJ (U+200C) and ZWJ (U+200D) are legitimate in Persian text and emoji
+    sequences; other Unicode ``Cf`` characters have no filename use and can
+    spoof what a name looks like.
+    """
+    if character in ("\u200c", "\u200d"):
+        return False
+    return unicodedata.category(character) == "Cf"
 _BLOCKED_BACKUP_REASONS = (
     "remote URL contains credentials or query data",
     "submodule URL contains credentials or query data",
@@ -1631,8 +1636,7 @@ def _safe_windows_component(part: str) -> bool:
             ord(char) < 32
             or 0x7F <= ord(char) <= 0x9F
             or char in _WINDOWS_INVALID_CHARS
-            or ord(char) in _BIDI_CONTROL_CHARS
-            or 0xE0000 <= ord(char) <= 0xE007F
+            or _is_invisible_format(char)
             for char in part
         )
     ):

@@ -3104,6 +3104,10 @@ fn windows_component_rejects_unicode_decimal_device_digits() {
         "a\u{007F}b",
         "a\u{E0041}b",
         "tag\u{E007F}",
+        "a\u{00AD}b",
+        "a\u{200B}b",
+        "a\u{FEFF}b",
+        "a\u{2060}b",
     ] {
         assert!(!safe_windows_component(name), "expected unsafe: {name}");
     }

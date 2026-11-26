@@ -991,15 +991,11 @@ fn is_reserved_device_name(stem: &str) -> bool {
     })
 }
 
-fn is_bidi_control(character: char) -> bool {
-    matches!(
-        character,
-        '\u{061C}'
-            | '\u{200E}'
-            | '\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2066}'..='\u{2069}'
-    )
+fn is_invisible_format(character: char) -> bool {
+    if matches!(character, '\u{200C}' | '\u{200D}') {
+        return false;
+    }
+    get_general_category(character) == GeneralCategory::Format
 }
 
 pub(crate) fn safe_windows_component(name: &str) -> bool {
@@ -1008,8 +1004,7 @@ pub(crate) fn safe_windows_component(name: &str) -> bool {
         || name.chars().any(|character| {
             character.is_control()
                 || "<>:\"|?*\\".contains(character)
-                || is_bidi_control(character)
-                || ('\u{E0000}'..='\u{E007F}').contains(&character)
+                || is_invisible_format(character)
         })
     {
         return false;
