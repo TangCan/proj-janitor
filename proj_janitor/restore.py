@@ -1356,6 +1356,12 @@ def verify_manifest(
                 raise RestoreError(
                     f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
                 )
+            if isinstance(record.get("incremental"), dict):
+                print(
+                    f"warning: {project}: incremental snapshot verified; "
+                    "the base chain is not checked",
+                    file=sys.stderr,
+                )
             encryption = record.get("encryption")
             inner_checked = False
             if isinstance(encryption, str) and encryption:

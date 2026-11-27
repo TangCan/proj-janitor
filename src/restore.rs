@@ -477,6 +477,12 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
+                if record.incremental.is_some() {
+                    eprintln!(
+                        "warning: {}: incremental snapshot verified; the base chain is not checked",
+                        record.project
+                    );
+                }
                 let mut inner_checked = false;
                 if record
                     .encryption

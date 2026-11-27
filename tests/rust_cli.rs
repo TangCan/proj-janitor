@@ -628,6 +628,63 @@ fn verify_encrypted_git_bundle_with_passphrase() {
 }
 
 #[test]
+fn verify_warns_for_incremental_snapshot_chain() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    let first = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    fs::write(project.join("main.py"), "print('bye')\n").unwrap();
+    let second = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--incremental", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("manifest-"))
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .map(|entry| entry.path())
+        .expect("manifest");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("base chain is not checked"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn backup_check_space_warns_for_git_bundle() {
     let temp = TestDir::new();
     let project = temp.0.join("app");

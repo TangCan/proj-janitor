@@ -3692,6 +3692,34 @@ class GitBundleVerifyTests(unittest.TestCase):
                 verify_manifest(manifest, decrypt_passphrase_file=wrong)
 
 
+class IncrementalVerifyTests(unittest.TestCase):
+    def test_verify_warns_about_unchecked_base_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+            dest = root / "backups"
+            manifests, _, failures = run_backup(
+                [scan_project(project)], dest
+            )
+            self.assertFalse(failures)
+            (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                incremental=True,
+            )
+            self.assertFalse(failures)
+            self.assertIsNotNone(records[0].incremental)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                results = verify_manifest(manifests[0])
+            self.assertEqual(results[0]["status"], "verified")
+            self.assertIn("base chain is not checked", stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
 
