@@ -3560,6 +3560,71 @@ class EncryptedVerifyTests(unittest.TestCase):
                 verify_manifest(manifest, decrypt_passphrase_file=wrong)
 
 
+    def test_verify_rejects_malicious_inner_archive(self) -> None:
+        from proj_janitor.crypto import (
+            OPENSSL_AES_256_CBC_PBKDF2,
+            openssl_encrypt_file,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            passphrase = root / "pass.txt"
+            passphrase.write_text("secret\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+            plain = root / "app.tar.gz"
+            with tarfile.open(plain, "w:gz") as archive:
+                info = tarfile.TarInfo("demo/../evil.txt")
+                info.size = 4
+                archive.addfile(info, io.BytesIO(b"evil"))
+            encrypted = root / "app.tar.gz.enc"
+            digest, size = openssl_encrypt_file(plain, encrypted, passphrase)
+            manifest = root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "created_at": "2026-11-27T00:00:00+00:00",
+                        "tool": "proj-janitor",
+                        "version": "0.1.109",
+                        "include_artifacts": False,
+                        "always_archive": True,
+                        "records": [
+                            {
+                                "project": "demo",
+                                "source": str(root / "demo"),
+                                "strategy": "archive",
+                                "archive": str(encrypted),
+                                "sha256": digest,
+                                "archive_bytes": size,
+                                "source_bytes": 4,
+                                "encryption": OPENSSL_AES_256_CBC_PBKDF2,
+                                "remote": None,
+                                "remote_url": None,
+                                "branch": None,
+                                "commit": None,
+                                "upstream": None,
+                                "verified": None,
+                                "fallback_reason": None,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            # Without the passphrase verify only sees ciphertext and passes.
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                verify_manifest(manifest)
+            self.assertIn("ciphertext only", stderr.getvalue())
+
+            # With the passphrase the traversal inside is rejected.
+            with self.assertRaisesRegex(RestoreError, "unsafe archive path"):
+                verify_manifest(
+                    manifest, decrypt_passphrase_file=passphrase
+                )
+
+
 class GitBundleVerifyTests(unittest.TestCase):
     def _bundle_backup(self, root: Path, *, encrypt: bool = False):
         project = root / "app"

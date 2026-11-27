@@ -5,7 +5,8 @@ use crate::archive::find_unsafe_archive_paths;
 use crate::archive::remove_file_if_same;
 use crate::archive::{
     archive_path_matches, archive_uncompressed_bytes, create_archive, extract_archive,
-    safe_archive_link, safe_archive_path, safe_windows_component, sha256, write_new_file,
+    safe_archive_link, safe_archive_path, safe_windows_component, sha256,
+    validate_archive_for_verify, write_new_file,
 };
 use crate::backup::backup_cmd;
 use crate::clean::remove_cleanup_target;
@@ -3295,4 +3296,28 @@ fn estimated_restore_bytes_falls_back_for_incremental_and_encrypted() {
 fn estimated_restore_bytes_needs_metadata_for_plain_archive() {
     let record: Record = serde_json::from_value(base_record_value()).unwrap();
     assert_eq!(estimated_restore_bytes(&record), None);
+}
+
+#[test]
+fn validate_archive_for_verify_rejects_traversal() {
+    let temp = TestDir::new();
+    let archive_path = temp.0.join("evil.tar.gz");
+    let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+    let mut tar = Builder::new(encoder);
+    let mut header = Header::new_gnu();
+    header.set_entry_type(EntryType::Regular);
+    header.set_mode(0o644);
+    header.set_size(4);
+    header.set_path("demo/safe-entry").unwrap();
+    let name = b"demo/../evil.txt";
+    let raw = header.as_mut_bytes();
+    raw[..100].fill(0);
+    raw[..name.len()].copy_from_slice(name);
+    header.set_cksum();
+    tar.append(&header, &b"evil"[..]).unwrap();
+    tar.into_inner().unwrap().finish().unwrap();
+
+    let error = validate_archive_for_verify(&archive_path, "demo", &archive_path)
+        .expect_err("traversal must be rejected");
+    assert!(error.to_string().contains("unsafe archive path"), "{error}");
 }
