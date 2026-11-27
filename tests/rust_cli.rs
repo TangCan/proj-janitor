@@ -613,6 +613,41 @@ fn verify_encrypted_git_bundle_with_passphrase() {
 }
 
 #[test]
+fn backup_check_space_warns_for_git_bundle() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--check-space", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--check-space does not estimate Git bundle size"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("1 git_bundle plan(s) unchecked"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn backup_warns_when_excluding_secrets() {
     let temp = TestDir::new();
     let project = temp.0.join("app");

@@ -137,6 +137,16 @@ pub(crate) fn warn_check_space_backup(enabled: bool) {
     );
 }
 
+pub(crate) fn warn_check_space_git_bundle(count: usize) {
+    if count == 0 {
+        return;
+    }
+    eprintln!(
+        "warning: --check-space does not estimate Git bundle size; \
+         {count} git_bundle plan(s) unchecked"
+    );
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn blocked_backup_reason(reason: &str) -> bool {
@@ -417,6 +427,7 @@ pub(crate) fn backup_cmd(
     }
     let mut backed_up = 0usize;
     let mut failed_count = 0usize;
+    let mut check_space_bundle_plans = 0usize;
     for (index, (p, dir_name)) in projects.iter().zip(&project_dirs).enumerate() {
         if progress && !dry {
             eprintln!("progress: backing up {}/{total}: {}", index + 1, p.name);
@@ -469,6 +480,9 @@ pub(crate) fn backup_cmd(
             failed = true;
             failed_count += 1;
             continue;
+        }
+        if check_space && bundle_recovery.is_some() {
+            check_space_bundle_plans += 1;
         }
         if dry {
             if let Some(git) = &recovery {
@@ -894,6 +908,7 @@ pub(crate) fn backup_cmd(
             .unwrap_or_else(|| "0s".into());
         eprintln!("progress: done, backed up {backed_up}, failed {failed_count} ({elapsed})");
     }
+    warn_check_space_git_bundle(check_space_bundle_plans);
     if failed {
         anyhow::bail!("one or more backup operations failed")
     }

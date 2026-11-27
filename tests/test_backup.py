@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import stat
@@ -7,6 +8,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
@@ -27,7 +29,7 @@ from proj_janitor.backup import (
     sha256_file,
 )
 from proj_janitor.scanner import scan_project
-from tests.support import GIT_AVAILABLE, git, make_pushed_repo
+from tests.support import GIT_AVAILABLE, commit_all, git, init_repo, make_pushed_repo
 
 
 def make_project(root: Path, name: str = "app") -> Path:
@@ -856,6 +858,29 @@ class BackupTests(unittest.TestCase):
                     for name in names
                 )
             )
+
+    def test_check_space_warns_for_git_bundle_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            init_repo(project)
+            commit_all(project)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                manifests, records, failures = run_backup(
+                    [scan_project(project)],
+                    root / "backups",
+                    dry_run=True,
+                    check_space=True,
+                )
+            self.assertEqual(failures, [])
+            self.assertIn(
+                "--check-space does not estimate Git bundle size",
+                stderr.getvalue(),
+            )
+            self.assertIn("1 git_bundle plan(s) unchecked", stderr.getvalue())
 
     def test_batch_run_isolates_project_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -230,6 +230,17 @@ def warn_check_space_backup(enabled: bool) -> None:
     print(format_check_space_backup_warning(), file=sys.stderr)
 
 
+def warn_check_space_git_bundle(count: int) -> None:
+    """Warn that --check-space does not estimate Git bundle size (CR-241)."""
+    if count <= 0:
+        return
+    print(
+        "warning: --check-space does not estimate Git bundle size; "
+        f"{count} git_bundle plan(s) unchecked",
+        file=sys.stderr,
+    )
+
+
 def prepare_backup(
     projects: Iterable[Project],
     backup_dest: Path,
@@ -362,6 +373,10 @@ def run_backup(
     warn_fail_on_secrets_backup(fail_on_secrets and not exclude_secrets)
     warn_fail_on_insecure_dest(fail_on_insecure_dest)
     warn_check_space_backup(check_space)
+    if check_space:
+        warn_check_space_git_bundle(
+            sum(1 for plan in plans if plan.strategy == "git_bundle")
+        )
     if dry_run:
         failures = [
             (plan.project.name, plan.reason or "unsafe to archive")
