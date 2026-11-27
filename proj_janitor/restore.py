@@ -1357,6 +1357,7 @@ def verify_manifest(
                     f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
                 )
             encryption = record.get("encryption")
+            inner_checked = False
             if isinstance(encryption, str) and encryption:
                 if decrypt_passphrase_file is None:
                     print(
@@ -1379,6 +1380,7 @@ def verify_manifest(
                             progress_label=project if progress else None,
                         )
                         _validate_decrypted_archive(temp, project, archive)
+                        inner_checked = True
                     except OSError as exc:
                         raise RestoreError(
                             f"cannot decrypt archive for {project}: {exc}"
@@ -1394,6 +1396,7 @@ def verify_manifest(
                     "archive": str(archive),
                     "sha256": actual,
                     "commit": None,
+                    "inner_checked": inner_checked,
                 }
             )
         elif strategy == "git":
@@ -1493,6 +1496,7 @@ def verify_manifest(
                 progress_label=project if progress else None,
             )
             encryption = record.get("encryption")
+            inner_checked = False
             if isinstance(encryption, str) and encryption:
                 if decrypt_passphrase_file is None:
                     print(
@@ -1515,6 +1519,7 @@ def verify_manifest(
                             progress_label=project if progress else None,
                         )
                         _verify_bundle_header(temp, project)
+                        inner_checked = True
                     except OSError as exc:
                         raise RestoreError(
                             f"cannot decrypt bundle for {project}: {exc}"
@@ -1524,6 +1529,7 @@ def verify_manifest(
                             cleanup_decrypt_temp(temp)
             else:
                 _verify_bundle_header(bundle, project)
+                inner_checked = True
             results.append(
                 {
                     "project": project,
@@ -1532,6 +1538,7 @@ def verify_manifest(
                     "archive": str(bundle),
                     "sha256": actual,
                     "commit": _record_string(record, "commit"),
+                    "inner_checked": inner_checked,
                 }
             )
         else:

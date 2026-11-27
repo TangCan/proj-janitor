@@ -1676,9 +1676,16 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     for result in results:
         if result["strategy"] in ("archive", "git_bundle"):
             label = "git-bundle" if result["strategy"] == "git_bundle" else "archive"
+            suffix = ""
+            if result.get("inner_checked"):
+                suffix = (
+                    " (bundle header checked)"
+                    if result["strategy"] == "git_bundle"
+                    else " (decrypted archive checked)"
+                )
             print(
                 f"[{label}] {result['project']}: SHA-256 verified "
-                f"{result['archive']}"
+                f"{result['archive']}{suffix}"
             )
         elif check_remote:
             print(_verify_remote_line(result))

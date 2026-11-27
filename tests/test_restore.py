@@ -3533,6 +3533,7 @@ class EncryptedVerifyTests(unittest.TestCase):
                 stderr.getvalue(),
             )
             self.assertEqual(results[0]["status"], "verified")
+            self.assertFalse(results[0]["inner_checked"])
 
     def test_verify_encrypted_checks_inner_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3548,6 +3549,7 @@ class EncryptedVerifyTests(unittest.TestCase):
                 stderr.getvalue(),
             )
             self.assertEqual(results[0]["status"], "verified")
+            self.assertTrue(results[0]["inner_checked"])
 
     def test_verify_encrypted_wrong_passphrase_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3651,7 +3653,9 @@ class GitBundleVerifyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest, record, _ = self._bundle_backup(root)
-            self.assertEqual(verify_manifest(manifest)[0]["status"], "verified")
+            result = verify_manifest(manifest)[0]
+            self.assertEqual(result["status"], "verified")
+            self.assertTrue(result["inner_checked"])
 
             bundle = Path(record.archive)
             bundle.write_bytes(b"not a git bundle")
@@ -3671,12 +3675,14 @@ class GitBundleVerifyTests(unittest.TestCase):
             manifest, _, passphrase = self._bundle_backup(root, encrypt=True)
             stderr = io.StringIO()
             with redirect_stderr(stderr):
-                verify_manifest(manifest)
+                plain = verify_manifest(manifest)[0]
             self.assertIn("encrypted bundle verified by ciphertext only", stderr.getvalue())
+            self.assertFalse(plain["inner_checked"])
 
             stderr = io.StringIO()
             with redirect_stderr(stderr):
-                verify_manifest(manifest, decrypt_passphrase_file=passphrase)
+                deep = verify_manifest(manifest, decrypt_passphrase_file=passphrase)[0]
+            self.assertTrue(deep["inner_checked"])
             self.assertNotIn("ciphertext only", stderr.getvalue())
 
             wrong = root / "wrong.txt"

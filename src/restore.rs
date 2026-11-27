@@ -477,6 +477,7 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
+                let mut inner_checked = false;
                 if record
                     .encryption
                     .as_deref()
@@ -497,6 +498,7 @@ pub(crate) fn verify_cmd(
                             let _ = std::fs::remove_dir_all(parent);
                         }
                         outcome?;
+                        inner_checked = true;
                     } else {
                         eprintln!(
                             "warning: {}: encrypted archive verified by ciphertext only; \
@@ -511,6 +513,7 @@ pass --decrypt-passphrase-file to check the inner archive",
                     archive,
                     actual,
                     None,
+                    inner_checked,
                 ));
             }
             "git" => {
@@ -579,6 +582,7 @@ pass --decrypt-passphrase-file to check the inner archive",
                         )),
                         submodules,
                         lfs,
+                        inner_checked: false,
                     });
                 } else {
                     results.push(VerifyResult {
@@ -591,6 +595,7 @@ pass --decrypt-passphrase-file to check the inner archive",
                         remote: None,
                         submodules: Vec::new(),
                         lfs: Vec::new(),
+                        inner_checked: false,
                     });
                 }
             }
@@ -621,6 +626,7 @@ pass --decrypt-passphrase-file to check the inner archive",
                     "sha256 mismatch for {}",
                     bundle.display()
                 );
+                let mut inner_checked = false;
                 if record
                     .encryption
                     .as_deref()
@@ -637,6 +643,7 @@ pass --decrypt-passphrase-file to check the inner archive",
                             let _ = std::fs::remove_dir_all(parent);
                         }
                         outcome?;
+                        inner_checked = true;
                     } else {
                         eprintln!(
                             "warning: {}: encrypted bundle verified by ciphertext only; \
@@ -646,6 +653,7 @@ pass --decrypt-passphrase-file to check the bundle",
                     }
                 } else {
                     verify_bundle_header(&bundle, &record.project)?;
+                    inner_checked = true;
                 }
                 results.push(VerifyResult::archive(
                     record.project.clone(),
@@ -653,6 +661,7 @@ pass --decrypt-passphrase-file to check the bundle",
                     bundle,
                     actual,
                     Some(commit.to_owned()),
+                    inner_checked,
                 ));
             }
             other => anyhow::bail!("unsupported backup strategy: {other}"),
@@ -732,6 +741,7 @@ struct VerifyResult {
     remote: Option<RemoteCheck>,
     submodules: Vec<SubmoduleCheck>,
     lfs: Vec<LfsCheck>,
+    inner_checked: bool,
 }
 
 struct LfsCheck {
@@ -762,6 +772,7 @@ impl VerifyResult {
         archive: PathBuf,
         sha256: String,
         commit: Option<String>,
+        inner_checked: bool,
     ) -> Self {
         Self {
             project,
@@ -773,6 +784,7 @@ impl VerifyResult {
             remote: None,
             submodules: Vec::new(),
             lfs: Vec::new(),
+            inner_checked,
         }
     }
 
@@ -792,6 +804,9 @@ impl VerifyResult {
             },
             "commit": self.commit,
         });
+        if matches!(self.strategy, "archive" | "git_bundle") {
+            value["inner_checked"] = serde_json::json!(self.inner_checked);
+        }
         if let Some(remote) = &self.remote {
             value["remote"] = serde_json::json!({
                 "url": remote.url,
@@ -842,8 +857,17 @@ impl VerifyResult {
             } else {
                 "archive"
             };
+            let suffix = if self.inner_checked {
+                if self.strategy == "git_bundle" {
+                    " (bundle header checked)"
+                } else {
+                    " (decrypted archive checked)"
+                }
+            } else {
+                ""
+            };
             return format!(
-                "[{label}] {}: SHA-256 {} {}",
+                "[{label}] {}: SHA-256 {} {}{suffix}",
                 self.project,
                 self.status,
                 self.archive.as_ref().unwrap().display()

@@ -479,6 +479,11 @@ fn verify_encrypted_archive_with_passphrase() {
     );
     let plain_err = String::from_utf8_lossy(&plain.stderr);
     assert!(plain_err.contains("ciphertext only"), "{plain_err}");
+    assert!(
+        !String::from_utf8_lossy(&plain.stdout).contains("decrypted archive checked"),
+        "{}",
+        String::from_utf8_lossy(&plain.stdout)
+    );
 
     let deep = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .arg("verify")
@@ -494,6 +499,11 @@ fn verify_encrypted_archive_with_passphrase() {
     );
     let deep_err = String::from_utf8_lossy(&deep.stderr);
     assert!(!deep_err.contains("ciphertext only"), "{deep_err}");
+    assert!(
+        String::from_utf8_lossy(&deep.stdout).contains("decrypted archive checked"),
+        "{}",
+        String::from_utf8_lossy(&deep.stdout)
+    );
 
     let wrong = temp.0.join("wrong.txt");
     fs::write(&wrong, "not-the-passphrase\n").unwrap();
@@ -591,6 +601,11 @@ fn verify_encrypted_git_bundle_with_passphrase() {
         deep.status.success(),
         "{}",
         String::from_utf8_lossy(&deep.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&deep.stdout).contains("bundle header checked"),
+        "{}",
+        String::from_utf8_lossy(&deep.stdout)
     );
 
     let wrong = temp.0.join("wrong.txt");
