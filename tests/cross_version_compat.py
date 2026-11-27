@@ -519,6 +519,35 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
 
         return build
 
+    def _build_gnu_longlink(override_type: str, payload: bytes):
+        def build(archive: tarfile.TarFile) -> None:
+            content = payload + b"\0"
+            header = tarfile.TarInfo("././@LongLink")
+            header.type = override_type
+            header.mtime = 0
+            header.size = len(content)
+            archive.addfile(header, io.BytesIO(content))
+            member = tarfile.TarInfo("demo/innocent.txt")
+            member.size = 4
+            member.mtime = 0
+            archive.addfile(member, io.BytesIO(b"evil"))
+
+        return build
+
+    def build_gnu_longlink_symlink(archive: tarfile.TarFile) -> None:
+        content = b"demo/../../escape.txt\0"
+        header = tarfile.TarInfo("././@LongLink")
+        header.type = tarfile.GNUTYPE_LONGLINK
+        header.mtime = 0
+        header.size = len(content)
+        archive.addfile(header, io.BytesIO(content))
+        link = tarfile.TarInfo("demo/link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "safe.txt"
+        link.mtime = 0
+        link.size = 0
+        archive.addfile(link, io.BytesIO(b""))
+
     def build_pax_path_override(archive: tarfile.TarFile) -> None:
         # A PAX extended header overrides the *next* entry's path; the raw
         # header still says "demo/innocent.txt". Validation must see the
@@ -794,6 +823,16 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             "pax-path-override",
             build_pax_path_override,
             ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "gnu-longname-override",
+            _build_gnu_longlink(tarfile.GNUTYPE_LONGNAME, b"demo/../outside.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "gnu-longlink-symlink-override",
+            build_gnu_longlink_symlink,
+            ("symlink escapes project",),
         ),
     ):
         archive_path = root / f"{kind}.tar.gz"
