@@ -388,6 +388,9 @@ enum Action {
         /// Disable verify progress even when [verify].progress is true
         #[arg(long = "no-progress", conflicts_with = "progress")]
         no_progress: bool,
+        /// Passphrase file used to decrypt encrypted archives and validate their inner contents
+        #[arg(long)]
+        decrypt_passphrase_file: Option<PathBuf>,
         /// Path to a .proj-janitor.toml config file
         #[arg(long)]
         config: Option<PathBuf>,
@@ -910,6 +913,7 @@ fn run() -> anyhow::Result<()> {
             no_fail_on_remote_skipped,
             progress,
             no_progress,
+            decrypt_passphrase_file,
             config,
             json,
         } => {
@@ -946,6 +950,11 @@ fn run() -> anyhow::Result<()> {
                     .map(|cfg| cfg.verify.progress)
                     .unwrap_or(false),
             );
+            let decrypt_passphrase_file = decrypt_passphrase_file.or_else(|| {
+                config
+                    .as_ref()
+                    .and_then(|cfg| cfg.verify.decrypt_passphrase_file.clone())
+            });
             restore::verify_cmd(
                 &manifest,
                 &projects,
@@ -953,6 +962,7 @@ fn run() -> anyhow::Result<()> {
                 fail_on_remote_moved,
                 fail_on_remote_skipped,
                 progress,
+                decrypt_passphrase_file,
                 json,
             )
         }

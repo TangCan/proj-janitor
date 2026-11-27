@@ -3501,6 +3501,65 @@ class RestoreSpaceCheckTests(unittest.TestCase):
             self.assertIn("skipped 1 git/git_bundle plan", stderr.getvalue())
 
 
+@unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+class EncryptedVerifyTests(unittest.TestCase):
+    def _encrypted_backup(self, root: Path):
+        project = root / "app"
+        project.mkdir()
+        (project / "pyproject.toml").write_text("", encoding="utf-8")
+        (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+        passphrase = root / "pass.txt"
+        passphrase.write_text("secret\n", encoding="utf-8")
+        os.chmod(passphrase, 0o600)
+        manifests, records, failures = run_backup(
+            [scan_project(project)],
+            root / "backups",
+            always_archive=True,
+            encrypt_passphrase_file=passphrase,
+        )
+        self.assertFalse(failures)
+        self.assertEqual(len(manifests), 1)
+        return manifests[0], passphrase
+
+    def test_verify_encrypted_warns_without_passphrase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, _ = self._encrypted_backup(root)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                results = verify_manifest(manifest)
+            self.assertIn(
+                "encrypted archive verified by ciphertext only",
+                stderr.getvalue(),
+            )
+            self.assertEqual(results[0]["status"], "verified")
+
+    def test_verify_encrypted_checks_inner_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, passphrase = self._encrypted_backup(root)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                results = verify_manifest(
+                    manifest, decrypt_passphrase_file=passphrase
+                )
+            self.assertNotIn(
+                "encrypted archive verified by ciphertext only",
+                stderr.getvalue(),
+            )
+            self.assertEqual(results[0]["status"], "verified")
+
+    def test_verify_encrypted_wrong_passphrase_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, _ = self._encrypted_backup(root)
+            wrong = root / "wrong.txt"
+            wrong.write_text("not-the-passphrase\n", encoding="utf-8")
+            os.chmod(wrong, 0o600)
+            with self.assertRaises(RestoreError):
+                verify_manifest(manifest, decrypt_passphrase_file=wrong)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -102,6 +102,9 @@ pub(crate) struct VerifyConfig {
     /// Emit per-project verify / remote-probe progress on stderr.
     #[serde(default)]
     pub(crate) progress: bool,
+    /// Passphrase file used to decrypt encrypted archives during verify.
+    #[serde(default)]
+    pub(crate) decrypt_passphrase_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Deserialize, Default, Debug)]

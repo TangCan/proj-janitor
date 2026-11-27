@@ -227,6 +227,20 @@ class ConfigTests(unittest.TestCase):
                 config = load_config()
             self.assertIsNone(config)
 
+    def test_loads_verify_decrypt_passphrase_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            passphrase = Path(tmp) / "pass.txt"
+            passphrase.write_text("secret\n", encoding="utf-8")
+            path = Path(tmp) / "config.toml"
+            path.write_text(
+                f"[verify]\ndecrypt_passphrase_file = {str(passphrase)!r}\n",
+                encoding="utf-8",
+            )
+            config = load_config(path)
+            self.assertEqual(
+                config.verify.decrypt_passphrase_file, passphrase
+            )
+
     def test_loads_restore_check_space_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.toml"

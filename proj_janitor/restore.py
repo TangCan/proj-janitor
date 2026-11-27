@@ -1282,11 +1282,27 @@ def _probe_lfs_batch(
     return results + checks
 
 
+def _validate_decrypted_archive(
+    decrypted: Path, project: str, display: Path
+) -> None:
+    """Validate the inner archive after decryption, for ``verify``."""
+    try:
+        with tarfile.open(decrypted, "r:*") as tar:
+            _validate_archive_members(tar, project, display)
+    except RestoreError:
+        raise
+    except (OSError, tarfile.TarError, TypeError) as exc:
+        raise RestoreError(
+            f"cannot read decrypted archive {display}: {exc}"
+        ) from exc
+
+
 def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
     check_remote: bool = False,
     progress: bool = False,
+    decrypt_passphrase_file: Path | None = None,
 ) -> list[dict[str, object]]:
     manifest_path, manifest = load_manifest(manifest_path)
     selected = _select_records(manifest["records"], projects)
@@ -1322,6 +1338,36 @@ def verify_manifest(
                 raise RestoreError(
                     f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
                 )
+            encryption = record.get("encryption")
+            if isinstance(encryption, str) and encryption:
+                if decrypt_passphrase_file is None:
+                    print(
+                        f"warning: {project}: encrypted archive verified by "
+                        "ciphertext only; pass --decrypt-passphrase-file to "
+                        "check the inner archive",
+                        file=sys.stderr,
+                    )
+                else:
+                    from proj_janitor.crypto import (
+                        cleanup_decrypt_temp,
+                        openssl_decrypt_to_temp,
+                    )
+
+                    temp: Path | None = None
+                    try:
+                        temp = openssl_decrypt_to_temp(
+                            archive,
+                            decrypt_passphrase_file,
+                            progress_label=project if progress else None,
+                        )
+                        _validate_decrypted_archive(temp, project, archive)
+                    except OSError as exc:
+                        raise RestoreError(
+                            f"cannot decrypt archive for {project}: {exc}"
+                        ) from exc
+                    finally:
+                        if temp is not None:
+                            cleanup_decrypt_temp(temp)
             results.append(
                 {
                     "project": project,
@@ -2356,6 +2402,46 @@ def _ensure_dir(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
 
 
+def _validate_archive_members(
+    tar: tarfile.TarFile, project: str, archive: Path
+) -> list[tarfile.TarInfo]:
+    """Validate every member before extraction; shared by restore and verify."""
+    members = tar.getmembers()
+    if not members:
+        raise RestoreError(f"archive is empty: {archive}")
+    seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
+    seen_members: set[tuple[str, ...]] = set()
+    for member in members:
+        parts = _archive_parts(member.name)
+        if parts[0] != project:
+            raise RestoreError(
+                f"archive entry is outside project {project}: {member.name}"
+            )
+        if not safe_archive_member(member.name, project):
+            raise RestoreError(format_unsafe_archive_path(member.name))
+        if parts in seen_members:
+            raise RestoreError(f"archive contains a duplicate path: {member.name}")
+        seen_members.add(parts)
+        if not register_archive_path(parts, seen_archive_paths):
+            raise RestoreError(
+                "archive paths collide on case-insensitive filesystems "
+                f"(including Unicode normalization): {member.name}"
+            )
+        if member.islnk():
+            raise RestoreError(
+                f"archive contains unsupported hard link: {member.name}"
+            )
+        if member.issym():
+            _validate_archive_link(member)
+        elif member.isdir():
+            pass
+        elif not _is_extractable_file_member(member):
+            raise RestoreError(
+                f"archive contains unsupported entry type: {member.name}"
+            )
+    return members
+
+
 def _safe_extract(
     archive: Path,
     dest: Path,
@@ -2371,40 +2457,7 @@ def _safe_extract(
             else tarfile.open(fileobj=fileobj, mode="r:*")
         )
         with tar_source as tar:
-            members = tar.getmembers()
-            if not members:
-                raise RestoreError(f"archive is empty: {archive}")
-            seen_archive_paths: dict[tuple[str, ...], tuple[str, ...]] = {}
-            seen_members: set[tuple[str, ...]] = set()
-            for member in members:
-                parts = _archive_parts(member.name)
-                if parts[0] != project:
-                    raise RestoreError(
-                        f"archive entry is outside project {project}: "
-                        f"{member.name}"
-                    )
-                if not safe_archive_member(member.name, project):
-                    raise RestoreError(format_unsafe_archive_path(member.name))
-                if parts in seen_members:
-                    raise RestoreError(f"archive contains a duplicate path: {member.name}")
-                seen_members.add(parts)
-                if not register_archive_path(parts, seen_archive_paths):
-                    raise RestoreError(
-                        "archive paths collide on case-insensitive filesystems "
-                        f"(including Unicode normalization): {member.name}"
-                    )
-                if member.islnk():
-                    raise RestoreError(
-                        f"archive contains unsupported hard link: {member.name}"
-                    )
-                if member.issym():
-                    _validate_archive_link(member)
-                elif member.isdir():
-                    pass
-                elif not _is_extractable_file_member(member):
-                    raise RestoreError(
-                        f"archive contains unsupported entry type: {member.name}"
-                    )
+            members = _validate_archive_members(tar, project, archive)
             extract_kwargs: dict[str, object] = {}
             if hasattr(tarfile, "data_filter"):
                 extract_kwargs["filter"] = "data"

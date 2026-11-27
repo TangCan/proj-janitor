@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "proj-janitor"
-version = "0.7.106"
+version = "0.7.107"
 dependencies = [
  "anyhow",
  "cap-std",

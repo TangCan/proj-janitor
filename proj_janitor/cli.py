@@ -830,6 +830,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="disable verify progress even when [verify].progress is true",
     )
     verify.add_argument(
+        "--decrypt-passphrase-file",
+        type=Path,
+        default=None,
+        help=(
+            "passphrase file used to decrypt encrypted archives and validate "
+            "their inner contents (overrides [verify].decrypt_passphrase_file)"
+        ),
+    )
+    verify.add_argument(
         "--config",
         type=Path,
         default=None,
@@ -1624,12 +1633,22 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         args.progress,
         config.verify.progress if config else False,
     )
+    decrypt_passphrase_file = args.decrypt_passphrase_file or (
+        config.verify.decrypt_passphrase_file if config else None
+    )
+    if decrypt_passphrase_file is not None:
+        try:
+            validate_passphrase_file(decrypt_passphrase_file)
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     try:
         results = verify_manifest(
             args.manifest,
             projects=args.project,
             check_remote=check_remote,
             progress=progress,
+            decrypt_passphrase_file=decrypt_passphrase_file,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)

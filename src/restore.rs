@@ -402,6 +402,7 @@ fn selected_records<'a>(
     Ok(selected)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_cmd(
     manifest_path: &Path,
     projects: &[String],
@@ -409,6 +410,7 @@ pub(crate) fn verify_cmd(
     fail_on_remote_moved: bool,
     fail_on_remote_skipped: bool,
     progress: bool,
+    decrypt_passphrase_file: Option<PathBuf>,
     json: bool,
 ) -> anyhow::Result<()> {
     let (manifest_path, manifest) = load_manifest(manifest_path)?;
@@ -454,6 +456,34 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
+                if record
+                    .encryption
+                    .as_deref()
+                    .is_some_and(|scheme| !scheme.is_empty())
+                {
+                    if let Some(passphrase) = decrypt_passphrase_file.as_deref() {
+                        let decrypted = openssl_decrypt_to_temp(
+                            &archive,
+                            passphrase,
+                            progress.then_some(record.project.as_str()),
+                        )?;
+                        let outcome = crate::archive::validate_archive_for_verify(
+                            &decrypted,
+                            &record.project,
+                            &archive,
+                        );
+                        if let Some(parent) = decrypted.parent() {
+                            let _ = std::fs::remove_dir_all(parent);
+                        }
+                        outcome?;
+                    } else {
+                        eprintln!(
+                            "warning: {}: encrypted archive verified by ciphertext only; \
+pass --decrypt-passphrase-file to check the inner archive",
+                            record.project
+                        );
+                    }
+                }
                 results.push(VerifyResult::archive(
                     record.project.clone(),
                     "archive",

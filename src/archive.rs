@@ -1105,6 +1105,68 @@ fn report_extract_progress(
 pub(crate) const ARCHIVE_SPACE_SLACK: u64 = 1024 * 1024;
 
 /// Return the total declared size of regular files in an archive.
+/// Validate a decrypted archive without extracting it (used by `verify`).
+pub(crate) fn validate_archive_for_verify(
+    decrypted: &Path,
+    project: &str,
+    display: &Path,
+) -> anyhow::Result<()> {
+    let file = File::open(decrypted)
+        .with_context(|| format!("cannot read decrypted archive {}", display.display()))?;
+    let mut archive = Archive::new(GzDecoder::new(file));
+    let mut member_count = 0usize;
+    let mut casefolded_paths = HashMap::new();
+    let mut seen = HashSet::new();
+    for item in archive.entries()? {
+        let entry = item?;
+        member_count += 1;
+        let raw_name = entry.path_bytes();
+        anyhow::ensure!(
+            !raw_name.contains(&b'\\'),
+            "archive member path contains a backslash: {}",
+            String::from_utf8_lossy(&raw_name)
+        );
+        let name = entry.path()?.into_owned();
+        anyhow::ensure!(
+            safe_archive_path(&name, project),
+            "{}",
+            format_unsafe_archive_path(&name)
+        );
+        let member_path: Vec<_> = name
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        anyhow::ensure!(
+            seen.insert(member_path),
+            "archive contains a duplicate path: {}",
+            name.display()
+        );
+        register_archive_case_path(&name, &mut casefolded_paths)?;
+        let ty = entry.header().entry_type();
+        if ty.is_symlink() {
+            let link = entry
+                .link_name()?
+                .ok_or_else(|| anyhow::anyhow!("symlink has no target"))?;
+            anyhow::ensure!(
+                safe_archive_link(&name, &link, project),
+                "archive symlink escapes project: {}",
+                name.display()
+            );
+        } else if ty.is_hard_link() {
+            anyhow::bail!("archive contains unsupported hard link: {}", name.display());
+        } else {
+            anyhow::ensure!(
+                ty.is_dir() || is_extractable_file(ty),
+                "archive contains special file: {} (type {})",
+                name.display(),
+                ty.as_byte() as char
+            );
+        }
+    }
+    anyhow::ensure!(member_count > 0, "archive is empty: {}", display.display());
+    Ok(())
+}
+
 pub(crate) fn archive_uncompressed_bytes(path: &Path, limit: u64) -> anyhow::Result<u64> {
     let file =
         File::open(path).with_context(|| format!("cannot open archive {}", path.display()))?;

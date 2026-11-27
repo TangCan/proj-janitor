@@ -182,6 +182,7 @@ INIT_CONFIG_TEMPLATE = """\
 # fail_on_remote_moved = false
 # fail_on_remote_skipped = false
 # progress = true
+# decrypt_passphrase_file = "/path/to/passphrase"
 
 [restore]
 # check_remote = false
@@ -291,6 +292,7 @@ class VerifyConfig:
         "fail_on_remote_moved",
         "fail_on_remote_skipped",
         "progress",
+        "decrypt_passphrase_file",
     )
 
     def __init__(
@@ -299,11 +301,13 @@ class VerifyConfig:
         fail_on_remote_moved: bool = False,
         fail_on_remote_skipped: bool = False,
         progress: bool = False,
+        decrypt_passphrase_file: Path | None = None,
     ) -> None:
         self.check_remote = check_remote
         self.fail_on_remote_moved = fail_on_remote_moved
         self.fail_on_remote_skipped = fail_on_remote_skipped
         self.progress = progress
+        self.decrypt_passphrase_file = decrypt_passphrase_file
 
 
 class RestoreConfig:
@@ -584,6 +588,7 @@ def load_config(path: Path | None = None) -> Config | None:
         "fail_on_remote_moved",
         "fail_on_remote_skipped",
         "progress",
+        "decrypt_passphrase_file",
     }
     if set(verify_data) - allowed_verify:
         raise ConfigError(
@@ -607,6 +612,12 @@ def load_config(path: Path | None = None) -> Config | None:
         progress=_parse_bool(verify_data["progress"], "[verify].progress")
         if "progress" in verify_data
         else False,
+        decrypt_passphrase_file=_parse_path(
+            verify_data["decrypt_passphrase_file"],
+            "[verify].decrypt_passphrase_file",
+        )
+        if "decrypt_passphrase_file" in verify_data
+        else None,
     )
 
     restore_data = data.get("restore", {})
