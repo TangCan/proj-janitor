@@ -1315,6 +1315,69 @@ def _verify_bundle_header(bundle: Path, project: str) -> None:
         )
 
 
+def _verify_incremental_chain(
+    record: dict, manifest_path: Path, project: str
+) -> None:
+    """Verify every archive in an incremental base chain by SHA-256."""
+    seen: set[str] = set()
+    current = record
+    depth = 0
+    while isinstance(current.get("incremental"), dict):
+        incremental = current["incremental"]
+        base_name = incremental.get("base")
+        if not isinstance(base_name, str) or not base_name:
+            raise RestoreError(
+                f"incremental snapshot for {project} has no base manifest"
+            )
+        if base_name in seen:
+            raise RestoreError(f"incremental chain cycle at {base_name}")
+        seen.add(base_name)
+        if Path(base_name).name != base_name or not base_name.endswith(".json"):
+            raise RestoreError(
+                f"invalid incremental base manifest name: {base_name}"
+            )
+        depth += 1
+        if depth > 100:
+            raise RestoreError(
+                f"incremental chain for {project} is too deep"
+            )
+        base_path, base_manifest = load_manifest(manifest_path.parent / base_name)
+        matches = [
+            candidate
+            for candidate in base_manifest["records"]
+            if candidate.get("project") == project
+        ]
+        if len(matches) != 1:
+            raise RestoreError(
+                f"incremental base manifest does not contain exactly one "
+                f"record for {project}: {base_name}"
+            )
+        base = matches[0]
+        if base.get("strategy") != "archive":
+            raise RestoreError(
+                f"incremental base crosses non-archive snapshot: {base_name}"
+            )
+        expected = base.get("sha256")
+        if not isinstance(expected, str) or not expected:
+            raise RestoreError(
+                f"incremental base manifest has no sha256 for {project}: "
+                f"{base_name}"
+            )
+        base_archive = _resolve_archive(base, base_path.parent, project)
+        try:
+            actual = sha256_file(base_archive)
+        except OSError as exc:
+            raise RestoreError(
+                f"cannot read incremental base archive {base_archive}: {exc}"
+            ) from exc
+        if actual.lower() != expected.lower():
+            raise RestoreError(
+                f"sha256 mismatch for incremental base archive {base_archive}: "
+                f"expected {expected}, got {actual}"
+            )
+        current = base
+
+
 def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
@@ -1356,12 +1419,7 @@ def verify_manifest(
                 raise RestoreError(
                     f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
                 )
-            if isinstance(record.get("incremental"), dict):
-                print(
-                    f"warning: {project}: incremental snapshot verified; "
-                    "the base chain is not checked",
-                    file=sys.stderr,
-                )
+            _verify_incremental_chain(record, manifest_path, project)
             encryption = record.get("encryption")
             inner_checked = False
             if isinstance(encryption, str) and encryption:

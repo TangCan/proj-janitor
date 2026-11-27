@@ -3693,31 +3693,46 @@ class GitBundleVerifyTests(unittest.TestCase):
 
 
 class IncrementalVerifyTests(unittest.TestCase):
-    def test_verify_warns_about_unchecked_base_chain(self) -> None:
+    def _incremental_backup(self, root: Path):
+        project = root / "app"
+        project.mkdir()
+        (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+        dest = root / "backups"
+        _, _, failures = run_backup([scan_project(project)], dest)
+        self.assertFalse(failures)
+        (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
+        manifests, records, failures = run_backup(
+            [scan_project(project)],
+            dest,
+            incremental=True,
+        )
+        self.assertFalse(failures)
+        self.assertIsNotNone(records[0].incremental)
+        return manifests[0], records[0]
+
+    def test_verify_checks_incremental_base_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            project = root / "app"
-            project.mkdir()
-            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-            (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
-            dest = root / "backups"
-            manifests, _, failures = run_backup(
-                [scan_project(project)], dest
-            )
-            self.assertFalse(failures)
-            (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
-            manifests, records, failures = run_backup(
-                [scan_project(project)],
-                dest,
-                incremental=True,
-            )
-            self.assertFalse(failures)
-            self.assertIsNotNone(records[0].incremental)
+            manifest, record = self._incremental_backup(root)
             stderr = io.StringIO()
             with redirect_stderr(stderr):
-                results = verify_manifest(manifests[0])
+                results = verify_manifest(manifest)
             self.assertEqual(results[0]["status"], "verified")
-            self.assertIn("base chain is not checked", stderr.getvalue())
+            self.assertNotIn("base chain is not checked", stderr.getvalue())
+
+    def test_verify_rejects_corrupt_incremental_base(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, record = self._incremental_backup(root)
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            base_name = document["records"][0]["incremental"]["base"]
+            base_manifest = manifest.parent / base_name
+            base_document = json.loads(base_manifest.read_text(encoding="utf-8"))
+            base_archive = Path(base_document["records"][0]["archive"])
+            base_archive.write_bytes(base_archive.read_bytes() + b"tamper")
+            with self.assertRaisesRegex(RestoreError, "incremental base"):
+                verify_manifest(manifest)
 
 
 if __name__ == "__main__":

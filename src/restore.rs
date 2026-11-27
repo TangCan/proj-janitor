@@ -402,6 +402,74 @@ fn selected_records<'a>(
     Ok(selected)
 }
 
+fn verify_incremental_chain(manifest_path: &Path, record: &Record) -> anyhow::Result<()> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut current = record.clone();
+    let mut depth = 0usize;
+    while let Some(incremental) = current.incremental.clone() {
+        let base_name = incremental.base.trim().to_owned();
+        anyhow::ensure!(
+            !base_name.is_empty(),
+            "incremental snapshot for {} has no base manifest",
+            current.project
+        );
+        anyhow::ensure!(
+            seen.insert(base_name.clone()),
+            "incremental chain cycle at {base_name}"
+        );
+        anyhow::ensure!(
+            Path::new(&base_name).components().count() == 1 && base_name.ends_with(".json"),
+            "invalid incremental base manifest name: {base_name}"
+        );
+        depth += 1;
+        anyhow::ensure!(
+            depth <= 100,
+            "incremental chain for {} is too deep",
+            current.project
+        );
+        let base_path = manifest_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(&base_name);
+        let (base_manifest_path, base_manifest) = load_manifest(&base_path)?;
+        let matches: Vec<&Record> = base_manifest
+            .records
+            .iter()
+            .filter(|candidate| candidate.project == current.project)
+            .collect();
+        anyhow::ensure!(
+            matches.len() == 1,
+            "incremental base manifest does not contain exactly one record for {}: {base_name}",
+            current.project
+        );
+        let base = matches[0];
+        anyhow::ensure!(
+            base.strategy == "archive",
+            "incremental base crosses non-archive snapshot: {base_name}"
+        );
+        let expected = base
+            .sha256
+            .as_deref()
+            .filter(|hash| !hash.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "incremental base manifest has no sha256 for {}: {base_name}",
+                    current.project
+                )
+            })?;
+        let base_archive =
+            resolve_archive(base, base_manifest_path.parent().unwrap_or(Path::new(".")))?;
+        let actual = crate::archive::sha256(&base_archive)?;
+        anyhow::ensure!(
+            actual.eq_ignore_ascii_case(expected),
+            "sha256 mismatch for incremental base archive {}",
+            base_archive.display()
+        );
+        current = base.clone();
+    }
+    Ok(())
+}
+
 fn verify_bundle_header(bundle: &Path, project: &str) -> anyhow::Result<()> {
     let mut file = fs::File::open(bundle)
         .map_err(|error| anyhow::anyhow!("cannot read Git bundle {}: {error}", bundle.display()))?;
@@ -477,12 +545,7 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
-                if record.incremental.is_some() {
-                    eprintln!(
-                        "warning: {}: incremental snapshot verified; the base chain is not checked",
-                        record.project
-                    );
-                }
+                verify_incremental_chain(&manifest_path, record)?;
                 let mut inner_checked = false;
                 if record
                     .encryption

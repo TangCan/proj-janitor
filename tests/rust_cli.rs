@@ -678,7 +678,68 @@ fn verify_warns_for_incremental_snapshot_chain() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("base chain is not checked"),
+        !String::from_utf8_lossy(&output.stderr).contains("base chain is not checked"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn verify_rejects_corrupt_incremental_base() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    for (index, contents) in ["print('hi')\n", "print('bye')\n"].iter().enumerate() {
+        fs::write(project.join("main.py"), contents).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_projjan"));
+        command.args(["backup", "--backup-dest"]).arg(&dest);
+        if index == 1 {
+            command.arg("--incremental");
+        }
+        let output = command.arg(&project).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("manifest-"))
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .map(|entry| entry.path())
+        .expect("manifest");
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    let base_name = document["records"][0]["incremental"]["base"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let base_manifest = manifest.parent().unwrap().join(base_name);
+    let base_document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&base_manifest).unwrap()).unwrap();
+    let base_archive = base_document["records"][0]["archive"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut bytes = fs::read(&base_archive).unwrap();
+    bytes.extend_from_slice(b"tamper");
+    fs::write(&base_archive, bytes).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "corrupt base must fail verify");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("incremental base"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
