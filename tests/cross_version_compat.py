@@ -519,6 +519,26 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
 
         return build
 
+    def build_pax_path_override(archive: tarfile.TarFile) -> None:
+        # A PAX extended header overrides the *next* entry's path; the raw
+        # header still says "demo/innocent.txt". Validation must see the
+        # PAX-resolved path or the traversal would be extracted (V-03).
+        content = "path=demo/../outside.txt\n"
+        length = len(content) + 1
+        while len(str(length)) + 1 + len(content) != length:
+            length += 1
+        record = f"{length} {content}".encode()
+        header = tarfile.TarInfo("PaxHeaders.0/innocent")
+        header.type = tarfile.XHDTYPE
+        header.mtime = 0
+        header.size = len(record)
+        archive.addfile(header, io.BytesIO(record))
+        payload = b"evil"
+        member = tarfile.TarInfo("demo/innocent.txt")
+        member.size = len(payload)
+        member.mtime = 0
+        archive.addfile(member, io.BytesIO(payload))
+
     for kind, build, reasons in (
         ("fifo", build_fifo, ("unsupported entry type", "special file")),
         ("absolute-symlink", build_absolute_symlink, ("symlink escapes project",)),
@@ -768,6 +788,11 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         (
             "line-separator-name",
             _build_reserved_file("demo/a\u2028b.txt"),
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "pax-path-override",
+            build_pax_path_override,
             ("unsafe archive path", "not Windows-portable"),
         ),
     ):
