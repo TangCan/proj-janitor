@@ -3560,6 +3560,67 @@ class EncryptedVerifyTests(unittest.TestCase):
                 verify_manifest(manifest, decrypt_passphrase_file=wrong)
 
 
+class GitBundleVerifyTests(unittest.TestCase):
+    def _bundle_backup(self, root: Path, *, encrypt: bool = False):
+        project = root / "app"
+        project.mkdir()
+        (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+        init_repo(project)
+        commit_all(project)
+        passphrase = None
+        if encrypt:
+            passphrase = root / "pass.txt"
+            passphrase.write_text("secret\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+        manifests, records, failures = run_backup(
+            [scan_project(project)],
+            root / "backups",
+            encrypt_passphrase_file=passphrase,
+        )
+        self.assertFalse(failures)
+        self.assertEqual(records[0].strategy, "git_bundle")
+        return manifests[0], records[0], passphrase
+
+    def test_verify_checks_bundle_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, record, _ = self._bundle_backup(root)
+            self.assertEqual(verify_manifest(manifest)[0]["status"], "verified")
+
+            bundle = Path(record.archive)
+            bundle.write_bytes(b"not a git bundle")
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            document["records"][0]["sha256"] = hashlib.sha256(
+                bundle.read_bytes()
+            ).hexdigest()
+            document["records"][0]["archive_bytes"] = bundle.stat().st_size
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(RestoreError, "invalid Git bundle"):
+                verify_manifest(manifest)
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+    def test_verify_encrypted_bundle_with_passphrase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest, _, passphrase = self._bundle_backup(root, encrypt=True)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                verify_manifest(manifest)
+            self.assertIn("encrypted bundle verified by ciphertext only", stderr.getvalue())
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                verify_manifest(manifest, decrypt_passphrase_file=passphrase)
+            self.assertNotIn("ciphertext only", stderr.getvalue())
+
+            wrong = root / "wrong.txt"
+            wrong.write_text("not-the-passphrase\n", encoding="utf-8")
+            os.chmod(wrong, 0o600)
+            with self.assertRaises(RestoreError):
+                verify_manifest(manifest, decrypt_passphrase_file=wrong)
+
+
 if __name__ == "__main__":
     unittest.main()
 

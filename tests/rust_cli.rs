@@ -515,6 +515,104 @@ fn verify_encrypted_archive_with_passphrase() {
 }
 
 #[test]
+fn verify_encrypted_git_bundle_with_passphrase() {
+    if Command::new("openssl").arg("version").output().is_err() {
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test User"]);
+    git(&project, &["add", "."]);
+    git(&project, &["commit", "-q", "-m", "init"]);
+    let dest = temp.0.join("backups");
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "test-passphrase\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&passphrase, perms).unwrap();
+    }
+
+    let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--backup-dest"])
+        .arg(&dest)
+        .arg("--encrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        backup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&backup.stderr)
+    );
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().starts_with("manifest-"))
+                .unwrap_or(false)
+        })
+        .expect("manifest");
+
+    let plain = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&plain.stderr)
+            .contains("encrypted bundle verified by ciphertext only"),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+
+    let deep = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--decrypt-passphrase-file")
+        .arg(&passphrase)
+        .output()
+        .unwrap();
+    assert!(
+        deep.status.success(),
+        "{}",
+        String::from_utf8_lossy(&deep.stderr)
+    );
+
+    let wrong = temp.0.join("wrong.txt");
+    fs::write(&wrong, "not-the-passphrase\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&wrong).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&wrong, perms).unwrap();
+    }
+    let bad = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--decrypt-passphrase-file")
+        .arg(&wrong)
+        .output()
+        .unwrap();
+    assert!(!bad.status.success(), "wrong passphrase must fail verify");
+}
+
+#[test]
 fn backup_warns_when_excluding_secrets() {
     let temp = TestDir::new();
     let project = temp.0.join("app");

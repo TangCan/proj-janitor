@@ -402,6 +402,27 @@ fn selected_records<'a>(
     Ok(selected)
 }
 
+fn verify_bundle_header(bundle: &Path, project: &str) -> anyhow::Result<()> {
+    let mut file = fs::File::open(bundle)
+        .map_err(|error| anyhow::anyhow!("cannot read Git bundle {}: {error}", bundle.display()))?;
+    let mut header = [0u8; 32];
+    let mut filled = 0usize;
+    while filled < header.len() {
+        let read = file.read(&mut header[filled..])?;
+        if read == 0 {
+            break;
+        }
+        filled += read;
+    }
+    let header = &header[..filled];
+    anyhow::ensure!(
+        header.starts_with(b"# v2 git bundle") || header.starts_with(b"# v3 git bundle"),
+        "invalid Git bundle for {project}: {} is not a Git bundle",
+        bundle.display()
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_cmd(
     manifest_path: &Path,
@@ -600,6 +621,32 @@ pass --decrypt-passphrase-file to check the inner archive",
                     "sha256 mismatch for {}",
                     bundle.display()
                 );
+                if record
+                    .encryption
+                    .as_deref()
+                    .is_some_and(|scheme| !scheme.is_empty())
+                {
+                    if let Some(passphrase) = decrypt_passphrase_file.as_deref() {
+                        let decrypted = openssl_decrypt_to_temp(
+                            &bundle,
+                            passphrase,
+                            progress.then_some(record.project.as_str()),
+                        )?;
+                        let outcome = verify_bundle_header(&decrypted, &record.project);
+                        if let Some(parent) = decrypted.parent() {
+                            let _ = std::fs::remove_dir_all(parent);
+                        }
+                        outcome?;
+                    } else {
+                        eprintln!(
+                            "warning: {}: encrypted bundle verified by ciphertext only; \
+pass --decrypt-passphrase-file to check the bundle",
+                            record.project
+                        );
+                    }
+                } else {
+                    verify_bundle_header(&bundle, &record.project)?;
+                }
                 results.push(VerifyResult::archive(
                     record.project.clone(),
                     "git_bundle",

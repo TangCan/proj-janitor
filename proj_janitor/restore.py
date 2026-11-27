@@ -1297,6 +1297,24 @@ def _validate_decrypted_archive(
         ) from exc
 
 
+_BUNDLE_MAGIC = (b"# v2 git bundle", b"# v3 git bundle")
+
+
+def _verify_bundle_header(bundle: Path, project: str) -> None:
+    """Check the bundle magic header after any decryption."""
+    try:
+        with bundle.open("rb") as handle:
+            header = handle.read(32)
+    except OSError as exc:
+        raise RestoreError(
+            f"cannot read Git bundle {bundle}: {exc}"
+        ) from exc
+    if not header.startswith(_BUNDLE_MAGIC):
+        raise RestoreError(
+            f"invalid Git bundle for {project}: {bundle} is not a Git bundle"
+        )
+
+
 def verify_manifest(
     manifest_path: Path,
     projects: Iterable[str] = (),
@@ -1474,6 +1492,38 @@ def verify_manifest(
                 expected,
                 progress_label=project if progress else None,
             )
+            encryption = record.get("encryption")
+            if isinstance(encryption, str) and encryption:
+                if decrypt_passphrase_file is None:
+                    print(
+                        f"warning: {project}: encrypted bundle verified by "
+                        "ciphertext only; pass --decrypt-passphrase-file to "
+                        "check the bundle",
+                        file=sys.stderr,
+                    )
+                else:
+                    from proj_janitor.crypto import (
+                        cleanup_decrypt_temp,
+                        openssl_decrypt_to_temp,
+                    )
+
+                    temp: Path | None = None
+                    try:
+                        temp = openssl_decrypt_to_temp(
+                            bundle,
+                            decrypt_passphrase_file,
+                            progress_label=project if progress else None,
+                        )
+                        _verify_bundle_header(temp, project)
+                    except OSError as exc:
+                        raise RestoreError(
+                            f"cannot decrypt bundle for {project}: {exc}"
+                        ) from exc
+                    finally:
+                        if temp is not None:
+                            cleanup_decrypt_temp(temp)
+            else:
+                _verify_bundle_header(bundle, project)
             results.append(
                 {
                     "project": project,
