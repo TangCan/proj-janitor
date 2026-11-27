@@ -1316,7 +1316,10 @@ def _verify_bundle_header(bundle: Path, project: str) -> None:
 
 
 def _verify_incremental_chain(
-    record: dict, manifest_path: Path, project: str
+    record: dict,
+    manifest_path: Path,
+    project: str,
+    decrypt_passphrase_file: Path | None,
 ) -> None:
     """Verify every archive in an incremental base chain by SHA-256."""
     seen: set[str] = set()
@@ -1375,6 +1378,36 @@ def _verify_incremental_chain(
                 f"sha256 mismatch for incremental base archive {base_archive}: "
                 f"expected {expected}, got {actual}"
             )
+        base_encryption = base.get("encryption")
+        if isinstance(base_encryption, str) and base_encryption:
+            if decrypt_passphrase_file is None:
+                print(
+                    f"warning: {project}: encrypted incremental base "
+                    f"{base_name} verified by ciphertext only",
+                    file=sys.stderr,
+                )
+            else:
+                from proj_janitor.crypto import (
+                    cleanup_decrypt_temp,
+                    openssl_decrypt_to_temp,
+                )
+
+                base_temp: Path | None = None
+                try:
+                    base_temp = openssl_decrypt_to_temp(
+                        base_archive, decrypt_passphrase_file
+                    )
+                    _validate_decrypted_archive(
+                        base_temp, project, base_archive
+                    )
+                except OSError as exc:
+                    raise RestoreError(
+                        f"cannot decrypt incremental base archive "
+                        f"{base_archive}: {exc}"
+                    ) from exc
+                finally:
+                    if base_temp is not None:
+                        cleanup_decrypt_temp(base_temp)
         current = base
 
 
@@ -1419,7 +1452,9 @@ def verify_manifest(
                 raise RestoreError(
                     f"sha256 mismatch for {archive}: expected {expected}, got {actual}"
                 )
-            _verify_incremental_chain(record, manifest_path, project)
+            _verify_incremental_chain(
+                record, manifest_path, project, decrypt_passphrase_file
+            )
             encryption = record.get("encryption")
             inner_checked = False
             if isinstance(encryption, str) and encryption:

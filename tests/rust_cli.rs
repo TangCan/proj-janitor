@@ -685,6 +685,90 @@ fn verify_warns_for_incremental_snapshot_chain() {
 }
 
 #[test]
+fn verify_rejects_encrypted_base_with_different_passphrase() {
+    if Command::new("openssl").arg("version").output().is_err() {
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    let dest = temp.0.join("backups");
+    let first_pass = temp.0.join("first.txt");
+    fs::write(&first_pass, "first-pass\n").unwrap();
+    let second_pass = temp.0.join("second.txt");
+    fs::write(&second_pass, "second-pass\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in [&first_pass, &second_pass] {
+            let mut perms = fs::metadata(path).unwrap().permissions();
+            perms.set_mode(0o600);
+            fs::set_permissions(path, perms).unwrap();
+        }
+    }
+
+    let first = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg("--encrypt-passphrase-file")
+        .arg(&first_pass)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fs::write(project.join("main.py"), "print('bye')\n").unwrap();
+    let second = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--incremental",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg("--encrypt-passphrase-file")
+        .arg(&second_pass)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("manifest-"))
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .map(|entry| entry.path())
+        .expect("manifest");
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .arg("verify")
+        .arg(&manifest)
+        .arg("--decrypt-passphrase-file")
+        .arg(&second_pass)
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "base with a different passphrase must fail verify"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cannot decrypt incremental base archive"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn verify_rejects_corrupt_incremental_base() {
     let temp = TestDir::new();
     let project = temp.0.join("app");

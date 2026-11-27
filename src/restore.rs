@@ -402,7 +402,11 @@ fn selected_records<'a>(
     Ok(selected)
 }
 
-fn verify_incremental_chain(manifest_path: &Path, record: &Record) -> anyhow::Result<()> {
+fn verify_incremental_chain(
+    manifest_path: &Path,
+    record: &Record,
+    decrypt_passphrase_file: Option<&Path>,
+) -> anyhow::Result<()> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut current = record.clone();
     let mut depth = 0usize;
@@ -465,6 +469,35 @@ fn verify_incremental_chain(manifest_path: &Path, record: &Record) -> anyhow::Re
             "sha256 mismatch for incremental base archive {}",
             base_archive.display()
         );
+        if base
+            .encryption
+            .as_deref()
+            .is_some_and(|scheme| !scheme.is_empty())
+        {
+            if let Some(passphrase) = decrypt_passphrase_file {
+                let decrypted =
+                    openssl_decrypt_to_temp(&base_archive, passphrase, None).map_err(|error| {
+                        anyhow::anyhow!(
+                            "cannot decrypt incremental base archive {}: {error}",
+                            base_archive.display()
+                        )
+                    })?;
+                let outcome = crate::archive::validate_archive_for_verify(
+                    &decrypted,
+                    &current.project,
+                    &base_archive,
+                );
+                if let Some(parent) = decrypted.parent() {
+                    let _ = std::fs::remove_dir_all(parent);
+                }
+                outcome?;
+            } else {
+                eprintln!(
+                    "warning: {}: encrypted incremental base {base_name} verified by ciphertext only",
+                    current.project
+                );
+            }
+        }
         current = base.clone();
     }
     Ok(())
@@ -545,7 +578,11 @@ pub(crate) fn verify_cmd(
                     "sha256 mismatch for {}",
                     archive.display()
                 );
-                verify_incremental_chain(&manifest_path, record)?;
+                verify_incremental_chain(
+                    &manifest_path,
+                    record,
+                    decrypt_passphrase_file.as_deref(),
+                )?;
                 let mut inner_checked = false;
                 if record
                     .encryption

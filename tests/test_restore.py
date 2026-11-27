@@ -3721,6 +3721,76 @@ class IncrementalVerifyTests(unittest.TestCase):
             self.assertEqual(results[0]["status"], "verified")
             self.assertNotIn("base chain is not checked", stderr.getvalue())
 
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+    def test_verify_decrypts_encrypted_incremental_bases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+            passphrase = root / "pass.txt"
+            passphrase.write_text("same-pass\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+            dest = root / "backups"
+            _, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+            time.sleep(1.05)
+            (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                incremental=True,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+            self.assertIsNotNone(records[0].incremental)
+            results = verify_manifest(
+                manifests[0], decrypt_passphrase_file=passphrase
+            )
+            self.assertEqual(results[0]["status"], "verified")
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+    def test_verify_rejects_encrypted_base_with_different_passphrase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "main.py").write_text("print('hi')\n", encoding="utf-8")
+            first_pass = root / "first.txt"
+            first_pass.write_text("first-pass\n", encoding="utf-8")
+            second_pass = root / "second.txt"
+            second_pass.write_text("second-pass\n", encoding="utf-8")
+            os.chmod(first_pass, 0o600)
+            os.chmod(second_pass, 0o600)
+            dest = root / "backups"
+            _, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                encrypt_passphrase_file=first_pass,
+            )
+            self.assertFalse(failures)
+            time.sleep(1.05)
+            (project / "main.py").write_text("print('bye')\n", encoding="utf-8")
+            manifests, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                incremental=True,
+                encrypt_passphrase_file=second_pass,
+            )
+            self.assertFalse(failures)
+            with self.assertRaisesRegex(
+                RestoreError, "incremental base archive"
+            ):
+                verify_manifest(
+                    manifests[0], decrypt_passphrase_file=second_pass
+                )
+
     def test_verify_rejects_corrupt_incremental_base(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
