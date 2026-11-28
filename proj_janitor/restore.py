@@ -2284,15 +2284,15 @@ def _restore_git_bundle(
         _cleanup_restore_temp(temporary)
 
 
-def _restore_archive(
+def _extract_archive_into(
     plan: RestorePlan,
+    destination: Path,
     *,
     verify: bool,
-    decrypt_passphrase_file: Path | None = None,
-    force: bool = False,
-    keep_replaced: bool = False,
-    progress_label: str | None = None,
-) -> Path | None:
+    decrypt_passphrase_file: Path | None,
+    progress_label: str | None,
+) -> Path:
+    """Extract a (possibly encrypted) archive into ``destination`` without publishing."""
     from proj_janitor.crypto import (
         archive_is_encrypted,
         cleanup_decrypt_temp,
@@ -2301,9 +2301,6 @@ def _restore_archive(
 
     if plan.archive is None:
         raise RestoreError(f"incomplete archive restore plan for {plan.project}")
-    if not force and (plan.target.exists() or plan.target.is_symlink()):
-        raise RestoreError(f"restore target already exists: {plan.target}")
-
     archive_path = plan.archive
     decrypted: Path | None = None
     try:
@@ -2328,7 +2325,6 @@ def _restore_archive(
             if verify:
                 if not plan.sha256:
                     raise RestoreError(f"manifest has no sha256 for {plan.project}")
-                # Re-hash without progress; pre-check already reported hashing.
                 actual = sha256_stream(archive_source)
                 if actual.lower() != plan.sha256.lower():
                     raise RestoreError(
@@ -2336,34 +2332,59 @@ def _restore_archive(
                         f"expected {plan.sha256}, got {actual}"
                     )
                 archive_source.seek(0)
-            ensure_private_dir(plan.target.parent)
-            temporary = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{plan.project}-restore-",
-                    dir=plan.target.parent,
-                )
+            _safe_extract(
+                archive_path,
+                destination,
+                plan.project,
+                fileobj=archive_source,
+                progress_label=progress_label,
             )
-            try:
-                _safe_extract(
-                    archive_path,
-                    temporary,
-                    plan.project,
-                    fileobj=archive_source,
-                    progress_label=progress_label,
-                )
-                extracted = temporary / plan.project
-                if extracted.is_symlink() or not extracted.is_dir():
-                    raise RestoreError(
-                        f"archive does not contain project directory: {plan.project}"
-                    )
-                return _publish_restored_tree(
-                    extracted, plan.target, force=force, keep_replaced=keep_replaced
-                )
-            finally:
-                _cleanup_restore_temp(temporary)
     finally:
         if decrypted is not None:
             cleanup_decrypt_temp(decrypted)
+
+    extracted = destination / plan.project
+    if extracted.is_symlink() or not extracted.is_dir():
+        raise RestoreError(
+            f"archive does not contain project directory: {plan.project}"
+        )
+    return extracted
+
+
+def _restore_archive(
+    plan: RestorePlan,
+    *,
+    verify: bool,
+    decrypt_passphrase_file: Path | None = None,
+    force: bool = False,
+    keep_replaced: bool = False,
+    progress_label: str | None = None,
+) -> Path | None:
+    if plan.archive is None:
+        raise RestoreError(f"incomplete archive restore plan for {plan.project}")
+    if not force and (plan.target.exists() or plan.target.is_symlink()):
+        raise RestoreError(f"restore target already exists: {plan.target}")
+
+    ensure_private_dir(plan.target.parent)
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{plan.project}-restore-",
+            dir=plan.target.parent,
+        )
+    )
+    try:
+        extracted = _extract_archive_into(
+            plan,
+            temporary,
+            verify=verify,
+            decrypt_passphrase_file=decrypt_passphrase_file,
+            progress_label=progress_label,
+        )
+        return _publish_restored_tree(
+            extracted, plan.target, force=force, keep_replaced=keep_replaced
+        )
+    finally:
+        _cleanup_restore_temp(temporary)
 
 
 def _restore_incremental(
@@ -2435,63 +2456,82 @@ def _restore_incremental(
         chain.insert(0, base_plan)
         current = base_plan
 
-    aside = _restore_archive(
-        chain[0],
-        verify=verify,
-        decrypt_passphrase_file=decrypt_passphrase_file,
-        force=force,
-        keep_replaced=keep_replaced,
-        progress_label=progress_label,
-    )
+    if not force and (plan.target.exists() or plan.target.is_symlink()):
+        raise RestoreError(f"restore target already exists: {plan.target}")
+
     from proj_janitor.crypto import (
         archive_is_encrypted,
         cleanup_decrypt_temp,
         openssl_decrypt_to_temp,
     )
 
-    for delta_plan in chain[1:]:
-        deleted = (delta_plan.incremental or {}).get("deleted") or []
-        if not isinstance(deleted, list):
-            raise RestoreError(f"invalid deleted list in {delta_plan.incremental}")
-        _remove_deleted_paths(
-            plan.target, [str(item) for item in deleted if isinstance(item, str)]
+    ensure_private_dir(plan.target.parent)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{project}-restore-",
+            dir=plan.target.parent,
         )
-        delta_archive = delta_plan.archive
-        if delta_archive is None:
-            raise RestoreError(
-                f"incomplete incremental delta for {project}"
+    )
+    try:
+        # Apply the whole chain in a staging tree, then publish once so a
+        # failure never leaves a partially updated target (CR-256).
+        extracted = _extract_archive_into(
+            chain[0],
+            staging,
+            verify=verify,
+            decrypt_passphrase_file=decrypt_passphrase_file,
+            progress_label=progress_label,
+        )
+        for delta_plan in chain[1:]:
+            deleted = (delta_plan.incremental or {}).get("deleted") or []
+            if not isinstance(deleted, list):
+                raise RestoreError(
+                    f"invalid deleted list in {delta_plan.incremental}"
+                )
+            _remove_deleted_paths(
+                extracted, [str(item) for item in deleted if isinstance(item, str)]
             )
-        decrypted_delta: Path | None = None
-        try:
-            if archive_is_encrypted(delta_archive, delta_plan.encryption):
-                if decrypt_passphrase_file is None:
-                    raise RestoreError(
-                        "encrypted archive requires --decrypt-passphrase-file or "
-                        "[restore].decrypt_passphrase_file"
+            delta_archive = delta_plan.archive
+            if delta_archive is None:
+                raise RestoreError(
+                    f"incomplete incremental delta for {project}"
+                )
+            decrypted_delta: Path | None = None
+            try:
+                if archive_is_encrypted(delta_archive, delta_plan.encryption):
+                    if decrypt_passphrase_file is None:
+                        raise RestoreError(
+                            "encrypted archive requires "
+                            "--decrypt-passphrase-file or "
+                            "[restore].decrypt_passphrase_file"
+                        )
+                    if verify:
+                        _verify_archive_hash(
+                            delta_archive, project, delta_plan.sha256
+                        )
+                    decrypted_delta = openssl_decrypt_to_temp(
+                        delta_archive,
+                        decrypt_passphrase_file,
+                        progress_label=progress_label,
                     )
-                if verify:
-                    _verify_archive_hash(
-                        delta_archive, project, delta_plan.sha256
+                    _extract_incremental_delta(
+                        decrypted_delta, extracted, project, None
                     )
-                decrypted_delta = openssl_decrypt_to_temp(
-                    delta_archive,
-                    decrypt_passphrase_file,
-                    progress_label=progress_label,
-                )
-                _extract_incremental_delta(
-                    decrypted_delta, plan.target, project, None
-                )
-            else:
-                _extract_incremental_delta(
-                    delta_archive,
-                    plan.target,
-                    project,
-                    delta_plan.sha256 if verify else None,
-                )
-        finally:
-            if decrypted_delta is not None:
-                cleanup_decrypt_temp(decrypted_delta)
-    return aside
+                else:
+                    _extract_incremental_delta(
+                        delta_archive,
+                        extracted,
+                        project,
+                        delta_plan.sha256 if verify else None,
+                    )
+            finally:
+                if decrypted_delta is not None:
+                    cleanup_decrypt_temp(decrypted_delta)
+        return _publish_restored_tree(
+            extracted, plan.target, force=force, keep_replaced=keep_replaced
+        )
+    finally:
+        _cleanup_restore_temp(staging)
 
 
 def _remove_deleted_paths(target: Path, paths: list[str]) -> None:

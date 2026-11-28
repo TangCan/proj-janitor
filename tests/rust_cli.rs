@@ -1110,6 +1110,105 @@ fn restore_reconstructs_encrypted_incremental_chain() {
 }
 
 #[test]
+fn failed_incremental_delta_leaves_no_target() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("keep.txt"), "one\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    let base = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(base.status.success());
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fs::write(project.join("keep.txt"), "two\n").unwrap();
+    let delta = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--incremental",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(delta.status.success());
+
+    // Replace the delta with a traversal archive and matching sha256.
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("manifest-"))
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .map(|entry| entry.path())
+        .expect("manifest");
+    let evil = temp.0.join("evil.tar.gz");
+    {
+        let file = fs::File::create(&evil).unwrap();
+        let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_mode(0o644);
+        header.set_size(4);
+        header.set_path("app/safe.txt").unwrap();
+        let raw = header.as_mut_bytes();
+        raw[..100].fill(0);
+        let name = b"app/../escape.txt";
+        raw[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+        tar.append(&header, &b"evil"[..]).unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+    }
+    let bytes = fs::read(&evil).unwrap();
+    let digest = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        format!("{:x}", hasher.finalize())
+    };
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    let mut document = document;
+    document["records"][0]["archive"] = serde_json::json!(evil.to_string_lossy());
+    document["records"][0]["sha256"] = serde_json::json!(digest);
+    document["records"][0]["archive_bytes"] = serde_json::json!(bytes.len());
+    fs::write(&manifest, serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--yes", "--dest"])
+        .arg(&out)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(!restore.status.success());
+    assert!(
+        String::from_utf8_lossy(&restore.stderr).contains("unsafe archive path"),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert!(!out.join("app").exists());
+    assert!(!temp.0.join("escape.txt").exists());
+    let leftovers: Vec<String> = fs::read_dir(temp.0.parent().unwrap())
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with(".app-restore-"))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
 fn restore_check_space_warns_for_records_without_estimates() {
     let temp = TestDir::new();
     let archive = temp.0.join("inc.tar.gz");

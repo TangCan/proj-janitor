@@ -24,8 +24,8 @@ const REMOTE_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 use crate::{
     Manifest, Record,
     archive::{
-        create_private_temp_dir, ensure_private_dir, extract_archive, extract_archive_with_hash,
-        extract_incremental_delta, format_insecure_restore_dest_refusal,
+        create_private_temp_dir, ensure_private_dir, extract_archive, extract_archive_into,
+        extract_archive_with_hash, extract_incremental_delta, format_insecure_restore_dest_refusal,
         format_insecure_restore_dest_warning, insecure_dir_mode, portable_path_key,
         publish_restored_tree, remove_deleted_paths, safe_windows_component, sha256,
         sha256_with_progress,
@@ -2546,51 +2546,90 @@ fn restore_incremental(
         base_record.incremental.is_none(),
         "incremental chain does not terminate at a full snapshot"
     );
-    let aside = restore_encrypted_or_plain_archive(
-        base_archive,
-        target,
-        &base_record.project,
-        base_record.encryption.as_deref(),
-        base_record.sha256.as_deref(),
-        no_verify,
-        passphrase_file,
-        force,
-        keep_replaced,
-        progress_label,
-    )?;
-    for (rec, delta_archive) in &chain[1..] {
-        let info = rec.incremental.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("incremental chain contains a non-incremental snapshot")
-        })?;
-        remove_deleted_paths(target, &info.deleted)?;
-        let expected = if no_verify {
+    if !force {
+        anyhow::ensure!(
+            !target.exists() && !target.is_symlink(),
+            "restore target already exists: {}",
+            target.display()
+        );
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
+    ensure_private_dir(parent)?;
+    let staging = create_private_temp_dir(parent)?;
+    let result = (|| -> anyhow::Result<Option<PathBuf>> {
+        // Apply the whole chain in a staging tree, then publish once so a
+        // failure never leaves a partially updated target (CR-256).
+        let base_expected = if no_verify {
             None
         } else {
-            rec.sha256.as_deref()
+            base_record.sha256.as_deref()
         };
-        if archive_is_encrypted(delta_archive, rec.encryption.as_deref()) {
+        let extracted = if archive_is_encrypted(base_archive, base_record.encryption.as_deref()) {
             let pass = passphrase_file.ok_or_else(|| {
                 anyhow::anyhow!(
                     "encrypted archive requires --decrypt-passphrase-file or [restore].decrypt_passphrase_file"
                 )
             })?;
-            if let Some(expected) = expected {
-                let actual = sha256_with_progress(delta_archive, progress_label)?;
+            if let Some(expected) = base_expected {
+                let actual = sha256_with_progress(base_archive, progress_label)?;
                 anyhow::ensure!(
                     actual.eq_ignore_ascii_case(expected),
                     "sha256 mismatch for {}",
-                    delta_archive.display()
+                    base_archive.display()
                 );
             }
-            let plain = openssl_decrypt_to_temp(delta_archive, pass, progress_label)?;
-            let result = extract_incremental_delta(&plain, target, &rec.project, None);
+            let plain = openssl_decrypt_to_temp(base_archive, pass, progress_label)?;
+            let outcome =
+                extract_archive_into(&plain, &staging, &base_record.project, None, progress_label);
             cleanup_decrypt_temp(&plain);
-            result?;
+            outcome?
         } else {
-            extract_incremental_delta(delta_archive, target, &rec.project, expected)?;
+            extract_archive_into(
+                base_archive,
+                &staging,
+                &base_record.project,
+                base_expected,
+                progress_label,
+            )?
+        };
+        for (rec, delta_archive) in &chain[1..] {
+            let info = rec.incremental.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("incremental chain contains a non-incremental snapshot")
+            })?;
+            remove_deleted_paths(&extracted, &info.deleted)?;
+            let expected = if no_verify {
+                None
+            } else {
+                rec.sha256.as_deref()
+            };
+            if archive_is_encrypted(delta_archive, rec.encryption.as_deref()) {
+                let pass = passphrase_file.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "encrypted archive requires --decrypt-passphrase-file or [restore].decrypt_passphrase_file"
+                    )
+                })?;
+                if let Some(expected) = expected {
+                    let actual = sha256_with_progress(delta_archive, progress_label)?;
+                    anyhow::ensure!(
+                        actual.eq_ignore_ascii_case(expected),
+                        "sha256 mismatch for {}",
+                        delta_archive.display()
+                    );
+                }
+                let plain = openssl_decrypt_to_temp(delta_archive, pass, progress_label)?;
+                let outcome = extract_incremental_delta(&plain, &extracted, &rec.project, None);
+                cleanup_decrypt_temp(&plain);
+                outcome?;
+            } else {
+                extract_incremental_delta(delta_archive, &extracted, &rec.project, expected)?;
+            }
         }
-    }
-    Ok(aside)
+        publish_restored_tree(&extracted, target, force, keep_replaced)
+    })();
+    let _ = fs::remove_dir_all(&staging);
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

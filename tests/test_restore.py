@@ -3692,6 +3692,51 @@ class GitBundleVerifyTests(unittest.TestCase):
                 verify_manifest(manifest, decrypt_passphrase_file=wrong)
 
 
+class IncrementalRestoreAtomicityTests(unittest.TestCase):
+    def test_failed_delta_leaves_no_target_and_no_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "keep.txt").write_text("one\n", encoding="utf-8")
+            dest = root / "backups"
+
+            _, _, failures = run_backup([scan_project(project)], dest)
+            self.assertFalse(failures)
+            time.sleep(1.05)
+            (project / "keep.txt").write_text("two\n", encoding="utf-8")
+            manifests, _, failures = run_backup(
+                [scan_project(project)], dest, incremental=True
+            )
+            self.assertFalse(failures)
+
+            # Swap the delta for a traversal archive whose hash matches the manifest.
+            document = json.loads(manifests[0].read_text(encoding="utf-8"))
+            evil = root / "evil.tar.gz"
+            with tarfile.open(evil, "w:gz") as tar:
+                info = tarfile.TarInfo("app/../escape.txt")
+                info.size = 4
+                tar.addfile(info, io.BytesIO(b"evil"))
+            document["records"][0]["archive"] = str(evil)
+            document["records"][0]["sha256"] = hashlib.sha256(
+                evil.read_bytes()
+            ).hexdigest()
+            manifests[0].write_text(json.dumps(document), encoding="utf-8")
+
+            out = root / "restored"
+            plans = plan_restore(manifests[0], dest=out)
+            with self.assertRaisesRegex(RestoreError, "unsafe archive path"):
+                execute_restore(plans, verify=True)
+            self.assertFalse((out / "app").exists())
+            self.assertFalse((root / "escape.txt").exists())
+            leftovers = [
+                path.name
+                for path in root.iterdir()
+                if path.name.startswith(".app-restore-")
+            ]
+            self.assertEqual(leftovers, [])
+
 class EncryptedIncrementalRestoreTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
     def test_restore_reconstructs_encrypted_incremental_chain(self) -> None:

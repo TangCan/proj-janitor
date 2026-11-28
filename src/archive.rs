@@ -536,6 +536,115 @@ pub(crate) fn extract_archive(archive: &Path, target: &Path, project: &str) -> a
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Extract an archive into ``dest_root`` without publishing it (CR-256).
+pub(crate) fn extract_archive_into(
+    archive: &Path,
+    dest_root: &Path,
+    project: &str,
+    expected_hash: Option<&str>,
+    progress_label: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let mut f = File::open(archive)?;
+    if let Some(expected) = expected_hash {
+        // Hashing progress is reported by verify / restore pre-check; keep extract quiet.
+        let actual = sha256_reader(&mut f)?;
+        anyhow::ensure!(
+            actual.eq_ignore_ascii_case(expected),
+            "sha256 mismatch for {}",
+            archive.display()
+        );
+        f.seek(SeekFrom::Start(0))?;
+    }
+    let dec = GzDecoder::new(f);
+    let mut ar = Archive::new(dec);
+    let entries = ar.entries()?;
+    let mut member_count = 0;
+    let progress_started = progress_label.map(|_| std::time::Instant::now());
+    let mut directories = Vec::new();
+    let mut symlinks = Vec::new();
+    let mut casefolded_paths = HashMap::new();
+    let mut archive_members = HashSet::new();
+    for item in entries {
+        let mut e = item?;
+        member_count += 1;
+        let raw_name = e.path_bytes();
+        anyhow::ensure!(
+            !raw_name.contains(&b'\\'),
+            "archive member path contains a backslash: {}",
+            String::from_utf8_lossy(&raw_name)
+        );
+        let name = e.path()?.into_owned();
+        anyhow::ensure!(
+            safe_archive_path(&name, project),
+            "{}",
+            format_unsafe_archive_path(&name)
+        );
+        let member_path: Vec<_> = name
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        anyhow::ensure!(
+            archive_members.insert(member_path),
+            "archive contains a duplicate path: {}",
+            name.display()
+        );
+        register_archive_case_path(&name, &mut casefolded_paths)?;
+        let ty = e.header().entry_type();
+        let mode = e.header().mode()? & 0o777;
+        let out = dest_root.join(&name);
+        if ty.is_dir() {
+            fs::create_dir_all(&out)?;
+            directories.push((out, mode));
+        } else if ty.is_symlink() {
+            let link = e
+                .link_name()?
+                .ok_or_else(|| anyhow::anyhow!("symlink has no target"))?;
+            anyhow::ensure!(
+                safe_archive_link(&name, &link, project),
+                "archive symlink escapes project: {}",
+                name.display()
+            );
+            if let Some(parent) = out.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            symlinks.push((link.into_owned(), out));
+        } else if ty.is_hard_link() {
+            anyhow::bail!("archive contains unsupported hard link: {}", name.display());
+        } else {
+            anyhow::ensure!(
+                is_extractable_file(ty),
+                "archive contains special file: {} (type {})",
+                name.display(),
+                ty.as_byte() as char
+            );
+            if let Some(p) = out.parent() {
+                fs::create_dir_all(p)?
+            }
+            let mut f = File::create(&out)?;
+            io::copy(&mut e, &mut f)?;
+            set_mode(&out, mode)?;
+        }
+        report_extract_progress(progress_label, progress_started, member_count, false);
+    }
+    anyhow::ensure!(member_count > 0, "archive is empty");
+    report_extract_progress(progress_label, progress_started, member_count, true);
+    for (link_target, link_path) in symlinks {
+        let target_is_dir = link_path
+            .parent()
+            .is_some_and(|parent| parent.join(&link_target).is_dir());
+        create_symlink(&link_target, &link_path, target_is_dir)?;
+    }
+    for (directory, mode) in directories.into_iter().rev() {
+        set_mode(&directory, mode)?;
+    }
+    let root = dest_root.join(project);
+    anyhow::ensure!(
+        root.is_dir() && !root.is_symlink(),
+        "archive does not contain project directory: {project}"
+    );
+    Ok(root)
+}
+
 pub(crate) fn extract_archive_with_hash(
     archive: &Path,
     target: &Path,
@@ -552,110 +661,13 @@ pub(crate) fn extract_archive_with_hash(
             target.display()
         );
     }
-    let mut f = File::open(archive)?;
-    if let Some(expected) = expected_hash {
-        // Hashing progress is reported by verify / restore pre-check; keep extract quiet.
-        let actual = sha256_reader(&mut f)?;
-        anyhow::ensure!(
-            actual.eq_ignore_ascii_case(expected),
-            "sha256 mismatch for {}",
-            archive.display()
-        );
-        f.seek(SeekFrom::Start(0))?;
-    }
     let parent = target
         .parent()
         .ok_or_else(|| anyhow::anyhow!("target has no parent"))?;
     ensure_private_dir(parent)?;
     let tmp = create_private_temp_dir(parent)?;
     let result = (|| -> anyhow::Result<Option<PathBuf>> {
-        let dec = GzDecoder::new(f);
-        let mut ar = Archive::new(dec);
-        let entries = ar.entries()?;
-        let mut member_count = 0;
-        let progress_started = progress_label.map(|_| std::time::Instant::now());
-        let mut directories = Vec::new();
-        let mut symlinks = Vec::new();
-        let mut casefolded_paths = HashMap::new();
-        let mut archive_members = HashSet::new();
-        for item in entries {
-            let mut e = item?;
-            member_count += 1;
-            let raw_name = e.path_bytes();
-            anyhow::ensure!(
-                !raw_name.contains(&b'\\'),
-                "archive member path contains a backslash: {}",
-                String::from_utf8_lossy(&raw_name)
-            );
-            let name = e.path()?.into_owned();
-            anyhow::ensure!(
-                safe_archive_path(&name, project),
-                "{}",
-                format_unsafe_archive_path(&name)
-            );
-            let member_path: Vec<_> = name
-                .components()
-                .map(|component| component.as_os_str().to_string_lossy().into_owned())
-                .collect();
-            anyhow::ensure!(
-                archive_members.insert(member_path),
-                "archive contains a duplicate path: {}",
-                name.display()
-            );
-            register_archive_case_path(&name, &mut casefolded_paths)?;
-            let ty = e.header().entry_type();
-            let mode = e.header().mode()? & 0o777;
-            let out = tmp.join(&name);
-            if ty.is_dir() {
-                fs::create_dir_all(&out)?;
-                directories.push((out, mode));
-            } else if ty.is_symlink() {
-                let link = e
-                    .link_name()?
-                    .ok_or_else(|| anyhow::anyhow!("symlink has no target"))?;
-                anyhow::ensure!(
-                    safe_archive_link(&name, &link, project),
-                    "archive symlink escapes project: {}",
-                    name.display()
-                );
-                if let Some(parent) = out.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                symlinks.push((link.into_owned(), out));
-            } else if ty.is_hard_link() {
-                anyhow::bail!("archive contains unsupported hard link: {}", name.display());
-            } else {
-                anyhow::ensure!(
-                    is_extractable_file(ty),
-                    "archive contains special file: {} (type {})",
-                    name.display(),
-                    ty.as_byte() as char
-                );
-                if let Some(p) = out.parent() {
-                    fs::create_dir_all(p)?
-                }
-                let mut f = File::create(&out)?;
-                io::copy(&mut e, &mut f)?;
-                set_mode(&out, mode)?;
-            }
-            report_extract_progress(progress_label, progress_started, member_count, false);
-        }
-        anyhow::ensure!(member_count > 0, "archive is empty");
-        report_extract_progress(progress_label, progress_started, member_count, true);
-        let root = tmp.join(project);
-        anyhow::ensure!(
-            root.is_dir() && !root.is_symlink(),
-            "archive does not contain project directory: {project}"
-        );
-        for (link_target, link_path) in symlinks {
-            let target_is_dir = link_path
-                .parent()
-                .is_some_and(|parent| parent.join(&link_target).is_dir());
-            create_symlink(&link_target, &link_path, target_is_dir)?;
-        }
-        for (directory, mode) in directories.into_iter().rev() {
-            set_mode(&directory, mode)?;
-        }
+        let root = extract_archive_into(archive, &tmp, project, expected_hash, progress_label)?;
         let aside = publish_restored_tree(&root, target, force, keep_replaced)?;
         Ok(aside)
     })();
