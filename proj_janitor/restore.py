@@ -2443,6 +2443,12 @@ def _restore_incremental(
         keep_replaced=keep_replaced,
         progress_label=progress_label,
     )
+    from proj_janitor.crypto import (
+        archive_is_encrypted,
+        cleanup_decrypt_temp,
+        openssl_decrypt_to_temp,
+    )
+
     for delta_plan in chain[1:]:
         deleted = (delta_plan.incremental or {}).get("deleted") or []
         if not isinstance(deleted, list):
@@ -2450,12 +2456,41 @@ def _restore_incremental(
         _remove_deleted_paths(
             plan.target, [str(item) for item in deleted if isinstance(item, str)]
         )
-        _extract_incremental_delta(
-            delta_plan.archive,
-            plan.target,
-            project,
-            delta_plan.sha256 if verify else None,
-        )
+        delta_archive = delta_plan.archive
+        if delta_archive is None:
+            raise RestoreError(
+                f"incomplete incremental delta for {project}"
+            )
+        decrypted_delta: Path | None = None
+        try:
+            if archive_is_encrypted(delta_archive, delta_plan.encryption):
+                if decrypt_passphrase_file is None:
+                    raise RestoreError(
+                        "encrypted archive requires --decrypt-passphrase-file or "
+                        "[restore].decrypt_passphrase_file"
+                    )
+                if verify:
+                    _verify_archive_hash(
+                        delta_archive, project, delta_plan.sha256
+                    )
+                decrypted_delta = openssl_decrypt_to_temp(
+                    delta_archive,
+                    decrypt_passphrase_file,
+                    progress_label=progress_label,
+                )
+                _extract_incremental_delta(
+                    decrypted_delta, plan.target, project, None
+                )
+            else:
+                _extract_incremental_delta(
+                    delta_archive,
+                    plan.target,
+                    project,
+                    delta_plan.sha256 if verify else None,
+                )
+        finally:
+            if decrypted_delta is not None:
+                cleanup_decrypt_temp(decrypted_delta)
     return aside
 
 

@@ -1018,6 +1018,98 @@ fn restore_check_space_groups_archives_by_parent() {
 }
 
 #[test]
+fn restore_reconstructs_encrypted_incremental_chain() {
+    if Command::new("openssl").arg("version").output().is_err() {
+        return;
+    }
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("keep.txt"), "one\n").unwrap();
+    fs::write(project.join("gone.txt"), "bye\n").unwrap();
+    let passphrase = temp.0.join("pass.txt");
+    fs::write(&passphrase, "pw\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&passphrase).unwrap().permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&passphrase, perms).unwrap();
+    }
+    let dest = temp.0.join("backups");
+
+    let base = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg("--encrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        base.status.success(),
+        "{}",
+        String::from_utf8_lossy(&base.stderr)
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fs::write(project.join("keep.txt"), "two\n").unwrap();
+    fs::remove_file(project.join("gone.txt")).unwrap();
+    fs::write(project.join("new.txt"), "new\n").unwrap();
+    let delta = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--always-archive",
+            "--incremental",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg("--encrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        delta.status.success(),
+        "{}",
+        String::from_utf8_lossy(&delta.stderr)
+    );
+
+    let manifest = fs::read_dir(dest.join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("manifest-"))
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .map(|entry| entry.path())
+        .expect("manifest");
+
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--yes", "--dest"])
+        .arg(&out)
+        .arg("--decrypt-passphrase-file")
+        .arg(&passphrase)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("app/keep.txt")).unwrap(),
+        "two\n"
+    );
+    assert!(!out.join("app/gone.txt").exists());
+    assert_eq!(
+        fs::read_to_string(out.join("app/new.txt")).unwrap(),
+        "new\n"
+    );
+}
+
+#[test]
 fn restore_check_space_warns_for_records_without_estimates() {
     let temp = TestDir::new();
     let archive = temp.0.join("inc.tar.gz");

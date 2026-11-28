@@ -3692,6 +3692,88 @@ class GitBundleVerifyTests(unittest.TestCase):
                 verify_manifest(manifest, decrypt_passphrase_file=wrong)
 
 
+class EncryptedIncrementalRestoreTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+    def test_restore_reconstructs_encrypted_incremental_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "keep.txt").write_text("one\n", encoding="utf-8")
+            (project / "gone.txt").write_text("bye\n", encoding="utf-8")
+            passphrase = root / "pass.txt"
+            passphrase.write_text("pw\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+            dest = root / "backups"
+
+            _, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+            time.sleep(1.05)
+            (project / "keep.txt").write_text("two\n", encoding="utf-8")
+            (project / "gone.txt").unlink()
+            (project / "new.txt").write_text("new\n", encoding="utf-8")
+            manifests, records, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                incremental=True,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+            self.assertIsNotNone(records[0].incremental)
+
+            out = root / "restored"
+            plans = plan_restore(manifests[0], dest=out)
+            execute_restore(
+                plans, verify=True, decrypt_passphrase_file=passphrase
+            )
+            self.assertEqual(
+                (out / "app" / "keep.txt").read_text(encoding="utf-8"), "two\n"
+            )
+            self.assertFalse((out / "app" / "gone.txt").exists())
+            self.assertEqual(
+                (out / "app" / "new.txt").read_text(encoding="utf-8"), "new\n"
+            )
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is required")
+    def test_restore_encrypted_delta_requires_passphrase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "app"
+            project.mkdir()
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "keep.txt").write_text("one\n", encoding="utf-8")
+            passphrase = root / "pass.txt"
+            passphrase.write_text("pw\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+            dest = root / "backups"
+
+            _, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+            time.sleep(1.05)
+            (project / "keep.txt").write_text("two\n", encoding="utf-8")
+            manifests, _, failures = run_backup(
+                [scan_project(project)],
+                dest,
+                incremental=True,
+                encrypt_passphrase_file=passphrase,
+            )
+            self.assertFalse(failures)
+
+            plans = plan_restore(manifests[0], dest=root / "restored")
+            with self.assertRaisesRegex(
+                RestoreError, "encrypted archive requires"
+            ):
+                execute_restore(plans, verify=True)
+
 class IncrementalVerifyTests(unittest.TestCase):
     def _incremental_backup(self, root: Path):
         project = root / "app"
