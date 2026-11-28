@@ -4,10 +4,12 @@ import json
 import hashlib
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1054,5 +1056,66 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         plan_payloads.append(plan)
     for key in ("project", "strategy", "reason", "size_bytes", "refused"):
         assert plan_payloads[0][key] == plan_payloads[1][key], (key, plan_payloads)
+
+    # Encrypted incremental chain parity: backup -> restore -> verify (CR-255).
+    if shutil.which("openssl"):
+        chain_roots = []
+        for tool, command in (
+            ("python", [sys.executable, "-m", "proj_janitor"]),
+            ("rust", [str(RUST_CLI)]),
+        ):
+            work = root / f"enc-inc-{tool}"
+            project = work / "app"
+            project.mkdir(parents=True)
+            (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (project / "keep.txt").write_text("one\n", encoding="utf-8")
+            (project / "gone.txt").write_text("bye\n", encoding="utf-8")
+            passphrase = work / "pass.txt"
+            passphrase.write_text("pw\n", encoding="utf-8")
+            os.chmod(passphrase, 0o600)
+            dest = work / "backups"
+            run([
+                *command, "backup", str(project),
+                "--backup-dest", str(dest),
+                "--always-archive", "--encrypt-passphrase-file", str(passphrase),
+            ])
+            time.sleep(1.05)
+            (project / "keep.txt").write_text("two\n", encoding="utf-8")
+            (project / "gone.txt").unlink()
+            (project / "new.txt").write_text("new\n", encoding="utf-8")
+            run([
+                *command, "backup", str(project),
+                "--backup-dest", str(dest),
+                "--always-archive", "--incremental",
+                "--encrypt-passphrase-file", str(passphrase),
+            ])
+            manifests = sorted(
+                (dest / "app").glob("manifest-*.json"),
+                key=lambda path: path.stat().st_mtime,
+            )
+            assert len(manifests) == 2, manifests
+            manifest = manifests[-1]
+            record = json.loads(manifest.read_text(encoding="utf-8"))["records"][0]
+            assert record["incremental"]["base"] == manifests[0].name, record
+
+            verified = json.loads(run([
+                *command, "verify", str(manifest),
+                "--decrypt-passphrase-file", str(passphrase), "--json",
+            ]))
+            assert verified["projects"][0]["inner_checked"] is True, verified
+
+            out = work / "restored"
+            run([
+                *command, "restore", str(manifest),
+                "--dest", str(out), "--yes",
+                "--decrypt-passphrase-file", str(passphrase),
+            ])
+            assert (out / "app" / "keep.txt").read_text(encoding="utf-8") == "two\n"
+            assert not (out / "app" / "gone.txt").exists()
+            assert (out / "app" / "new.txt").read_text(encoding="utf-8") == "new\n"
+            chain_roots.append(out / "app")
+        assert sorted(path.name for path in chain_roots[0].iterdir()) == sorted(
+            path.name for path in chain_roots[1].iterdir()
+        )
 
 print("Python and Rust schema v2 archive/Git bundle/retention compatibility passed.")
