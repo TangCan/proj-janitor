@@ -995,4 +995,64 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
     assert git_verify_results[0] == git_verify_results[1]
     assert git_verify_results[0]["projects"][0]["status"] == "metadata-only"
 
+    # backup JSON schema parity: real backup and dry-run plans (CR-254).
+    json_project = root / "json-project"
+    json_project.mkdir()
+    (json_project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (json_project / "data.txt").write_text("payload\n", encoding="utf-8")
+
+    real_payloads = []
+    for tool, command in (
+        ("python", [sys.executable, "-m", "proj_janitor"]),
+        ("rust", [str(RUST_CLI)]),
+    ):
+        dest = root / f"json-{tool}-backups"
+        payload = json.loads(
+            run([
+                *command, "backup", str(json_project),
+                "--backup-dest", str(dest),
+                "--always-archive", "--json",
+            ])
+        )
+        assert set(payload) == {"dry_run", "manifests", "records"}, payload
+        assert payload["dry_run"] is False
+        assert len(payload["records"]) == 1, payload
+        record = payload["records"][0]
+        assert set(record) == {
+            "project", "source", "strategy", "archive", "archive_bytes",
+            "source_bytes", "sha256", "commit", "remote_url", "branch",
+            "fallback_reason", "encryption",
+        }, record
+        assert isinstance(record["archive_bytes"], int) and record["archive_bytes"] > 0
+        assert isinstance(record["source_bytes"], int) and record["source_bytes"] > 0
+        assert len(record["sha256"]) == 64
+        assert len(payload["manifests"]) == 1
+        real_payloads.append(record)
+    for key in ("project", "source", "strategy", "fallback_reason", "encryption",
+                "commit", "remote_url", "branch"):
+        assert real_payloads[0][key] == real_payloads[1][key], (key, real_payloads)
+
+    plan_payloads = []
+    for command in ([sys.executable, "-m", "proj_janitor"], [str(RUST_CLI)]):
+        payload = json.loads(
+            run([
+                *command, "backup", str(json_project),
+                "--backup-dest", str(root / "json-dry-dest"),
+                "--always-archive", "--dry-run", "--json",
+            ])
+        )
+        assert set(payload) == {"dry_run", "manifests", "plans"}, payload
+        assert payload["dry_run"] is True
+        assert len(payload["plans"]) == 1
+        plan = payload["plans"][0]
+        assert set(plan) == {
+            "project", "strategy", "archive", "reason", "size_bytes", "refused",
+        }, plan
+        assert plan["archive"].endswith(".tar.gz")
+        assert isinstance(plan["size_bytes"], int)
+        assert plan["refused"] is False
+        plan_payloads.append(plan)
+    for key in ("project", "strategy", "reason", "size_bytes", "refused"):
+        assert plan_payloads[0][key] == plan_payloads[1][key], (key, plan_payloads)
+
 print("Python and Rust schema v2 archive/Git bundle/retention compatibility passed.")
