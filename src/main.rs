@@ -176,6 +176,9 @@ enum Action {
         /// Disable encryption even when [backup].encrypt_passphrase_file is set
         #[arg(long, conflicts_with = "encrypt_passphrase_file")]
         no_encrypt: bool,
+        /// Emit JSON for a successful real backup (not with --dry-run or --keep)
+        #[arg(long)]
+        json: bool,
     },
     /// Find and remove known build artifacts (dry-run by default)
     Clean {
@@ -582,6 +585,7 @@ fn run() -> anyhow::Result<()> {
             no_fail_on_insecure_dest,
             encrypt_passphrase_file,
             no_encrypt,
+            json,
         } => {
             let config = discover_config(config.as_deref())?;
             let backup_dest = backup_dest
@@ -664,6 +668,7 @@ fn run() -> anyhow::Result<()> {
                 check_space,
                 fail_on_insecure_dest,
                 encrypt_passphrase_file,
+                json,
             )
         }
         Action::Clean {

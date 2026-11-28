@@ -307,12 +307,18 @@ pub(crate) fn backup_cmd(
     check_space: bool,
     fail_on_insecure_dest: bool,
     encrypt_passphrase_file: Option<PathBuf>,
+    json: bool,
 ) -> anyhow::Result<()> {
     let dest = dest
         .filter(|path| !path.as_os_str().is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!("set BACKUP_DEST, pass --backup-dest, or configure [backup].dest")
         })?;
+    anyhow::ensure!(!(json && dry), "--json cannot be combined with --dry-run");
+    anyhow::ensure!(
+        !(json && keep.is_some()),
+        "--json cannot be combined with --keep"
+    );
     let dest = resolve_for_creation(&expand(&dest))?;
     if dest.exists() && !dest.is_dir() {
         anyhow::bail!("destination is not a directory: {}", dest.display())
@@ -427,6 +433,7 @@ pub(crate) fn backup_cmd(
     }
     let mut backed_up = 0usize;
     let mut failed_count = 0usize;
+    let mut completed: Vec<(PathBuf, Record)> = Vec::new();
     let mut check_space_bundle_plans = 0usize;
     for (index, (p, dir_name)) in projects.iter().zip(&project_dirs).enumerate() {
         if progress && !dry {
@@ -847,50 +854,53 @@ pub(crate) fn backup_cmd(
                 }
                 drop(manifest_identity.take());
                 backed_up += 1;
-                if record.strategy == "git" {
-                    println!(
-                        "[git] {}: {} @ {}",
-                        record.project,
-                        record.remote_url.as_deref().unwrap_or("-"),
-                        &record.commit.as_deref().unwrap_or_default()
-                            [..12.min(record.commit.as_deref().unwrap_or_default().len())]
-                    );
-                } else if record.strategy == "git_bundle" {
-                    let reason = record
-                        .fallback_reason
-                        .as_deref()
-                        .map(|reason| format!(" ({reason})"))
-                        .unwrap_or_default();
-                    println!(
-                        "[git-bundle] {}: {} {} sha256:{} {}{}",
-                        record.project,
-                        &record.commit.as_deref().unwrap_or_default()
-                            [..12.min(record.commit.as_deref().unwrap_or_default().len())],
-                        human(record.archive_bytes),
-                        &record.sha256.as_deref().unwrap_or_default()[..12],
-                        record.archive.as_deref().unwrap_or_default(),
-                        reason
-                    );
-                } else {
-                    let reason = record
-                        .fallback_reason
-                        .as_deref()
-                        .map(|reason| format!(" ({reason})"))
-                        .unwrap_or_default();
-                    println!(
-                        "[archive] {}: {} sha256:{}{}{}",
-                        record.project,
-                        human(record.archive_bytes),
-                        &record.sha256.as_deref().unwrap_or_default()[..12],
-                        reason,
-                        if exclude_git_metadata {
-                            " [Git metadata exclusion enabled; restored archive has no Git metadata]"
-                        } else {
-                            ""
-                        }
-                    );
+                if !json {
+                    if record.strategy == "git" {
+                        println!(
+                            "[git] {}: {} @ {}",
+                            record.project,
+                            record.remote_url.as_deref().unwrap_or("-"),
+                            &record.commit.as_deref().unwrap_or_default()
+                                [..12.min(record.commit.as_deref().unwrap_or_default().len())]
+                        );
+                    } else if record.strategy == "git_bundle" {
+                        let reason = record
+                            .fallback_reason
+                            .as_deref()
+                            .map(|reason| format!(" ({reason})"))
+                            .unwrap_or_default();
+                        println!(
+                            "[git-bundle] {}: {} {} sha256:{} {}{}",
+                            record.project,
+                            &record.commit.as_deref().unwrap_or_default()
+                                [..12.min(record.commit.as_deref().unwrap_or_default().len())],
+                            human(record.archive_bytes),
+                            &record.sha256.as_deref().unwrap_or_default()[..12],
+                            record.archive.as_deref().unwrap_or_default(),
+                            reason
+                        );
+                    } else {
+                        let reason = record
+                            .fallback_reason
+                            .as_deref()
+                            .map(|reason| format!(" ({reason})"))
+                            .unwrap_or_default();
+                        println!(
+                            "[archive] {}: {} sha256:{}{}{}",
+                            record.project,
+                            human(record.archive_bytes),
+                            &record.sha256.as_deref().unwrap_or_default()[..12],
+                            reason,
+                            if exclude_git_metadata {
+                                " [Git metadata exclusion enabled; restored archive has no Git metadata]"
+                            } else {
+                                ""
+                            }
+                        );
+                    }
+                    println!("Manifest: {}", manifest_path.display());
                 }
-                println!("Manifest: {}", manifest_path.display());
+                completed.push((manifest_path.clone(), record.clone()));
             }
             Err(e) => {
                 if let Some(identity) = archive_identity.take() {
@@ -911,6 +921,39 @@ pub(crate) fn backup_cmd(
     warn_check_space_git_bundle(check_space_bundle_plans);
     if failed {
         anyhow::bail!("one or more backup operations failed")
+    }
+    if json {
+        let manifests: Vec<String> = completed
+            .iter()
+            .map(|(path, _)| path.to_string_lossy().into_owned())
+            .collect();
+        let records: Vec<serde_json::Value> = completed
+            .iter()
+            .map(|(_, record)| {
+                serde_json::json!({
+                    "project": record.project,
+                    "source": record.source,
+                    "strategy": record.strategy,
+                    "archive": record.archive,
+                    "archive_bytes": record.archive_bytes,
+                    "source_bytes": record.source_bytes,
+                    "sha256": record.sha256,
+                    "commit": record.commit,
+                    "remote_url": record.remote_url,
+                    "branch": record.branch,
+                    "fallback_reason": record.fallback_reason,
+                    "encryption": record.encryption,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "dry_run": false,
+                "manifests": manifests,
+                "records": records,
+            }))?
+        );
     }
     if let Some(keep) = keep.filter(|_| !dry) {
         retention::retain_after_backup(&dest, keep, yes)?;

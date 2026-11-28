@@ -360,6 +360,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="disable archive encryption even when [backup].encrypt_passphrase_file is set",
     )
+    backup.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "emit JSON for a successful real backup "
+            "(not supported with --dry-run or --keep)"
+        ),
+    )
 
     clean = subparsers.add_parser(
         "clean",
@@ -1117,6 +1125,20 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
 
+    if args.json and args.dry_run:
+        print(
+            "error: --json cannot be combined with --dry-run; "
+            "run the backup without --dry-run",
+            file=sys.stderr,
+        )
+        return 1
+    if args.json and keep is not None:
+        print(
+            "error: --json cannot be combined with --keep",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.dry_run:
         try:
             manifest_paths, plans = prepare_backup(
@@ -1281,6 +1303,35 @@ def _cmd_backup(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if args.json:
+        for project, error in backup_failures:
+            print(f"error: {project}: {error}", file=sys.stderr)
+        if failures or backup_failures:
+            return 1
+        payload = {
+            "dry_run": False,
+            "manifests": [str(path) for path in manifest_paths],
+            "records": [
+                {
+                    "project": record.project,
+                    "source": record.source,
+                    "strategy": record.strategy,
+                    "archive": record.archive,
+                    "archive_bytes": record.archive_bytes,
+                    "source_bytes": record.source_bytes,
+                    "sha256": record.sha256,
+                    "commit": record.commit,
+                    "remote_url": record.remote_url,
+                    "branch": record.branch,
+                    "fallback_reason": record.fallback_reason,
+                    "encryption": record.encryption,
+                }
+                for record in records
+            ],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
     print(f"Backed up {len(records)} project(s).")
     for record in records:
         if record.strategy == "git":

@@ -830,6 +830,63 @@ fn verify_rejects_corrupt_incremental_base() {
 }
 
 #[test]
+fn backup_json_outputs_records_and_manifests() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg("--json")
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dry_run"], false);
+    assert_eq!(payload["records"].as_array().unwrap().len(), 1);
+    assert_eq!(payload["records"][0]["project"], "app");
+    assert_eq!(payload["records"][0]["strategy"], "archive");
+    assert_eq!(payload["manifests"].as_array().unwrap().len(), 1);
+
+    let dry = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--backup-dest"])
+        .arg(&dest)
+        .arg("--json")
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(!dry.status.success());
+    assert!(
+        String::from_utf8_lossy(&dry.stderr).contains("--json cannot be combined with --dry-run"),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+
+    let keep = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--keep", "1", "--backup-dest"])
+        .arg(&dest)
+        .arg("--json")
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(!keep.status.success());
+    assert!(
+        String::from_utf8_lossy(&keep.stderr).contains("--json cannot be combined with --keep"),
+        "{}",
+        String::from_utf8_lossy(&keep.stderr)
+    );
+}
+
+#[test]
 fn backup_check_space_warns_for_git_bundle() {
     let temp = TestDir::new();
     let project = temp.0.join("app");

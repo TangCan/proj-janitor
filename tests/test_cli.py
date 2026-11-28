@@ -2077,6 +2077,58 @@ class CliTests(unittest.TestCase):
                 rf"progress: {re.escape(project.name)}: openssl decrypt done \(\d+s\)",
             )
 
+    def test_backup_json_outputs_records_and_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            backup_dest = root / "backups"
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(backup_dest),
+                "--always-archive",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertFalse(payload["dry_run"])
+            self.assertEqual(len(payload["records"]), 1)
+            record = payload["records"][0]
+            self.assertEqual(record["project"], "app")
+            self.assertEqual(record["strategy"], "archive")
+            self.assertTrue(record["archive"])
+            self.assertEqual(len(payload["manifests"]), 1)
+
+    def test_backup_json_rejects_dry_run_and_keep(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(root / "backups"),
+                "--dry-run",
+                "--json",
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("--json cannot be combined with --dry-run", err)
+            self.assertEqual(out, "")
+
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(root / "backups"),
+                "--keep",
+                "1",
+                "--json",
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("--json cannot be combined with --keep", err)
+            self.assertEqual(out, "")
+
     def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
