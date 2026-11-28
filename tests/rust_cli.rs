@@ -948,6 +948,143 @@ fn backup_dry_run_json_outputs_plans_and_refusals() {
 }
 
 #[test]
+fn restore_check_space_groups_archives_by_parent() {
+    let temp = TestDir::new();
+    let dest = temp.0.join("backups");
+    for name in ["one", "two"] {
+        let project = temp.0.join(name);
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+        fs::write(project.join("data.txt"), "payload\n").unwrap();
+        let backup = Command::new(env!("CARGO_BIN_EXE_projjan"))
+            .args(["backup", "--always-archive", "--backup-dest"])
+            .arg(&dest)
+            .arg(&project)
+            .output()
+            .unwrap();
+        assert!(
+            backup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&backup.stderr)
+        );
+    }
+
+    // Merge the per-project manifests into one multi-record manifest so a
+    // single restore groups both archives under the same parent.
+    let mut records = Vec::new();
+    let mut template: Option<serde_json::Value> = None;
+    for project_dir in fs::read_dir(&dest).unwrap() {
+        let project_dir = project_dir.unwrap().path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&project_dir).unwrap() {
+            let entry = entry.unwrap();
+            if !entry.file_name().to_string_lossy().starts_with("manifest-") {
+                continue;
+            }
+            let document: serde_json::Value =
+                serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap();
+            records.push(document["records"][0].clone());
+            template.get_or_insert(document);
+        }
+    }
+    let mut merged = template.expect("manifest template");
+    merged["records"] = serde_json::Value::Array(records);
+    assert_eq!(merged["records"].as_array().unwrap().len(), 2);
+    let manifest = temp.0.join("merged.json");
+    fs::write(&manifest, serde_json::to_vec(&merged).unwrap()).unwrap();
+
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--check-space", "--yes", "--dest"])
+        .arg(&out)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("one/data.txt")).unwrap(),
+        "payload\n"
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("two/data.txt")).unwrap(),
+        "payload\n"
+    );
+}
+
+#[test]
+fn restore_check_space_warns_for_records_without_estimates() {
+    let temp = TestDir::new();
+    let archive = temp.0.join("inc.tar.gz");
+    fs::write(&archive, b"not-a-real-archive").unwrap();
+    let encrypted = temp.0.join("enc.bin");
+    fs::write(&encrypted, b"ciphertext").unwrap();
+
+    let manifest = temp.0.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({
+            "schema_version": 2,
+            "created_at": "2026-11-28T00:00:00+00:00",
+            "tool": "proj-janitor",
+            "version": "0.7.115",
+            "include_artifacts": false,
+            "always_archive": true,
+            "records": [
+                {
+                    "project": "inc",
+                    "source": temp.0.join("inc").to_string_lossy(),
+                    "strategy": "archive",
+                    "archive": archive.to_string_lossy(),
+                    "archive_bytes": 20,
+                    "source_bytes": 0,
+                    "sha256": "0".repeat(64),
+                    "incremental": {"base": "missing-base.json", "deleted": []},
+                },
+                {
+                    "project": "enc",
+                    "source": temp.0.join("enc").to_string_lossy(),
+                    "strategy": "archive",
+                    "archive": encrypted.to_string_lossy(),
+                    "archive_bytes": 10,
+                    "source_bytes": 0,
+                    "sha256": "0".repeat(64),
+                    "encryption": "openssl-aes-256-cbc-pbkdf2",
+                }
+            ],
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--check-space", "--no-verify", "--yes", "--dest"])
+        .arg(&out)
+        .arg(&manifest)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&restore.stderr);
+    assert!(
+        !restore.status.success(),
+        "restore should fail after warnings"
+    );
+    assert!(
+        stderr.contains("skipped incremental archive without size estimate"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("skipped encrypted archive without size estimate"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn backup_check_space_warns_for_git_bundle() {
     let temp = TestDir::new();
     let project = temp.0.join("app");
