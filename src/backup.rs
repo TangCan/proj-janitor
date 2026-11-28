@@ -314,7 +314,6 @@ pub(crate) fn backup_cmd(
         .ok_or_else(|| {
             anyhow::anyhow!("set BACKUP_DEST, pass --backup-dest, or configure [backup].dest")
         })?;
-    anyhow::ensure!(!(json && dry), "--json cannot be combined with --dry-run");
     anyhow::ensure!(
         !(json && keep.is_some()),
         "--json cannot be combined with --keep"
@@ -434,6 +433,8 @@ pub(crate) fn backup_cmd(
     let mut backed_up = 0usize;
     let mut failed_count = 0usize;
     let mut completed: Vec<(PathBuf, Record)> = Vec::new();
+    let mut dry_plans: Vec<serde_json::Value> = Vec::new();
+    let mut dry_manifests: Vec<String> = Vec::new();
     let mut check_space_bundle_plans = 0usize;
     for (index, (p, dir_name)) in projects.iter().zip(&project_dirs).enumerate() {
         if progress && !dry {
@@ -480,7 +481,16 @@ pub(crate) fn backup_cmd(
         if blocked {
             let reason = fallback_reason.as_deref().unwrap_or_default();
             if dry {
-                println!("[error] {}: {reason}", p.name);
+                if json {
+                    dry_plans.push(serde_json::json!({
+                        "project": p.name,
+                        "strategy": "blocked",
+                        "archive": serde_json::Value::Null,
+                        "reason": reason,
+                    }));
+                } else {
+                    println!("[error] {}: {reason}", p.name);
+                }
             } else {
                 eprintln!("error: {}: {reason}", p.name);
             }
@@ -492,13 +502,24 @@ pub(crate) fn backup_cmd(
             check_space_bundle_plans += 1;
         }
         if dry {
+            dry_manifests.push(manifest_path.to_string_lossy().into_owned());
             if let Some(git) = &recovery {
-                println!(
-                    "[git] {}: {} @ {}",
-                    p.name,
-                    git.remote_url,
-                    &git.commit[..12.min(git.commit.len())]
-                );
+                if !json {
+                    println!(
+                        "[git] {}: {} @ {}",
+                        p.name,
+                        git.remote_url,
+                        &git.commit[..12.min(git.commit.len())]
+                    );
+                }
+                dry_plans.push(serde_json::json!({
+                    "project": p.name,
+                    "strategy": "git",
+                    "archive": serde_json::Value::Null,
+                    "remote_url": git.remote_url,
+                    "commit": &git.commit[..12.min(git.commit.len())],
+                    "reason": fallback_reason,
+                }));
             } else if let Some(bundle) = &bundle_recovery {
                 let reason = fallback_reason
                     .as_deref()
@@ -509,14 +530,23 @@ pub(crate) fn backup_cmd(
                 } else {
                     ""
                 };
-                println!(
-                    "[git-bundle] {}: {} -> {}{}{}",
-                    p.name,
-                    &bundle.commit[..12.min(bundle.commit.len())],
-                    bundle_path.display(),
-                    reason,
-                    enc_note
-                );
+                if !json {
+                    println!(
+                        "[git-bundle] {}: {} -> {}{}{}",
+                        p.name,
+                        &bundle.commit[..12.min(bundle.commit.len())],
+                        bundle_path.display(),
+                        reason,
+                        enc_note
+                    );
+                }
+                dry_plans.push(serde_json::json!({
+                    "project": p.name,
+                    "strategy": "git_bundle",
+                    "archive": bundle_path.to_string_lossy(),
+                    "commit": &bundle.commit[..12.min(bundle.commit.len())],
+                    "reason": fallback_reason,
+                }));
             } else {
                 let reason = fallback_reason
                     .as_deref()
@@ -527,19 +557,21 @@ pub(crate) fn backup_cmd(
                 } else {
                     ""
                 };
-                println!(
-                    "[archive] {}: {} -> {}{}{}{}",
-                    p.name,
-                    human(p.size_bytes),
-                    archive_path.display(),
-                    reason,
-                    if exclude_git_metadata {
-                        " [Git metadata exclusion enabled; restored archive has no Git metadata]"
-                    } else {
-                        ""
-                    },
-                    enc_note
-                );
+                if !json {
+                    println!(
+                        "[archive] {}: {} -> {}{}{}{}",
+                        p.name,
+                        human(p.size_bytes),
+                        archive_path.display(),
+                        reason,
+                        if exclude_git_metadata {
+                            " [Git metadata exclusion enabled; restored archive has no Git metadata]"
+                        } else {
+                            ""
+                        },
+                        enc_note
+                    );
+                }
                 let stats = if progress || check_space {
                     estimate_archive_stats(
                         &p.path,
@@ -559,15 +591,18 @@ pub(crate) fn backup_cmd(
                         human(bytes)
                     );
                 }
+                let mut refused = false;
                 if check_space && let Some((_, bytes)) = stats {
                     match available_disk_bytes(&dest) {
                         Ok(available) if archive_space_insufficient(bytes, available) => {
                             eprintln!("{}", format_space_refusal(&p.name, bytes, available));
                             failed = true;
+                            refused = true;
                         }
                         Err(error) => {
                             eprintln!("error: {}: {error:#}", p.name);
                             failed = true;
+                            refused = true;
                         }
                         _ => {}
                     }
@@ -585,6 +620,7 @@ pub(crate) fn backup_cmd(
                     } else if fail_on_secrets {
                         eprintln!("{}", format_secret_refusal(&p.name, &secrets));
                         failed = true;
+                        refused = true;
                     } else {
                         eprintln!(
                             "{}",
@@ -606,7 +642,21 @@ pub(crate) fn backup_cmd(
                 {
                     eprintln!("{}", format_unsafe_archive_refusal(&p.name, &unsafe_paths));
                     failed = true;
+                    refused = true;
                 }
+                let mut entry = serde_json::json!({
+                    "project": p.name,
+                    "strategy": "archive",
+                    "archive": archive_path.to_string_lossy(),
+                    "reason": fallback_reason,
+                    "size_bytes": p.size_bytes,
+                    "refused": refused,
+                });
+                if let Some((files, bytes)) = stats {
+                    entry["estimated_files"] = serde_json::json!(files);
+                    entry["estimated_bytes"] = serde_json::json!(bytes);
+                }
+                dry_plans.push(entry);
             }
             continue;
         }
@@ -919,10 +969,20 @@ pub(crate) fn backup_cmd(
         eprintln!("progress: done, backed up {backed_up}, failed {failed_count} ({elapsed})");
     }
     warn_check_space_git_bundle(check_space_bundle_plans);
+    if json && dry {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "dry_run": true,
+                "manifests": dry_manifests,
+                "plans": dry_plans,
+            }))?
+        );
+    }
     if failed {
         anyhow::bail!("one or more backup operations failed")
     }
-    if json {
+    if json && !dry {
         let manifests: Vec<String> = completed
             .iter()
             .map(|(path, _)| path.to_string_lossy().into_owned())

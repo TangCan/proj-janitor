@@ -364,8 +364,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help=(
-            "emit JSON for a successful real backup "
-            "(not supported with --dry-run or --keep)"
+            "emit JSON: plan for --dry-run, results for a real backup "
+            "(not supported with --keep)"
         ),
     )
 
@@ -1125,13 +1125,6 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
 
-    if args.json and args.dry_run:
-        print(
-            "error: --json cannot be combined with --dry-run; "
-            "run the backup without --dry-run",
-            file=sys.stderr,
-        )
-        return 1
     if args.json and keep is not None:
         print(
             "error: --json cannot be combined with --keep",
@@ -1171,42 +1164,76 @@ def _cmd_backup(args: argparse.Namespace) -> int:
             for manifest_path, plan in zip(manifest_paths, plans, strict=True)
             if plan.strategy != "blocked"
         ]
-        _print_dry_run_manifests(safe_manifest_paths)
+        if not args.json:
+            _print_dry_run_manifests(safe_manifest_paths)
         blocked = False
+        json_plans: list[dict[str, object]] = []
         for manifest_path, plan in zip(manifest_paths, plans, strict=True):
             if plan.strategy == "git":
                 recovery = plan.recovery
                 url = recovery.remote_url if recovery else "-"
                 commit = recovery.commit[:12] if recovery and recovery.commit else "-"
-                print(f"  [git] {plan.project.name}: {url} @ {commit}")
+                if not args.json:
+                    print(f"  [git] {plan.project.name}: {url} @ {commit}")
+                json_plans.append(
+                    {
+                        "project": plan.project.name,
+                        "strategy": "git",
+                        "archive": None,
+                        "remote_url": url,
+                        "commit": commit,
+                        "reason": plan.reason,
+                    }
+                )
             elif plan.strategy == "git_bundle":
                 recovery = plan.recovery
                 commit = recovery.commit[:12] if recovery and recovery.commit else "-"
-                print(
-                    f"  [git-bundle] {plan.project.name}: {commit}"
-                    f" -> {manifest_path.parent / plan.archive_name} ({plan.reason})"
+                if not args.json:
+                    print(
+                        f"  [git-bundle] {plan.project.name}: {commit}"
+                        f" -> {manifest_path.parent / plan.archive_name} ({plan.reason})"
+                    )
+                json_plans.append(
+                    {
+                        "project": plan.project.name,
+                        "strategy": "git_bundle",
+                        "archive": str(manifest_path.parent / plan.archive_name),
+                        "commit": commit,
+                        "reason": plan.reason,
+                    }
                 )
             elif plan.strategy == "blocked":
-                print(f"  [error] {plan.project.name}: {plan.reason}")
+                if not args.json:
+                    print(f"  [error] {plan.project.name}: {plan.reason}")
                 blocked = True
+                json_plans.append(
+                    {
+                        "project": plan.project.name,
+                        "strategy": "blocked",
+                        "archive": None,
+                        "reason": plan.reason,
+                    }
+                )
             else:
                 archive_name = plan.archive_name or f"{plan.project.name}.tar.gz"
                 archive = manifest_path.parent / archive_name
-                print(
-                    f"  [archive] {plan.project.name}: "
-                    f"{human_size(plan.project.size_bytes)}"
-                    f" -> {archive} ({plan.reason})"
-                    + (
-                        " [Git metadata exclusion enabled; restored archive has no Git metadata]"
-                        if args.exclude_git_metadata
-                        else ""
+                refused = False
+                if not args.json:
+                    print(
+                        f"  [archive] {plan.project.name}: "
+                        f"{human_size(plan.project.size_bytes)}"
+                        f" -> {archive} ({plan.reason})"
+                        + (
+                            " [Git metadata exclusion enabled; restored archive has no Git metadata]"
+                            if args.exclude_git_metadata
+                            else ""
+                        )
+                        + (
+                            " [would encrypt with openssl]"
+                            if encrypt_passphrase_file is not None
+                            else ""
+                        )
                     )
-                    + (
-                        " [would encrypt with openssl]"
-                        if encrypt_passphrase_file is not None
-                        else ""
-                    )
-                )
                 stats = None
                 if progress or check_space:
                     stats = estimate_archive_stats(
@@ -1242,6 +1269,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                                 file=sys.stderr,
                             )
                             blocked = True
+                            refused = True
                 secrets = find_possible_secret_paths(
                     plan.project.path,
                     include_artifacts=args.include_artifacts,
@@ -1260,6 +1288,7 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                             file=sys.stderr,
                         )
                         blocked = True
+                        refused = True
                     else:
                         print(
                             format_secret_warning(
@@ -1282,6 +1311,32 @@ def _cmd_backup(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                     blocked = True
+                    refused = True
+                entry: dict[str, object] = {
+                    "project": plan.project.name,
+                    "strategy": "archive",
+                    "archive": str(archive),
+                    "reason": plan.reason,
+                    "size_bytes": plan.project.size_bytes,
+                    "refused": refused,
+                }
+                if stats is not None:
+                    files_count, stats_bytes = stats
+                    entry["estimated_files"] = files_count
+                    entry["estimated_bytes"] = stats_bytes
+                json_plans.append(entry)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "dry_run": True,
+                        "manifests": [str(path) for path in safe_manifest_paths],
+                        "plans": json_plans,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
         return 1 if failures or blocked else 0
 
     try:

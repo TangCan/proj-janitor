@@ -864,12 +864,13 @@ fn backup_json_outputs_records_and_manifests() {
         .arg(&project)
         .output()
         .unwrap();
-    assert!(!dry.status.success());
     assert!(
-        String::from_utf8_lossy(&dry.stderr).contains("--json cannot be combined with --dry-run"),
+        dry.status.success(),
         "{}",
         String::from_utf8_lossy(&dry.stderr)
     );
+    let dry_payload: serde_json::Value = serde_json::from_slice(&dry.stdout).unwrap();
+    assert_eq!(dry_payload["dry_run"], true);
 
     let keep = Command::new(env!("CARGO_BIN_EXE_projjan"))
         .args(["backup", "--keep", "1", "--backup-dest"])
@@ -883,6 +884,66 @@ fn backup_json_outputs_records_and_manifests() {
         String::from_utf8_lossy(&keep.stderr).contains("--json cannot be combined with --keep"),
         "{}",
         String::from_utf8_lossy(&keep.stderr)
+    );
+}
+
+#[test]
+fn backup_dry_run_json_outputs_plans_and_refusals() {
+    let temp = TestDir::new();
+    let project = temp.0.join("app");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    fs::write(project.join("main.py"), "print('hi')\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["backup", "--dry-run", "--always-archive", "--backup-dest"])
+        .arg(&dest)
+        .arg("--json")
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dry_run"], true);
+    let plans = payload["plans"].as_array().unwrap();
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0]["project"], "app");
+    assert_eq!(plans[0]["strategy"], "archive");
+    assert_eq!(plans[0]["refused"], false);
+    assert_eq!(payload["manifests"].as_array().unwrap().len(), 1);
+
+    // A .env file plus --fail-on-secrets marks the plan as refused.
+    fs::write(project.join(".env"), "TOKEN=abc\n").unwrap();
+    let refused = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args([
+            "backup",
+            "--dry-run",
+            "--always-archive",
+            "--fail-on-secrets",
+            "--backup-dest",
+        ])
+        .arg(&dest)
+        .arg("--json")
+        .arg(&project)
+        .output()
+        .unwrap();
+    assert!(
+        !refused.status.success(),
+        "fail-on-secrets refusal must exit non-zero"
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    let plans = payload["plans"].as_array().unwrap();
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0]["refused"], true);
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("would include secrets"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
     );
 }
 

@@ -2100,22 +2100,10 @@ class CliTests(unittest.TestCase):
             self.assertTrue(record["archive"])
             self.assertEqual(len(payload["manifests"]), 1)
 
-    def test_backup_json_rejects_dry_run_and_keep(self) -> None:
+    def test_backup_json_rejects_keep(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = make_project(root)
-            code, out, err = run_cli(
-                "backup",
-                str(project),
-                "--backup-dest",
-                str(root / "backups"),
-                "--dry-run",
-                "--json",
-            )
-            self.assertEqual(code, 1)
-            self.assertIn("--json cannot be combined with --dry-run", err)
-            self.assertEqual(out, "")
-
             code, out, err = run_cli(
                 "backup",
                 str(project),
@@ -2128,6 +2116,57 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("--json cannot be combined with --keep", err)
             self.assertEqual(out, "")
+
+    def test_backup_dry_run_json_outputs_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            code, out, err = run_cli(
+                "backup",
+                str(project),
+                "--backup-dest",
+                str(root / "backups"),
+                "--always-archive",
+                "--dry-run",
+                "--json",
+            )
+            self.assertEqual(code, 0, err)
+            payload = json.loads(out)
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(len(payload["plans"]), 1)
+            plan = payload["plans"][0]
+            self.assertEqual(plan["project"], "app")
+            self.assertEqual(plan["strategy"], "archive")
+            self.assertTrue(plan["archive"])
+            self.assertFalse(plan["refused"])
+            self.assertEqual(len(payload["manifests"]), 1)
+
+    def test_backup_dry_run_json_marks_refused_plans(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = make_project(root)
+            (project / "ok.txt").write_text("hello\n", encoding="utf-8")
+
+            with mock.patch(
+                "proj_janitor.cli.available_disk_bytes",
+                return_value=0,
+            ):
+                code, out, err = run_cli(
+                    "backup",
+                    str(project),
+                    "--backup-dest",
+                    str(root / "backups"),
+                    "--always-archive",
+                    "--dry-run",
+                    "--json",
+                    "--check-space",
+                )
+
+            self.assertNotEqual(code, 0, err)
+            payload = json.loads(out)
+            plan = payload["plans"][0]
+            self.assertTrue(plan["refused"])
+            self.assertIn("not enough free space", err)
 
     def test_backup_check_space_dry_run_refuses_when_disk_full(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

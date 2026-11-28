@@ -176,7 +176,7 @@ enum Action {
         /// Disable encryption even when [backup].encrypt_passphrase_file is set
         #[arg(long, conflicts_with = "encrypt_passphrase_file")]
         no_encrypt: bool,
-        /// Emit JSON for a successful real backup (not with --dry-run or --keep)
+        /// Emit JSON: plan for --dry-run, results for a real backup (not with --keep)
         #[arg(long)]
         json: bool,
     },
