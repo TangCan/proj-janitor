@@ -548,15 +548,18 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         link.size = 0
         archive.addfile(link, io.BytesIO(b""))
 
+    def pax_record(content: str) -> bytes:
+        # "<len> <keyword>=<value>\n" where <len> counts the whole record.
+        length = len(content) + 1
+        while len(str(length)) + 1 + len(content) != length:
+            length += 1
+        return f"{length} {content}".encode()
+
     def build_pax_path_override(archive: tarfile.TarFile) -> None:
         # A PAX extended header overrides the *next* entry's path; the raw
         # header still says "demo/innocent.txt". Validation must see the
         # PAX-resolved path or the traversal would be extracted (V-03).
-        content = "path=demo/../outside.txt\n"
-        length = len(content) + 1
-        while len(str(length)) + 1 + len(content) != length:
-            length += 1
-        record = f"{length} {content}".encode()
+        record = pax_record("path=demo/../outside.txt\n")
         header = tarfile.TarInfo("PaxHeaders.0/innocent")
         header.type = tarfile.XHDTYPE
         header.mtime = 0
@@ -567,6 +570,71 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
         member.size = len(payload)
         member.mtime = 0
         archive.addfile(member, io.BytesIO(payload))
+
+    def build_pax_linkpath_override(archive: tarfile.TarFile) -> None:
+        # POSIX PAX uses the "linkpath" keyword: the raw ustar header says
+        # "safe.txt" but the resolved link target escapes (V-03).
+        record = pax_record("linkpath=../../escape.txt\n")
+        header = tarfile.TarInfo("PaxHeaders.0/link")
+        header.type = tarfile.XHDTYPE
+        header.mtime = 0
+        header.size = len(record)
+        archive.addfile(header, io.BytesIO(record))
+        link = tarfile.TarInfo("demo/link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "safe.txt"
+        link.mtime = 0
+        link.size = 0
+        archive.addfile(link, io.BytesIO(b""))
+
+    def build_pax_path_and_linkpath_override(archive: tarfile.TarFile) -> None:
+        # Both overrides in one extended header: the member resolves to a
+        # renamed symlink whose target escapes (V-03).
+        records = (
+            pax_record("path=demo/innocent-link\n")
+            + pax_record("linkpath=../../escape.txt\n")
+        )
+        header = tarfile.TarInfo("PaxHeaders.0/link")
+        header.type = tarfile.XHDTYPE
+        header.mtime = 0
+        header.size = len(records)
+        archive.addfile(header, io.BytesIO(records))
+        link = tarfile.TarInfo("demo/raw-name")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "safe.txt"
+        link.mtime = 0
+        link.size = 0
+        archive.addfile(link, io.BytesIO(b""))
+
+    def build_pax_longpath_override(archive: tarfile.TarFile) -> None:
+        # Traversal path longer than the 100-byte ustar field, so it can only
+        # arrive via the PAX record (V-03).
+        long = "demo/" + "a" * 120 + "/../escape.txt"
+        record = pax_record(f"path={long}\n")
+        header = tarfile.TarInfo("PaxHeaders.0/long")
+        header.type = tarfile.XHDTYPE
+        header.mtime = 0
+        header.size = len(record)
+        archive.addfile(header, io.BytesIO(record))
+        member = tarfile.TarInfo("demo/placeholder.txt")
+        member.size = 4
+        member.mtime = 0
+        archive.addfile(member, io.BytesIO(b"evil"))
+
+    def build_sparse_pax_override(archive: tarfile.TarFile) -> None:
+        # GNU sparse entry whose PAX header redirects the path out of the
+        # project; sparse handling must not bypass path validation (V-03).
+        record = pax_record("path=demo/../escape.txt\n")
+        header = tarfile.TarInfo("PaxHeaders.0/sparse")
+        header.type = tarfile.XHDTYPE
+        header.mtime = 0
+        header.size = len(record)
+        archive.addfile(header, io.BytesIO(record))
+        member = tarfile.TarInfo("demo/innocent.bin")
+        member.type = tarfile.GNUTYPE_SPARSE
+        member.size = 8
+        member.mtime = 0
+        archive.addfile(member, io.BytesIO(b"12345678"))
 
     for kind, build, reasons in (
         ("fifo", build_fifo, ("unsupported entry type", "special file")),
@@ -833,6 +901,26 @@ with tempfile.TemporaryDirectory(prefix="projjan-interop-") as temporary:
             "gnu-longlink-symlink-override",
             build_gnu_longlink_symlink,
             ("symlink escapes project",),
+        ),
+        (
+            "pax-linkpath-override",
+            build_pax_linkpath_override,
+            ("symlink escapes project",),
+        ),
+        (
+            "pax-path-and-linkpath-override",
+            build_pax_path_and_linkpath_override,
+            ("symlink escapes project",),
+        ),
+        (
+            "pax-longpath-override",
+            build_pax_longpath_override,
+            ("unsafe archive path", "not Windows-portable"),
+        ),
+        (
+            "sparse-pax-override",
+            build_sparse_pax_override,
+            ("unsafe archive path", "not Windows-portable", "sparse entry"),
         ),
     ):
         archive_path = root / f"{kind}.tar.gz"
