@@ -1209,6 +1209,67 @@ fn failed_incremental_delta_leaves_no_target() {
 }
 
 #[test]
+fn retention_keeps_newest_same_second_snapshots() {
+    let temp = TestDir::new();
+    let project = temp.0.join("soak");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("pyproject.toml"), "[project]\n").unwrap();
+    let dest = temp.0.join("backups");
+
+    for cycle in 1..=8 {
+        fs::write(project.join("file.txt"), format!("cycle {cycle}\n")).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_projjan"))
+            .args(["backup", "--always-archive", "--keep", "3", "--yes"])
+            .arg("--backup-dest")
+            .arg(&dest)
+            .arg(&project)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let mut manifests: Vec<(String, PathBuf)> = Vec::new();
+    for entry in fs::read_dir(dest.join("soak")).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("manifest-") {
+            continue;
+        }
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap();
+        let created = document["created_at"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        manifests.push((created, entry.path()));
+    }
+    assert_eq!(manifests.len(), 3, "{manifests:?}");
+    manifests.sort();
+    let (_, newest) = manifests.last().unwrap();
+
+    let out = temp.0.join("restored");
+    let restore = Command::new(env!("CARGO_BIN_EXE_projjan"))
+        .args(["restore", "--yes", "--dest"])
+        .arg(&out)
+        .arg(newest)
+        .output()
+        .unwrap();
+    assert!(
+        restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restore.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("soak/file.txt")).unwrap(),
+        "cycle 8\n"
+    );
+}
+
+#[test]
 fn restore_check_space_warns_for_records_without_estimates() {
     let temp = TestDir::new();
     let archive = temp.0.join("inc.tar.gz");

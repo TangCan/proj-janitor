@@ -140,7 +140,9 @@ def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
             continue
         if not stat.S_ISDIR(directory_stat.st_mode):
             continue
-        manifests: list[tuple[tuple[str, int], Path, dict, tuple[int, int], int]] = []
+        manifests: list[
+            tuple[tuple[str, int], Path, dict, tuple[int, int], int, str]
+        ] = []
         for path in project_dir.iterdir():
             match = _MANIFEST_RE.fullmatch(path.name)
             if match is None:
@@ -162,22 +164,35 @@ def build_retention_plan(backup_root: Path, keep: int) -> RetentionPlan:
             record = _manifest_record(document, path)
             stamp = match.group(1), int(match.group(2) or "1")
             manifests.append(
-                (stamp, path, record, (info.st_dev, info.st_ino), info.st_size)
+                (
+                    stamp,
+                    path,
+                    record,
+                    (info.st_dev, info.st_ino),
+                    info.st_size,
+                    str(document.get("created_at") or ""),
+                )
             )
         if len({row[2]["project"] for row in manifests}) > 1:
             raise RetentionError(f"multiple projects share a backup directory: {project_dir}")
-        manifests.sort(key=lambda row: row[0], reverse=True)
+        # Sort by manifest created_at (sub-second precision) rather than the
+        # filename suffix: same-second names can be reused after pruning, so
+        # (stamp, suffix) is not chronological (CR-258).
+        manifests.sort(
+            key=lambda row: (row[5], row[0], row[1].name),
+            reverse=True,
+        )
         kept = manifests[:keep]
         kept_count += len(kept)
         protected: set[Path] = set()
-        for _, path, record, _, _ in kept:
+        for _, path, record, _, _, _ in kept:
             artifact = _artifact_for_manifest(project_dir, path, record)
             if artifact is not None:
                 retained_artifacts.add(artifact)
             _protect_incremental_chain(
                 project_dir, path, record, protected, retained_artifacts
             )
-        for _, path, record, identity, size in manifests[keep:]:
+        for _, path, record, identity, size, _ in manifests[keep:]:
             if path in protected:
                 kept_count += 1
                 artifact = _artifact_for_manifest(project_dir, path, record)

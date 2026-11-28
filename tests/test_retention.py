@@ -22,6 +22,7 @@ def write_manifest(
     stamp: str,
     strategy: str,
     artifact: str | None = None,
+    created_at: str | None = None,
 ) -> Path:
     record = {
         "project": "demo",
@@ -32,10 +33,10 @@ def write_manifest(
         "sha256": "0" * 64 if artifact else None,
     }
     path = directory / f"manifest-{stamp}.json"
-    path.write_text(
-        json.dumps({"schema_version": 2, "records": [record]}),
-        encoding="utf-8",
-    )
+    document = {"schema_version": 2, "records": [record]}
+    if created_at is not None:
+        document["created_at"] = created_at
+    path.write_text(json.dumps(document), encoding="utf-8")
     return path
 
 
@@ -90,6 +91,41 @@ class RetentionTests(unittest.TestCase):
             self.assertTrue(latest_manifest.exists())
             self.assertTrue((directory / latest_bundle).exists())
             self.assertTrue(orphan.exists())
+
+    def test_same_stamp_reused_suffix_keeps_newest_by_created_at(self) -> None:
+        # CR-258: same-second names can be reused after pruning, so filename
+        # order is not chronological; retention must use created_at.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "demo"
+            directory.mkdir()
+            directory = directory.resolve()
+            paths = {}
+            for suffix, created in (
+                ("", "2026-11-01T11:00:05+00:00"),
+                ("-2", "2026-11-01T11:00:03+00:00"),
+                ("-3", "2026-11-01T11:00:04+00:00"),
+                ("-4", "2026-11-01T11:00:02+00:00"),
+                ("-5", "2026-11-01T11:00:01+00:00"),
+            ):
+                archive = f"demo-20261101-110000{suffix}.tar.gz"
+                (directory / archive).write_bytes(b"x")
+                paths[suffix] = write_manifest(
+                    directory,
+                    f"20261101-110000{suffix}",
+                    "archive",
+                    archive,
+                    created_at=created,
+                )
+
+            plan = build_retention_plan(root, keep=3)
+            deleted = {item.path for item in plan.files}
+            # Newest three by created_at: base (05), -3 (04), -2 (03).
+            self.assertNotIn(paths[""], deleted)
+            self.assertNotIn(paths["-3"], deleted)
+            self.assertNotIn(paths["-2"], deleted)
+            self.assertIn(paths["-4"], deleted)
+            self.assertIn(paths["-5"], deleted)
 
     def test_prune_cli_previews_by_default_and_requires_explicit_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

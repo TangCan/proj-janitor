@@ -270,6 +270,7 @@ struct ManifestRow {
     artifact: Option<PathBuf>,
     identity: Handle,
     size_bytes: u64,
+    created_at: String,
 }
 
 pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePlan> {
@@ -321,6 +322,10 @@ pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePl
                     artifact,
                     identity,
                     size_bytes: metadata.len(),
+                    created_at: manifest["created_at"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
                 },
             ));
         }
@@ -336,7 +341,12 @@ pub(crate) fn plan_retention(root: &Path, keep: usize) -> anyhow::Result<PrunePl
             "multiple projects share a backup directory: {}",
             directory.display()
         );
-        rows.sort_by(|left, right| (&left.0, left.1).cmp(&(&right.0, right.1)));
+        // Sort by manifest created_at (chosen at snapshot time) rather than
+        // the filename suffix: same-second names can be reused after pruning,
+        // so (stamp, suffix) is not chronological (CR-258).
+        rows.sort_by(|left, right| {
+            (&left.2.created_at, &left.0, left.1).cmp(&(&right.2.created_at, &right.0, right.1))
+        });
         let split = rows.len().saturating_sub(keep);
         let kept_rows = rows.split_off(split);
         // Scheme A: keep incremental chains whole. A retained snapshot's base
